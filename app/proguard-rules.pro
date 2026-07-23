@@ -1,0 +1,1 @@
+# Soundpola ProGuard rules

@@ -1,0 +1,35 @@
+---
+description: SoundPola 产品描述优先；开发时必须同步更新信息架构文档
+alwaysApply: true
+---
+
+# 产品描述与信息架构（每次必读）
+
+## 权威来源
+
+- 产品定位、信息架构、页面逻辑以仓库根目录 `first.md` 为权威来源。
+- 视觉与组件规范以 `designstyle.md` 为准。
+- 用户对话中的最新描述优先于旧稿与 Figma。
+- 冲突时：用户描述 > `first.md` > `designstyle.md` > Figma。
+
+## 开发同步义务
+
+每次实现或改动功能时，必须同步更新 `first.md` 对应章节（结构、交互、MVP、术语）。
+
+## 当前一级结构（不可违背）
+
+底部三入口：
+
+1. **Record** — 捕捉声音与实时可视化
+2. **Drafts** — 未写入声片的暂存
+3. **Collection** — 已写入并上链的收藏
+
+核心规则：录音 → Drafts → Press（写入+上链）→ Collection → Memory。
+
+Press / Memory 不进底部导航。
+
+## 改动前自检
+
+- [ ] 是否读过 `first.md` / `designstyle.md` 相关章节？
+- [ ] 是否违背用户最新描述？
+- [ ] `first.md` 是否计划同步更新？
