@@ -8,13 +8,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -40,30 +38,30 @@ import com.soundpola.app.data.formatDuration
 import com.soundpola.app.data.formatRecordedAt
 import com.soundpola.app.ui.components.PrimaryButton
 import com.soundpola.app.ui.components.SecondaryButton
+import com.soundpola.app.ui.components.SectionLabel
 import com.soundpola.app.ui.components.SoundVisualCanvas
 import com.soundpola.app.ui.theme.CanvasBg
+import com.soundpola.app.ui.theme.ComponentSize
 import com.soundpola.app.ui.theme.Error
 import com.soundpola.app.ui.theme.Ink400
 import com.soundpola.app.ui.theme.Ink600
 import com.soundpola.app.ui.theme.Ink950
-import com.soundpola.app.ui.theme.Line200
 import com.soundpola.app.ui.theme.Primary100
 import com.soundpola.app.ui.theme.Primary500
 import com.soundpola.app.ui.theme.Primary50
 import com.soundpola.app.ui.theme.Primary700
+import com.soundpola.app.ui.theme.Radii
+import com.soundpola.app.ui.theme.Spacing
 import com.soundpola.app.ui.theme.Surface100
-import com.soundpola.app.ui.theme.White
 
+/** first.md §7.4 录音结果页 — designstyle §10.2 */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ResultScreen(
-    durationSec: Int,
-    onSaved: () -> Unit,
-    onReRecord: () -> Unit,
-) {
+fun ResultScreen(durationSec: Int, onSaved: () -> Unit, onReRecord: () -> Unit) {
     var title by remember { mutableStateOf("未命名声音") }
     var category by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
+    var playing by remember { mutableStateOf(false) }
     var titleError by remember { mutableStateOf(false) }
     var categoryError by remember { mutableStateOf(false) }
     val recordedAt = remember { System.currentTimeMillis() }
@@ -74,85 +72,73 @@ fun ResultScreen(
             .fillMaxSize()
             .background(CanvasBg)
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
+            .padding(Spacing.pageHorizontal),
     ) {
+        Spacer(Modifier.height(Spacing.item))
         Text("录音结果", color = Ink950, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(Modifier.height(Spacing.item))
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(240.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Primary50),
+                .height(260.dp)
+                .clip(RoundedCornerShape(Radii.collectionCard))
+                .background(Primary50)
+                .clickable { playing = !playing },
             contentAlignment = Alignment.Center,
         ) {
-            SoundVisualCanvas(seed = seed, active = false, modifier = Modifier.fillMaxSize().padding(16.dp))
+            SoundVisualCanvas(
+                seed = seed,
+                active = playing,
+                modifier = Modifier.fillMaxSize().padding(Spacing.item),
+            )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(Modifier.height(Spacing.tight))
+        RowMeta(
+            "${formatRecordedAt(recordedAt)} · ${formatDuration(durationSec)} · 地点未记录",
+        )
+        Spacer(Modifier.height(8.dp))
         Text(
-            text = "${formatRecordedAt(recordedAt)}  ·  ${formatDuration(durationSec)}  ·  地点未记录",
-            color = Ink600,
+            text = if (playing) "播放中…" else "点击视觉试听",
+            color = Ink400,
             fontSize = 12.sp,
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
-        FieldLabel("声音名称")
-        InputBox(
-            value = title,
-            onValueChange = {
-                title = it
-                titleError = false
-            },
-            isError = titleError,
-        )
-        if (titleError) Hint("请填写声音名称", error = true)
+        Spacer(Modifier.height(Spacing.section))
+        SectionLabel("声音名称")
+        InputField(value = title, onChange = { title = it; titleError = false }, isError = titleError)
+        if (titleError) ErrorHint("请填写声音名称")
 
-        Spacer(modifier = Modifier.height(16.dp))
-        FieldLabel("分类")
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        Spacer(Modifier.height(Spacing.item))
+        SectionLabel("分类")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.chip), verticalArrangement = Arrangement.spacedBy(Spacing.chip)) {
             SoundCategories.forEach { item ->
                 val selected = category == item
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
                         .background(if (selected) Primary100 else Surface100)
-                        .border(
-                            width = if (selected) 1.dp else 0.dp,
-                            color = if (selected) Primary500 else Surface100,
-                            shape = RoundedCornerShape(50),
-                        )
-                        .clickable {
-                            category = item
-                            categoryError = false
-                        }
+                        .border(if (selected) 1.dp else 0.dp, if (selected) Primary500 else Surface100, RoundedCornerShape(50))
+                        .clickable { category = item; categoryError = false }
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 ) {
-                    Text(
-                        text = item,
-                        color = if (selected) Primary700 else Ink600,
-                        fontSize = 13.sp,
-                    )
+                    Text(item, color = if (selected) Primary700 else Ink600, fontSize = 13.sp)
                 }
             }
         }
-        if (categoryError) Hint("请选择一个分类", error = true)
+        if (categoryError) ErrorHint("请选择一个分类")
 
-        Spacer(modifier = Modifier.height(16.dp))
-        FieldLabel("描述（可选）")
-        InputBox(
+        Spacer(Modifier.height(Spacing.item))
+        SectionLabel("描述（可选）")
+        InputField(
             value = description,
-            onValueChange = { description = it },
-            singleLine = false,
-            minHeight = 96.dp,
+            onChange = { description = it },
+            minLines = 3,
             placeholder = "记录这段声音背后的故事……",
         )
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(Modifier.height(Spacing.section))
         PrimaryButton(
             text = "保存至 Drafts",
             onClick = {
@@ -172,53 +158,38 @@ fun ResultScreen(
                 onSaved()
             },
         )
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(Modifier.height(Spacing.tight))
         SecondaryButton(text = "重新录制", onClick = onReRecord)
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(Modifier.height(Spacing.section))
     }
 }
 
 @Composable
-private fun FieldLabel(text: String) {
-    Text(
-        text = text,
-        color = Ink950,
-        fontSize = 14.sp,
-        fontWeight = FontWeight.Medium,
-        modifier = Modifier.padding(bottom = 8.dp),
-    )
+private fun RowMeta(text: String) {
+    Text(text, color = Ink600, fontSize = 12.sp)
 }
 
 @Composable
-private fun Hint(text: String, error: Boolean = false) {
-    Text(
-        text = text,
-        color = if (error) Error else Ink400,
-        fontSize = 12.sp,
-        modifier = Modifier.padding(top = 6.dp),
-    )
+private fun ErrorHint(text: String) {
+    Text(text, color = Error, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
 }
 
 @Composable
-private fun InputBox(
+private fun InputField(
     value: String,
-    onValueChange: (String) -> Unit,
+    onChange: (String) -> Unit,
     isError: Boolean = false,
-    singleLine: Boolean = true,
-    minHeight: androidx.compose.ui.unit.Dp = 52.dp,
+    minLines: Int = 1,
     placeholder: String = "",
 ) {
+    val height = if (minLines > 1) (ComponentSize.inputHeight.value * 1.8f).dp else ComponentSize.inputHeight
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(minHeight)
-            .clip(RoundedCornerShape(14.dp))
+            .height(height)
+            .clip(RoundedCornerShape(Radii.input))
             .background(Surface100)
-            .border(
-                width = if (isError) 1.5.dp else 0.dp,
-                color = if (isError) Error else Line200,
-                shape = RoundedCornerShape(14.dp),
-            )
+            .border(if (isError) 1.5.dp else 0.dp, if (isError) Error else Surface100, RoundedCornerShape(Radii.input))
             .padding(horizontal = 14.dp, vertical = 14.dp),
     ) {
         if (value.isEmpty() && placeholder.isNotEmpty()) {
@@ -226,8 +197,7 @@ private fun InputBox(
         }
         BasicTextField(
             value = value,
-            onValueChange = onValueChange,
-            singleLine = singleLine,
+            onValueChange = onChange,
             textStyle = TextStyle(color = Ink950, fontSize = 15.sp),
             cursorBrush = SolidColor(Primary500),
             modifier = Modifier.fillMaxWidth(),

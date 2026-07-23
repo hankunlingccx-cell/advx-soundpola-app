@@ -62,6 +62,16 @@ object SoundRepository {
             visualSeed = 3340,
         ),
         SoundMemory(
+            title = "凌晨的风",
+            category = "自然",
+            description = "NFC 已写入，等待上链",
+            durationSec = 18,
+            locationLabel = "大理",
+            status = SoundStatus.ChainFailed,
+            discId = "SP-2026-0312-C2",
+            visualSeed = 4412,
+        ),
+        SoundMemory(
             title = "散场前的合唱",
             category = "特别时刻",
             description = "没有拍舞台，只留下身边一起唱的声音。",

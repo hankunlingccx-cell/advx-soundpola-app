@@ -1,15 +1,40 @@
-# SoundPola Android
+# SoundPola
 
-产品权威文档：[`first.md`](./first.md)  
-视觉规范：[`designstyle.md`](./designstyle.md)  
-代理规则：[`.cursor/rules/product-ia-sync.mdc`](./.cursor/rules/product-ia-sync.mdc)
+产品：`first.md` · 视觉：`designstyle.md`
 
-## 已实现主流程
+## 当前实现
 
-权限说明 → Record → 录音中 → 结果命名 → Drafts → Press 写入 → Collection → Memory
+Android **Jetpack Compose** MVP（`first.md` 目标 Flutter/RN，后续迁移）。
 
-底部导航：Record / Drafts / Collection
+### 主流程
+
+权限 → Record → 录音 → 结果 → Drafts → Press → Collection → Memory
+
+### 设计规范
+
+- 背景 `#FAFCFB`、主色 `#63E0CB`
+- 录音中深色沉浸 `#0D1514`
+- 组件见 `app/.../ui/theme/` 与 `DesignComponents.kt`
 
 ## 运行
 
-Android Studio 打开项目 → Sync → 创建/启动模拟器 → Run `app`
+Android Studio 打开项目 → Sync → 选设备 → Run **app**
+
+```powershell
+$env:JAVA_HOME = "D:\software installation\Androiddev\jbr"
+.\gradlew.bat :app:assembleDebug
+```
+
+## 结构
+
+```
+app/src/main/java/com/soundpola/app/
+├── data/SoundRepository.kt
+├── ui/
+│   ├── components/DesignComponents.kt
+│   ├── record/
+│   ├── drafts/
+│   ├── collection/
+│   ├── press/
+│   └── navigation/SoundpolaApp.kt
+```

@@ -33,6 +33,8 @@ import com.soundpola.app.data.SoundMemory
 import com.soundpola.app.data.SoundRepository
 import com.soundpola.app.data.formatDuration
 import com.soundpola.app.data.formatRecordedAt
+import com.soundpola.app.ui.components.MetaRow
+import com.soundpola.app.ui.components.PageHeader
 import com.soundpola.app.ui.components.SoundVisualCanvas
 import com.soundpola.app.ui.components.StatusChip
 import com.soundpola.app.ui.theme.CanvasBg
@@ -41,47 +43,31 @@ import com.soundpola.app.ui.theme.Ink600
 import com.soundpola.app.ui.theme.Ink950
 import com.soundpola.app.ui.theme.Primary50
 import com.soundpola.app.ui.theme.Primary700
+import com.soundpola.app.ui.theme.Radii
+import com.soundpola.app.ui.theme.Spacing
 import com.soundpola.app.ui.theme.White
 
+/** first.md §7 + Collection 网格 — designstyle §10.5 */
 @Composable
 fun CollectionScreen(onOpenMemory: (String) -> Unit) {
     val items = SoundRepository.collection()
-    var gridMode by remember { mutableStateOf(true) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(CanvasBg)
-            .padding(horizontal = 20.dp),
-    ) {
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Collection", color = Ink950, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-            Text(
-                text = if (gridMode) "网格" else "时间轴",
-                color = Primary700,
-                fontSize = 13.sp,
-                modifier = Modifier.clickable { gridMode = !gridMode },
-            )
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("${items.size} 枚已收藏声片", color = Ink400, fontSize = 13.sp)
-        Spacer(modifier = Modifier.height(16.dp))
+    Column(Modifier.fillMaxSize().background(CanvasBg)) {
+        PageHeader(title = "Collection", subtitle = "${items.size} 枚已收藏声片")
 
         if (items.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("完成写入与上链后，声音会出现在这里", color = Ink600)
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("完成写入与上链后", color = Ink600, fontSize = 15.sp)
+                    Text("声音会出现在这里", color = Ink400, fontSize = 13.sp)
+                }
             }
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 24.dp),
+                contentPadding = PaddingValues(horizontal = Spacing.pageHorizontal, vertical = Spacing.tight),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.tight),
+                verticalArrangement = Arrangement.spacedBy(Spacing.tight),
             ) {
                 items(items, key = { it.id }) { item ->
                     CollectionCard(item = item, onClick = { onOpenMemory(item.id) })
@@ -95,37 +81,39 @@ fun CollectionScreen(onOpenMemory: (String) -> Unit) {
 private fun CollectionCard(item: SoundMemory, onClick: () -> Unit) {
     Column(
         modifier = Modifier
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(Radii.collectionCard))
             .background(White)
             .clickable(onClick = onClick),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.85f)
+                .aspectRatio(0.82f)
                 .background(Primary50),
         ) {
             SoundVisualCanvas(
                 seed = item.visualSeed,
                 active = false,
-                modifier = Modifier.fillMaxSize().padding(12.dp),
+                modifier = Modifier.fillMaxSize().padding(Spacing.tight),
             )
         }
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(Modifier.padding(Spacing.tight)) {
             Text(item.title, color = Ink950, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1)
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(Modifier.height(4.dp))
             Text(formatRecordedAt(item.recordedAtMillis).take(10), color = Ink400, fontSize = 12.sp)
         }
     }
 }
 
+/** first.md Memory 回声详情 — designstyle §10.6，资产信息默认折叠 */
 @Composable
 fun MemoryScreen(id: String, onBack: () -> Unit) {
     val item = SoundRepository.get(id)
     var playing by remember { mutableStateOf(false) }
+    var assetExpanded by remember { mutableStateOf(false) }
 
     if (item == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("声音不存在", color = Ink600)
         }
         return
@@ -135,30 +123,26 @@ fun MemoryScreen(id: String, onBack: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(CanvasBg)
-            .padding(20.dp),
+            .padding(Spacing.pageHorizontal),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            Modifier.fillMaxWidth().padding(vertical = Spacing.item),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text("返回", color = Ink600, modifier = Modifier.clickable(onClick = onBack))
             Text("Memory", color = Ink950, fontWeight = FontWeight.SemiBold)
-            Text("分享", color = Primary700)
+            Text("分享", color = Primary700, fontSize = 13.sp)
         }
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            formatRecordedAt(item.recordedAtMillis),
-            color = Ink400,
-            fontSize = 12.sp,
-        )
+
+        Text(formatRecordedAt(item.recordedAtMillis), color = Ink400, fontSize = 12.sp)
         Text(item.locationLabel, color = Ink600, fontSize = 13.sp)
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(Modifier.height(Spacing.item))
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(320.dp)
-                .clip(RoundedCornerShape(28.dp))
+                .height(340.dp)
+                .clip(RoundedCornerShape(Radii.collectionCard))
                 .background(Primary50)
                 .clickable { playing = !playing },
             contentAlignment = Alignment.Center,
@@ -166,36 +150,41 @@ fun MemoryScreen(id: String, onBack: () -> Unit) {
             SoundVisualCanvas(
                 seed = item.visualSeed,
                 active = playing,
-                modifier = Modifier.fillMaxSize().padding(20.dp),
+                modifier = Modifier.fillMaxSize().padding(Spacing.section),
             )
         }
-        Spacer(modifier = Modifier.height(20.dp))
+
+        Spacer(Modifier.height(Spacing.section))
         Text(item.title, color = Ink950, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(Modifier.height(8.dp))
         Text("#${item.category}  ·  ${formatDuration(item.durationSec)}", color = Ink600, fontSize = 14.sp)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(Modifier.height(8.dp))
         StatusChip(item.status)
+
         if (item.description.isNotBlank()) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(Modifier.height(Spacing.item))
             Text(item.description, color = Ink600, fontSize = 15.sp, lineHeight = 24.sp)
         }
-        Spacer(modifier = Modifier.height(24.dp))
-        InfoRow("声片编号", item.discId ?: "—")
-        InfoRow("数字资产", item.assetId ?: "—")
-        InfoRow("录制设备", item.deviceLabel)
-        InfoRow("绑定状态", "永久绑定")
-    }
-}
 
-@Composable
-private fun InfoRow(label: String, value: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(label, color = Ink400, fontSize = 13.sp)
-        Text(value, color = Ink950, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(Spacing.section))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { assetExpanded = !assetExpanded }
+                .padding(vertical = Spacing.tight),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("声片与数字资产", color = Ink950, fontWeight = FontWeight.Medium)
+            Text(if (assetExpanded) "收起" else "展开", color = Primary700, fontSize = 13.sp)
+        }
+
+        if (assetExpanded) {
+            MetaRow("声片编号", item.discId ?: "—")
+            MetaRow("数字资产", item.assetId ?: "—")
+            MetaRow("录制设备", item.deviceLabel)
+            MetaRow("绑定状态", "永久绑定")
+        }
+
+        Spacer(Modifier.weight(1f))
     }
 }

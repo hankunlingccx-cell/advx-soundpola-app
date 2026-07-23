@@ -36,6 +36,8 @@ import com.soundpola.app.data.SoundRepository
 import com.soundpola.app.data.SoundStatus
 import com.soundpola.app.data.formatDuration
 import com.soundpola.app.data.formatRecordedAt
+import com.soundpola.app.ui.components.FilterChipRow
+import com.soundpola.app.ui.components.PageHeader
 import com.soundpola.app.ui.components.PrimaryButton
 import com.soundpola.app.ui.components.SoundVisualCanvas
 import com.soundpola.app.ui.components.StatusChip
@@ -45,37 +47,39 @@ import com.soundpola.app.ui.theme.Ink600
 import com.soundpola.app.ui.theme.Ink950
 import com.soundpola.app.ui.theme.Primary50
 import com.soundpola.app.ui.theme.Primary500
+import com.soundpola.app.ui.theme.Primary700
+import com.soundpola.app.ui.theme.Radii
+import com.soundpola.app.ui.theme.Spacing
 import com.soundpola.app.ui.theme.White
 
+private val DraftFilters = listOf("全部", "已暂存", "处理中", "失败")
+
+/** first.md §7.5 Drafts 暂存列表 — designstyle §10.3 */
 @Composable
 fun DraftsScreen(
     onOpenDetail: (String) -> Unit,
     onPress: (String) -> Unit,
     onStartRecord: () -> Unit,
 ) {
-    val drafts = SoundRepository.drafts()
+    var filter by remember { mutableStateOf("全部") }
     var playingId by remember { mutableStateOf<String?>(null) }
+    val all = SoundRepository.drafts()
+    val drafts = when (filter) {
+        "已暂存" -> all.filter { it.status == SoundStatus.Drafted }
+        "处理中" -> all.filter { it.status == SoundStatus.Writing || it.status == SoundStatus.ChainPending }
+        "失败" -> all.filter { it.status == SoundStatus.WriteFailed || it.status == SoundStatus.ChainFailed }
+        else -> all
+    }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(CanvasBg)
-            .padding(horizontal = 20.dp),
-    ) {
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Drafts", color = Ink950, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-            Text("${drafts.size} 条暂存", color = Ink400, fontSize = 13.sp)
-        }
-        Spacer(modifier = Modifier.height(16.dp))
+    Column(Modifier.fillMaxSize().background(CanvasBg)) {
+        PageHeader(title = "Drafts", subtitle = "${all.size} 条暂存")
+        Spacer(Modifier.height(Spacing.tight))
+        FilterChipRow(options = DraftFilters, selected = filter, onSelect = { filter = it })
+        Spacer(Modifier.height(Spacing.item))
 
         if (drafts.isEmpty()) {
             Column(
-                modifier = Modifier.fillMaxSize(),
+                Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
@@ -84,32 +88,33 @@ fun DraftsScreen(
                     active = false,
                     modifier = Modifier
                         .size(140.dp)
-                        .clip(RoundedCornerShape(24.dp))
+                        .clip(RoundedCornerShape(Radii.collectionCard))
                         .background(Primary50),
                 )
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(Modifier.height(Spacing.section))
                 Text("还没有暂存的声音", color = Ink950, fontWeight = FontWeight.SemiBold)
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(Modifier.height(8.dp))
                 Text("去捕捉此刻的声音", color = Ink600, fontSize = 14.sp)
-                Spacer(modifier = Modifier.height(20.dp))
-                Box(modifier = Modifier.width(200.dp)) {
+                Spacer(Modifier.height(Spacing.section))
+                Box(Modifier.width(200.dp)) {
                     PrimaryButton(text = "开始录音", onClick = onStartRecord)
                 }
             }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(
+                modifier = Modifier.padding(horizontal = Spacing.pageHorizontal),
+                verticalArrangement = Arrangement.spacedBy(Spacing.tight),
+            ) {
                 items(drafts, key = { it.id }) { item ->
                     DraftCard(
                         item = item,
                         playing = playingId == item.id,
-                        onPlay = {
-                            playingId = if (playingId == item.id) null else item.id
-                        },
+                        onPlay = { playingId = if (playingId == item.id) null else item.id },
                         onPress = { onPress(item.id) },
                         onOpen = { onOpenDetail(item.id) },
                     )
                 }
-                item { Spacer(modifier = Modifier.height(24.dp)) }
+                item { Spacer(Modifier.height(Spacing.section)) }
             }
         }
     }
@@ -123,61 +128,56 @@ private fun DraftCard(
     onPress: () -> Unit,
     onOpen: () -> Unit,
 ) {
+    val showProgress = item.status == SoundStatus.Writing || item.status == SoundStatus.ChainPending
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(Radii.card))
             .background(White)
             .clickable(onClick = onOpen)
-            .padding(12.dp),
+            .padding(Spacing.tight),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(72.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(Primary50),
-        ) {
+        Box(Modifier.size(72.dp).clip(RoundedCornerShape(Radii.input)).background(Primary50)) {
             SoundVisualCanvas(
                 seed = item.visualSeed,
                 active = playing,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(6.dp),
+                showProgressRing = showProgress,
+                progress = 0.65f,
+                modifier = Modifier.fillMaxSize().padding(6.dp),
             )
         }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        Spacer(Modifier.width(Spacing.tight))
+        Column(Modifier.weight(1f)) {
             Text(item.title, color = Ink950, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
-                text = "${formatRecordedAt(item.recordedAtMillis)} · ${formatDuration(item.durationSec)} · ${item.category}",
+                "${formatRecordedAt(item.recordedAtMillis)} · ${formatDuration(item.durationSec)} · ${item.category}",
                 color = Ink600,
                 fontSize = 12.sp,
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            if (item.locationLabel != "地点未记录") {
+                Text(item.locationLabel, color = Ink400, fontSize = 12.sp)
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.chip), verticalAlignment = Alignment.CenterVertically) {
                 StatusChip(item.status)
                 if (item.status == SoundStatus.Drafted || item.status == SoundStatus.WriteFailed) {
                     Text(
-                        text = "Press",
+                        "Press",
                         color = Primary500,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 13.sp,
                         modifier = Modifier.clickable(onClick = onPress),
                     )
                 }
+                if (item.status == SoundStatus.ChainFailed) {
+                    Text("重试上链", color = Primary700, fontSize = 13.sp, modifier = Modifier.clickable(onClick = onPress))
+                }
             }
         }
         Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(Primary50)
-                .clickable(onClick = onPlay),
+            Modifier.size(36.dp).clip(CircleShape).background(Primary50).clickable(onClick = onPlay),
             contentAlignment = Alignment.Center,
         ) {
             Text(if (playing) "‖" else "▶", color = Ink950, fontSize = 12.sp)
@@ -186,44 +186,29 @@ private fun DraftCard(
 }
 
 @Composable
-fun DraftDetailScreen(
-    id: String,
-    onBack: () -> Unit,
-    onPress: () -> Unit,
-    onDeleted: () -> Unit,
-) {
+fun DraftDetailScreen(id: String, onBack: () -> Unit, onPress: () -> Unit, onDeleted: () -> Unit) {
     val item = SoundRepository.get(id)
     var confirmDelete by remember { mutableStateOf(false) }
     var playing by remember { mutableStateOf(false) }
 
     if (item == null) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(text = "声音不存在", color = Ink600)
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("声音不存在", color = Ink600)
         }
     } else {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(CanvasBg)
-                .padding(20.dp),
+            Modifier.fillMaxSize().background(CanvasBg).padding(Spacing.pageHorizontal),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(text = "返回", color = Ink600, modifier = Modifier.clickable(onClick = onBack))
-                Text(text = "详情", color = Ink950, fontWeight = FontWeight.SemiBold)
-                Text(text = "删除", color = Ink400, modifier = Modifier.clickable { confirmDelete = true })
+            Row(Modifier.fillMaxWidth().padding(vertical = Spacing.item), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("返回", color = Ink600, modifier = Modifier.clickable(onClick = onBack))
+                Text("详情", color = Ink950, fontWeight = FontWeight.SemiBold)
+                Text("删除", color = Ink400, modifier = Modifier.clickable { confirmDelete = true })
             }
-            Spacer(modifier = Modifier.height(20.dp))
             Box(
-                modifier = Modifier
+                Modifier
                     .fillMaxWidth()
-                    .height(280.dp)
-                    .clip(RoundedCornerShape(24.dp))
+                    .height(300.dp)
+                    .clip(RoundedCornerShape(Radii.collectionCard))
                     .background(Primary50)
                     .clickable { playing = !playing },
                 contentAlignment = Alignment.Center,
@@ -231,35 +216,31 @@ fun DraftDetailScreen(
                 SoundVisualCanvas(
                     seed = item.visualSeed,
                     active = playing,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(20.dp),
+                    modifier = Modifier.fillMaxSize().padding(Spacing.section),
                 )
             }
-            Spacer(modifier = Modifier.height(20.dp))
-            Text(text = item.title, color = Ink950, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(Spacing.section))
+            Text(item.title, color = Ink950, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
             StatusChip(item.status)
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(text = "#${item.category}", color = Ink600, fontSize = 14.sp)
+            Spacer(Modifier.height(Spacing.tight))
+            Text("#${item.category}", color = Ink600, fontSize = 14.sp)
             if (item.description.isNotBlank()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = item.description,
-                    color = Ink600,
-                    fontSize = 15.sp,
-                    lineHeight = 24.sp,
-                )
+                Spacer(Modifier.height(Spacing.tight))
+                Text(item.description, color = Ink600, fontSize = 15.sp, lineHeight = 24.sp)
             }
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(Modifier.height(Spacing.item))
             Text(
-                text = "${formatRecordedAt(item.recordedAtMillis)} · ${item.locationLabel} · ${formatDuration(item.durationSec)}",
+                "${formatRecordedAt(item.recordedAtMillis)} · ${item.locationLabel} · ${formatDuration(item.durationSec)}",
                 color = Ink400,
                 fontSize = 12.sp,
             )
-            Spacer(modifier = Modifier.weight(1f))
-            PrimaryButton(text = "写入声片", onClick = onPress)
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(Modifier.weight(1f))
+            PrimaryButton(
+                text = if (item.status == SoundStatus.ChainFailed) "重试上链" else "写入声片",
+                onClick = onPress,
+            )
+            Spacer(Modifier.height(Spacing.item))
         }
     }
 
@@ -269,16 +250,12 @@ fun DraftDetailScreen(
             title = { Text("删除这段声音？") },
             text = { Text("录音、声音视觉和相关记忆信息将被永久移除。") },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (SoundRepository.delete(id)) onDeleted()
-                        confirmDelete = false
-                    },
-                ) { Text("确认删除") }
+                TextButton(onClick = {
+                    if (SoundRepository.delete(id)) onDeleted()
+                    confirmDelete = false
+                }) { Text("确认删除") }
             },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("取消") }
-            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("取消") } },
         )
     }
 }

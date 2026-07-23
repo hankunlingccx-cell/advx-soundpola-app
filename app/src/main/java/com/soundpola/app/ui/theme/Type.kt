@@ -64,26 +64,3 @@ val SoundpolaTypography = Typography(
         color = Ink600,
     ),
 )
-
-/** Legacy text styles kept for LoginScreen */
-val TitleStyle = TextStyle(
-    fontFamily = FontFamily.SansSerif,
-    fontWeight = FontWeight.Bold,
-    fontSize = 26.sp,
-    color = White,
-    lineHeight = 32.sp,
-)
-
-val BodyStyle = TextStyle(
-    fontFamily = FontFamily.SansSerif,
-    fontWeight = FontWeight.Normal,
-    fontSize = 16.sp,
-    color = White,
-)
-
-val CaptionStyle = TextStyle(
-    fontFamily = FontFamily.SansSerif,
-    fontWeight = FontWeight.Normal,
-    fontSize = 14.sp,
-    color = White,
-)

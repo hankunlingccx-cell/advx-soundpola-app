@@ -27,26 +27,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.soundpola.app.data.formatDuration
 import com.soundpola.app.ui.components.RecordFab
 import com.soundpola.app.ui.components.SoundVisualCanvas
+import com.soundpola.app.ui.components.TimerText
 import com.soundpola.app.ui.theme.DarkCanvas
 import com.soundpola.app.ui.theme.DarkSecondary
 import com.soundpola.app.ui.theme.DarkSurface
 import com.soundpola.app.ui.theme.DarkText
 import com.soundpola.app.ui.theme.Ink950
 import com.soundpola.app.ui.theme.Primary500
+import com.soundpola.app.ui.theme.Radii
+import com.soundpola.app.ui.theme.Spacing
 import kotlinx.coroutines.delay
 
+/** first.md §7.3 录音中 / 已暂停 */
 @Composable
-fun RecordingScreen(
-    onCancel: () -> Unit,
-    onComplete: (durationSec: Int) -> Unit,
-) {
+fun RecordingScreen(onCancel: () -> Unit, onComplete: (Int) -> Unit) {
     var seconds by remember { mutableIntStateOf(0) }
     var paused by remember { mutableStateOf(false) }
     var showAbort by remember { mutableStateOf(false) }
@@ -62,33 +61,29 @@ fun RecordingScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkCanvas)
-            .padding(20.dp),
+            .padding(Spacing.pageHorizontal),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.item),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(
-                text = "取消",
-                color = DarkSecondary,
-                modifier = Modifier.clickable { showAbort = true },
-            )
+            Text("取消", color = DarkSecondary, modifier = Modifier.clickable { showAbort = true })
             Text(
                 text = if (paused) "录音已暂停" else "正在录音",
                 color = DarkText,
                 fontWeight = FontWeight.Medium,
             )
-            Spacer(modifier = Modifier.size(32.dp))
+            Spacer(Modifier.size(32.dp))
         }
 
-        Spacer(modifier = Modifier.weight(0.3f))
+        Spacer(Modifier.weight(0.25f))
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(300.dp)
-                .clip(RoundedCornerShape(28.dp))
+                .height(320.dp)
+                .clip(RoundedCornerShape(Radii.collectionCard))
                 .background(DarkSurface),
             contentAlignment = Alignment.Center,
         ) {
@@ -96,26 +91,20 @@ fun RecordingScreen(
                 seed = 404,
                 active = !paused,
                 dark = true,
-                modifier = Modifier.fillMaxSize().padding(20.dp),
+                modifier = Modifier.fillMaxSize().padding(Spacing.section),
             )
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
-        Text(
-            text = formatDuration(seconds),
-            color = DarkText,
-            fontSize = 40.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Medium,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(Modifier.height(Spacing.section))
+        TimerText(seconds = seconds, dark = true)
+        Spacer(Modifier.height(8.dp))
         Text(
             text = if (paused) "轻触继续" else "环境音量正常",
             color = DarkSecondary,
             fontSize = 13.sp,
         )
 
-        Spacer(modifier = Modifier.weight(0.35f))
+        Spacer(Modifier.weight(0.3f))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -130,16 +119,9 @@ fun RecordingScreen(
                     .clickable { paused = !paused },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = if (paused) "继续" else "暂停",
-                    color = DarkText,
-                    fontSize = 12.sp,
-                )
+                Text(if (paused) "继续" else "暂停", color = DarkText, fontSize = 12.sp)
             }
-            RecordFab(
-                recording = true,
-                onClick = { onComplete(seconds.coerceAtLeast(1)) },
-            )
+            RecordFab(recording = !paused, onClick = { onComplete(seconds.coerceAtLeast(1)) })
             Box(
                 modifier = Modifier
                     .size(56.dp)
@@ -151,7 +133,7 @@ fun RecordingScreen(
                 Text("完成", color = Ink950, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(Modifier.height(Spacing.section))
     }
 
     if (showAbort) {
@@ -159,12 +141,8 @@ fun RecordingScreen(
             onDismissRequest = { showAbort = false },
             title = { Text("放弃本次录音？") },
             text = { Text("当前录制内容不会被保存。") },
-            confirmButton = {
-                TextButton(onClick = onCancel) { Text("放弃录音") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAbort = false }) { Text("继续录音") }
-            },
+            confirmButton = { TextButton(onClick = onCancel) { Text("放弃录音", color = com.soundpola.app.ui.theme.Error) } },
+            dismissButton = { TextButton(onClick = { showAbort = false }) { Text("继续录音") } },
         )
     }
 }

@@ -1,9 +1,6 @@
-SoundPola 声音回忆装置｜软件产品架构 V1.1
-[图片]
-> 权威说明：本文件为产品描述与信息架构的权威来源。用户最新描述优先；开发功能时必须同步更新本文对应章节。详见 `.cursor/rules/product-ia-sync.mdc`。
 SoundPola App 信息架构
 
-文档用途：用于 Android App 的 UI/UX 页面设计、原型制作与开发拆分版本：V1.0核心对象：声音、声音视觉、NFC 声片、数字资产主题色：#63E0CB
+文档用途：用于 Android/IOS App 的 UI/UX 页面设计、原型制作与开发拆分版本：V1.0核心对象：声音、声音视觉、NFC 声片、数字资产主题色：#63E0CB；用兼容安卓和IOS的react native/flutter编写（以此为准）
 
 1. 产品结构定义
 
@@ -1244,22 +1241,25 @@ Collection 首屏以声音视觉为主要识别元素，而不是技术编号或
 
 Memory 首屏优先呈现声音和记忆，数字资产信息默认折叠。
 
-12. Android 实现进度（同步记录）
+## 12. 实现进度（Android Compose MVP · 2026-07）
 
-已落地（Compose MVP，录音为计时模拟，Press 为流程模拟）：
+技术说明：`first.md` 目标为 Flutter/RN 跨平台；当前以 Jetpack Compose 实现 Android 可运行原型，验证 IA 与 `designstyle.md` 视觉。
 
-- 权限说明页
-- Record 首页 / 录音中·暂停 / 录音结果（命名·分类·描述·保存 Drafts）
-- Drafts 列表与详情（播放态、删除、Press 入口）
-- Press：方式选择 → 检测 → 永久绑定确认 → 写入上链进度 → 完成
-- Collection 网格与 Memory 详情
-- 底部导航 Record / Drafts / Collection
-- 视觉规范对齐 designstyle.md（Canvas #FAFCFB、Primary #63E0CB、组件圆角与状态标签）
+**P0 已落地：**
 
-尚未落地：
+- 权限说明（§7.1）
+- Record 待机 / 录音中 / 暂停 / 完成（§7.2–7.3）
+- 录音结果：命名、分类、描述、保存 Drafts（§7.4）
+- Drafts 列表筛选、详情、Press 入口、上链失败重试（§7.5–7.6）
+- Press 完整流程：方式 → 检测 → 确认 → 进度 → 完成（§7.7–7.10）
+- Collection 两列视觉网格
+- Memory 详情，资产信息默认折叠
 
-- 真实麦克风采集与音频文件
-- 真实 NFC / 上链
+**设计系统：** `designstyle.md` 色彩 Token、间距、圆角、按钮/导航/状态标签、有机对称声音视觉。
+
+**待迁移 / 待实现：**
+
+- Flutter 跨平台工程
+- 真实麦克风、NFC、上链
 - 系统权限弹窗串联
-- 搜索筛选排序、时间轴、分享卡、硬件写入
-
+- P1：搜索、排序、时间轴、分享卡

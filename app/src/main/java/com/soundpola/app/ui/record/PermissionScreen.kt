@@ -26,63 +26,48 @@ import com.soundpola.app.ui.theme.Ink600
 import com.soundpola.app.ui.theme.Ink950
 import com.soundpola.app.ui.theme.Primary50
 import com.soundpola.app.ui.theme.Primary700
+import com.soundpola.app.ui.theme.Radii
+import com.soundpola.app.ui.theme.Spacing
 
+/** first.md §7.1 权限说明 */
 @Composable
 fun PermissionScreen(onContinue: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(CanvasBg)
-            .padding(horizontal = 20.dp, vertical = 24.dp),
+            .padding(horizontal = Spacing.pageHorizontal, vertical = Spacing.section),
         verticalArrangement = Arrangement.SpaceBetween,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(Modifier.height(48.dp))
-            Text(
-                text = "SoundPola",
-                color = Ink950,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "声音的拍立得",
-                color = Ink600,
-                fontSize = 14.sp,
-            )
-            Spacer(Modifier.height(36.dp))
+            Spacer(Modifier.height(40.dp))
+            Text("SoundPola", color = Ink950, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            Text("声音的拍立得", color = Ink600, fontSize = 14.sp)
+            Spacer(Modifier.height(Spacing.block))
             SoundVisualCanvas(
                 seed = 2026,
                 active = false,
                 modifier = Modifier
                     .size(220.dp)
-                    .clip(RoundedCornerShape(28.dp))
+                    .clip(RoundedCornerShape(Radii.collectionCard))
                     .background(Primary50),
             )
-            Spacer(Modifier.height(36.dp))
-            PermissionCard(
-                title = "麦克风",
-                body = "用于录制你想保存的声音。这是必需权限。",
-            )
-            Spacer(Modifier.height(12.dp))
-            PermissionCard(
-                title = "定位（可选）",
-                body = "用于自动记录声音发生的地点。拒绝后仍可录音。",
-            )
+            Spacer(Modifier.height(Spacing.block))
+            PermissionCard("麦克风", "用于录制你想保存的声音。")
+            Spacer(Modifier.height(Spacing.tight))
+            PermissionCard("定位（可选）", "用于自动记录声音发生的地点。拒绝后仍可录音。")
         }
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth()) {
             Text(
-                text = "继续即表示你了解权限用途。定位可随时在系统设置中开启。",
+                text = "继续后将依次申请麦克风与定位权限。",
                 color = Ink600,
                 fontSize = 12.sp,
                 textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.item),
             )
             PrimaryButton(text = "继续", onClick = onContinue)
-            Spacer(Modifier.height(12.dp))
         }
     }
 }
@@ -92,22 +77,12 @@ private fun PermissionCard(title: String, body: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(Radii.card))
             .background(Primary50)
-            .padding(16.dp),
+            .padding(Spacing.item),
     ) {
-        Text(
-            text = title,
-            color = Primary700,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 15.sp,
-        )
+        Text(title, color = Primary700, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
         Spacer(Modifier.height(6.dp))
-        Text(
-            text = body,
-            color = Ink600,
-            fontSize = 14.sp,
-            lineHeight = 22.sp,
-        )
+        Text(body, color = Ink600, fontSize = 14.sp, lineHeight = 22.sp)
     }
 }
