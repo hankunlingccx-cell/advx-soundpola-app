@@ -128,6 +128,19 @@ const soundCategories = [
   '其他',
 ];
 
+/// Collection 按分类聚合的一组收藏（瀑布流胶囊单元）。
+class CollectionGroup {
+  const CollectionGroup({
+    required this.category,
+    required this.items,
+  });
+
+  final String category;
+  final List<SoundMemory> items;
+
+  int get count => items.length;
+}
+
 String formatDuration(int sec) {
   final m = sec ~/ 60;
   final s = sec % 60;
@@ -195,6 +208,106 @@ class SoundRepository extends ChangeNotifier {
       assetId: '0x11cd…90e',
       visualSeed: 5521,
     ),
+    SoundMemory(
+      title: '夜市炒板栗',
+      category: '城市',
+      durationSec: 22,
+      locationLabel: '成都 · 宽窄巷',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0611-D4',
+      assetId: '0x3ab1…e02',
+      visualSeed: 2109,
+    ),
+    SoundMemory(
+      title: '路口红绿灯',
+      category: '城市',
+      durationSec: 15,
+      locationLabel: '东京',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0520-E1',
+      assetId: '0x77c0…a14',
+      visualSeed: 8831,
+    ),
+    SoundMemory(
+      title: '海浪拍岸',
+      category: '自然',
+      durationSec: 40,
+      locationLabel: '厦门 · 环岛路',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0418-N2',
+      assetId: '0x90fe…b33',
+      visualSeed: 3012,
+    ),
+    SoundMemory(
+      title: '山间蝉鸣',
+      category: '自然',
+      durationSec: 33,
+      locationLabel: '莫干山',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0801-N7',
+      assetId: '0x12aa…d80',
+      visualSeed: 6644,
+    ),
+    SoundMemory(
+      title: '开箱胶带声',
+      category: '日常',
+      durationSec: 8,
+      locationLabel: '家中',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0303-F2',
+      assetId: '0x55d1…c07',
+      visualSeed: 1455,
+    ),
+    SoundMemory(
+      title: '煮咖啡的咕嘟',
+      category: '日常',
+      durationSec: 19,
+      locationLabel: '家中厨房',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0228-F5',
+      assetId: '0xabe2…119',
+      visualSeed: 9201,
+    ),
+    SoundMemory(
+      title: '火车过隧道',
+      category: '旅行',
+      durationSec: 27,
+      locationLabel: '瑞士',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0912-T1',
+      assetId: '0x44f9…882',
+      visualSeed: 4770,
+    ),
+    SoundMemory(
+      title: '机场登机广播',
+      category: '旅行',
+      durationSec: 14,
+      locationLabel: '浦东 T2',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0915-T3',
+      assetId: '0x6c01…fe4',
+      visualSeed: 5882,
+    ),
+    SoundMemory(
+      title: '旅店窗外雨',
+      category: '旅行',
+      durationSec: 36,
+      locationLabel: '京都',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-1002-T8',
+      assetId: '0xd3a0…651',
+      visualSeed: 2399,
+    ),
+    SoundMemory(
+      title: '朋友的笑声',
+      category: '人声',
+      durationSec: 11,
+      locationLabel: '上海 · 咖啡馆',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0709-B3',
+      assetId: '0x81bc…330',
+      visualSeed: 7110,
+    ),
   ];
 
   List<SoundMemory> get sounds => List.unmodifiable(_sounds);
@@ -204,6 +317,32 @@ class SoundRepository extends ChangeNotifier {
 
   List<SoundMemory> get collection =>
       _sounds.where((s) => s.status == SoundStatus.collected).toList();
+
+  /// 按分类分组；顺序跟随 [soundCategories]，未知分类靠后。
+  List<CollectionGroup> get collectionGroups {
+    final items = collection;
+    final byCategory = <String, List<SoundMemory>>{};
+    for (final item in items) {
+      byCategory.putIfAbsent(item.category, () => []).add(item);
+    }
+    for (final list in byCategory.values) {
+      list.sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
+    }
+
+    final groups = <CollectionGroup>[];
+    for (final name in soundCategories) {
+      final list = byCategory.remove(name);
+      if (list != null && list.isNotEmpty) {
+        groups.add(CollectionGroup(category: name, items: list));
+      }
+    }
+    for (final entry in byCategory.entries) {
+      if (entry.value.isNotEmpty) {
+        groups.add(CollectionGroup(category: entry.key, items: entry.value));
+      }
+    }
+    return groups;
+  }
 
   SoundMemory? get(String id) {
     try {
@@ -224,6 +363,15 @@ class SoundRepository extends ChangeNotifier {
       _sounds[index] = transform(_sounds[index]);
       notifyListeners();
     }
+  }
+
+  /// 调整收藏展示分类（不改变链上资产）。
+  void updateCategory(String id, String category) {
+    if (!soundCategories.contains(category)) return;
+    update(id, (s) {
+      if (s.category == category) return s;
+      return s.copyWith(category: category);
+    });
   }
 
   bool delete(String id) {

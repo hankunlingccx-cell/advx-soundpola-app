@@ -494,11 +494,11 @@ Press
 
 Collection
 
-收藏品式视觉网格
+分类胶囊叠片 + 双列瀑布流
 
-名称与播放
+声片抽象贴图（种子随机）+ 顶部色层分类名
 
-NFT 技术字段
+NFT 技术字段放 Memory
 
 Memory
 
@@ -635,7 +635,11 @@ RecordControl
 
 SoundCard
 
-Draft 与 Collection 的视觉卡片
+Draft 视觉卡片
+
+CollectionCapsule
+
+Collection 分类叠片胶囊（瀑布流单元）
 
 PlaybackBar
 
@@ -665,7 +669,7 @@ AssetCredentialPanel
 
 默认折叠的 NFT 技术信息
 
-Draft 与 Collection 可复用 SoundCard 的视觉骨架，但必须通过操作区和状态标签区分，不创建两个完全独立的卡片系统。
+Draft 使用 SoundCard；Collection 使用分类胶囊叠片（CollectionCapsule），不再复用同一套网格卡片骨架。
 
 12.4 响应式与设备适配
 

@@ -1,13 +1,13 @@
 /// Cloud Media Service base URL.
 ///
 /// Override at build/run time:
-/// `flutter run --dart-define=CLOUD_MEDIA_BASE=http://192.168.1.10:9000`
+/// `flutter run --dart-define=CLOUD_MEDIA_BASE=https://advx26.babelbeast.com`
 class CloudMediaConfig {
   CloudMediaConfig._();
 
   static const baseUrl = String.fromEnvironment(
     'CLOUD_MEDIA_BASE',
-    defaultValue: 'http://127.0.0.1:9000',
+    defaultValue: 'https://advx26.babelbeast.com',
   );
 
   static Uri uri(String path) {

@@ -1,4 +1,5 @@
 abstract final class AppRoutes {
+  static const splash = '/splash';
   static const permission = '/permission';
   static const main = '/';
   static const recording = '/recording';

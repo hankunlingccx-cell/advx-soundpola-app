@@ -13,8 +13,7 @@ class SoundpolaApp extends StatefulWidget {
 }
 
 class _SoundpolaAppState extends State<SoundpolaApp> {
-  final _consented = ValueNotifier<bool>(false);
-  late final GoRouter _router = createRouter(consented: _consented);
+  late final GoRouter _router = createRouter();
   bool _booting = true;
 
   @override
@@ -38,7 +37,6 @@ class _SoundpolaAppState extends State<SoundpolaApp> {
 
   @override
   void dispose() {
-    _consented.dispose();
     _router.dispose();
     super.dispose();
   }
@@ -52,10 +50,14 @@ class _SoundpolaAppState extends State<SoundpolaApp> {
         home: const Scaffold(
           backgroundColor: Color(0xFF000000),
           body: Center(
-            child: SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF63E0CB)),
+            child: Text(
+              'SoundPola',
+              style: TextStyle(
+                color: Color(0xFFF4F7F6),
+                fontSize: 28,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.6,
+              ),
             ),
           ),
         ),

@@ -8,10 +8,10 @@ import '../screens/auth/auth_screens.dart';
 import '../screens/collection/collection_screen.dart';
 import '../screens/drafts/drafts_screen.dart';
 import '../screens/press/press_screens.dart';
-import '../screens/record/permission_screen.dart';
 import '../screens/record/record_home_screen.dart';
 import '../screens/record/recording_screen.dart';
 import '../screens/record/result_screen.dart';
+import '../screens/splash/splash_screen.dart';
 import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/design_components.dart';
@@ -28,33 +28,26 @@ void openPressFlow(BuildContext context, String id, {bool chainOnly = false}) {
   context.push(AppRoutes.pressMethodPath(id, chainOnly: chainOnly));
 }
 
-GoRouter createRouter({required ValueNotifier<bool> consented}) {
+GoRouter createRouter() {
   return GoRouter(
-    initialLocation: AppRoutes.permission,
-    refreshListenable: Listenable.merge([consented, AuthService.instance]),
+    initialLocation: AppRoutes.splash,
+    refreshListenable: AuthService.instance,
     redirect: (context, state) {
       final loc = state.matchedLocation;
-      final onPermission = loc == AppRoutes.permission;
+      final onSplash = loc == AppRoutes.splash;
       final onAuth = loc == AppRoutes.login ||
           loc == AppRoutes.register ||
           loc == AppRoutes.accountReady;
 
-      // 1) 麦克风权限页优先
-      if (!consented.value) {
-        return onPermission ? null : AppRoutes.permission;
-      }
-      if (onPermission) {
-        return AuthService.instance.isLoggedIn
-            ? AppRoutes.main
-            : AppRoutes.login;
-      }
+      // 启动页自行分流，不在此打断
+      if (onSplash) return null;
 
-      // 2) 进入主流程前必须登录
+      // 进入主流程前必须登录
       if (!AuthService.instance.isLoggedIn) {
         return onAuth ? null : AppRoutes.login;
       }
 
-      // 3) 已登录时离开登录页
+      // 已登录时离开登录页（Press 恢复场景除外）
       if (loc == AppRoutes.login) {
         if (PressResume.hasPending) return null;
         return AppRoutes.main;
@@ -64,10 +57,8 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
     },
     routes: [
       GoRoute(
-        path: AppRoutes.permission,
-        builder: (context, state) => PermissionScreen(
-          onContinue: () => consented.value = true,
-        ),
+        path: AppRoutes.splash,
+        builder: (context, state) => const SplashScreen(),
       ),
       GoRoute(
         path: AppRoutes.login,

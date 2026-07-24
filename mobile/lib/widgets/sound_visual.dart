@@ -474,6 +474,7 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
   VisualQuality _tier = VisualQuality.high;
   final _frameTimes = <double>[];
   int _paintEpoch = 0;
+  bool _paintScheduled = false;
 
   SoundVisualMode get _mode =>
       widget.mode ??
@@ -638,8 +639,26 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
       _paintEpoch = frame;
     }
 
-    // Repaint only this boundary — parent page is not rebuilt.
-    if (mounted) setState(() {});
+    // Repaint only this boundary — never setState while an ancestor is building.
+    _schedulePaint();
+  }
+
+  void _schedulePaint() {
+    if (!mounted) return;
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    final unsafe = phase == SchedulerPhase.transientCallbacks ||
+        phase == SchedulerPhase.midFrameMicrotasks ||
+        phase == SchedulerPhase.persistentCallbacks;
+    if (unsafe) {
+      if (_paintScheduled) return;
+      _paintScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _paintScheduled = false;
+        if (mounted) setState(() {});
+      });
+      return;
+    }
+    setState(() {});
   }
 
   @override

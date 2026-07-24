@@ -531,6 +531,7 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
       });
 
       final token = await AuthService.instance.requireCloudToken();
+      await _cloud.assertReachable();
       final ready = await _ensureCloudReady(item, token);
 
       SoundRepository.instance.update(
