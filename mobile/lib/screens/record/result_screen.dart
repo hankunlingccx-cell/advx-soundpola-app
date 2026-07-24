@@ -54,7 +54,7 @@ class _ResultScreenState extends State<ResultScreen> {
   Future<void> _pickCategory() async {
     final picked = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: AppColors.white,
+      backgroundColor: AppColors.surface2,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.sheet)),
       ),
@@ -64,7 +64,7 @@ class _ResultScreenState extends State<ResultScreen> {
           children: soundCategories
               .map(
                 (c) => ListTile(
-                  title: Text(c),
+                  title: Text(c, style: const TextStyle(color: AppColors.textPrimary)),
                   onTap: () => Navigator.pop(ctx, c),
                 ),
               )
@@ -78,11 +78,15 @@ class _ResultScreenState extends State<ResultScreen> {
   void _save() {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请完成命名')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请完成命名')),
+      );
       return;
     }
     if (_category == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请选择分类')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请选择分类')),
+      );
       return;
     }
     SoundRepository.instance.addDraft(
@@ -103,36 +107,43 @@ class _ResultScreenState extends State<ResultScreen> {
   Widget build(BuildContext context) {
     final now = DateTime.now();
     return Scaffold(
-      backgroundColor: AppColors.canvasBg,
-      appBar: AppBar(
-        backgroundColor: AppColors.canvasBg,
-        elevation: 0,
-        foregroundColor: AppColors.ink950,
-        title: const Text('录音结果'),
-      ),
+      backgroundColor: AppColors.bgPrimary,
+      appBar: AppBar(title: const Text('录音结果')),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageHorizontal),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.pageHorizontal,
+          ),
           children: [
             SizedBox(
               height: 220,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(AppRadii.card),
                 child: Material(
-                  color: AppColors.primary50,
+                  color: AppColors.surface1,
                   child: InkWell(
                     onTap: _togglePlay,
                     child: Stack(
-                      alignment: Alignment.center,
+                      alignment: Alignment.bottomCenter,
                       children: [
                         Padding(
                           padding: const EdgeInsets.all(AppSpacing.item),
-                          child: SoundVisualCanvas(seed: _seed, active: _playing),
+                          child: SoundVisualCanvas(
+                            seed: _seed,
+                            mode: _playing
+                                ? SoundVisualMode.playback
+                                : SoundVisualMode.complete,
+                          ),
                         ),
-                        Icon(
-                          _playing ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                          size: 56,
-                          color: AppColors.primary700.withValues(alpha: 0.85),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Text(
+                            _playing ? '暂停' : '试听',
+                            style: TextStyle(
+                              color: AppColors.accent.withValues(alpha: 0.9),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -142,21 +153,14 @@ class _ResultScreenState extends State<ResultScreen> {
             ),
             const SizedBox(height: AppSpacing.item),
             Text(
-              '${formatRecordedAt(now)}  ·  ${formatDuration(widget.durationSec)}',
-              style: const TextStyle(color: AppColors.ink400, fontSize: 13),
+              '${formatRecordedAt(now)}  ·  ${formatDuration(widget.durationSec)} · 地点未记录',
+              style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
             ),
             const SizedBox(height: AppSpacing.section),
-            const SectionLabel('声音名称'),
-            TextField(
+            SpTextField(
               controller: _nameCtrl,
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: AppColors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.input),
-                  borderSide: const BorderSide(color: AppColors.line200),
-                ),
-              ),
+              label: '声音名称',
+              maxLength: 20,
             ),
             const SizedBox(height: AppSpacing.item),
             const SectionLabel('分类'),
@@ -167,33 +171,27 @@ class _ResultScreenState extends State<ResultScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 alignment: Alignment.centerLeft,
                 decoration: BoxDecoration(
-                  color: AppColors.white,
+                  color: AppColors.surface1,
                   borderRadius: BorderRadius.circular(AppRadii.input),
-                  border: Border.all(color: AppColors.line200),
+                  border: Border.all(color: AppColors.border),
                 ),
                 child: Text(
                   _category ?? '选择分类',
                   style: TextStyle(
-                    color: _category == null ? AppColors.ink400 : AppColors.ink950,
+                    color: _category == null
+                        ? AppColors.textTertiary
+                        : AppColors.textPrimary,
                   ),
                 ),
               ),
             ),
             const SizedBox(height: AppSpacing.item),
-            const SectionLabel('描述（选填）'),
-            TextField(
+            SpTextField(
               controller: _descCtrl,
+              label: '描述（选填）',
+              hint: '记录这段声音背后的故事……',
               maxLines: 3,
-              decoration: InputDecoration(
-                hintText: '记录这段声音背后的故事……',
-                hintStyle: const TextStyle(color: AppColors.ink400),
-                filled: true,
-                fillColor: AppColors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.input),
-                  borderSide: const BorderSide(color: AppColors.line200),
-                ),
-              ),
+              maxLength: 200,
             ),
             const SizedBox(height: AppSpacing.block),
             SecondaryButton(text: '重新录制', onPressed: widget.onReRecord),

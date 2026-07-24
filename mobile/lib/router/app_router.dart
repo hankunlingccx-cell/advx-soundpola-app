@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../data/press_resume.dart';
 import '../data/session.dart';
 import '../data/sound_repository.dart';
+import '../screens/account/account_screen.dart';
+import '../screens/auth/auth_screens.dart';
 import '../screens/collection/collection_screen.dart';
 import '../screens/drafts/drafts_screen.dart';
 import '../screens/press/press_screens.dart';
@@ -9,43 +12,54 @@ import '../screens/record/permission_screen.dart';
 import '../screens/record/record_home_screen.dart';
 import '../screens/record/recording_screen.dart';
 import '../screens/record/result_screen.dart';
+import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/design_components.dart';
+import 'app_routes.dart';
 
-class AppRoutes {
-  static const permission = '/permission';
-  static const main = '/';
-  static const recording = '/recording';
-  static const result = '/result';
-  static const draftDetail = '/draft/:id';
-  static const pressMethod = '/press/method/:id';
-  static const pressDetect = '/press/detect/:id';
-  static const pressConfirm = '/press/confirm/:id';
-  static const pressProgress = '/press/progress/:id';
-  static const pressDone = '/press/done/:id';
-  static const memory = '/memory/:id';
+export 'app_routes.dart';
 
-  static String mainTab(int tab) => '/?tab=$tab';
-  static String resultPath(int duration) => '/result?duration=$duration';
-  static String draftPath(String id) => '/draft/$id';
-  static String pressProgressPath(String id, {bool chainOnly = false}) =>
-      chainOnly ? '/press/progress/$id?chainOnly=1' : '/press/progress/$id';
-  static String pressMethodPath(String id, {bool chainOnly = false}) =>
-      chainOnly ? '/press/method/$id?chainOnly=1' : '/press/method/$id';
-  static String pressDetectPath(String id) => '/press/detect/$id';
-  static String pressConfirmPath(String id) => '/press/confirm/$id';
-  static String pressDonePath(String id) => '/press/done/$id';
-  static String memoryPath(String id) => '/memory/$id';
+void openPressFlow(BuildContext context, String id, {bool chainOnly = false}) {
+  if (!AuthService.instance.isLoggedIn) {
+    PressResume.set(id: id, chainOnlyMode: chainOnly);
+    context.push(AppRoutes.loginPath(draftId: id));
+    return;
+  }
+  context.push(AppRoutes.pressMethodPath(id, chainOnly: chainOnly));
 }
 
 GoRouter createRouter({required ValueNotifier<bool> consented}) {
   return GoRouter(
-    initialLocation: consented.value ? AppRoutes.main : AppRoutes.permission,
-    refreshListenable: consented,
+    initialLocation: AppRoutes.permission,
+    refreshListenable: Listenable.merge([consented, AuthService.instance]),
     redirect: (context, state) {
-      final onPermission = state.matchedLocation == AppRoutes.permission;
-      if (!consented.value && !onPermission) return AppRoutes.permission;
-      if (consented.value && onPermission) return AppRoutes.main;
+      final loc = state.matchedLocation;
+      final onPermission = loc == AppRoutes.permission;
+      final onAuth = loc == AppRoutes.login ||
+          loc == AppRoutes.register ||
+          loc == AppRoutes.accountReady;
+
+      // 1) 麦克风权限页优先
+      if (!consented.value) {
+        return onPermission ? null : AppRoutes.permission;
+      }
+      if (onPermission) {
+        return AuthService.instance.isLoggedIn
+            ? AppRoutes.main
+            : AppRoutes.login;
+      }
+
+      // 2) 进入主流程前必须登录
+      if (!AuthService.instance.isLoggedIn) {
+        return onAuth ? null : AppRoutes.login;
+      }
+
+      // 3) 已登录时离开登录页
+      if (loc == AppRoutes.login) {
+        if (PressResume.hasPending) return null;
+        return AppRoutes.main;
+      }
+
       return null;
     },
     routes: [
@@ -55,13 +69,32 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
           onContinue: () => consented.value = true,
         ),
       ),
+      GoRoute(
+        path: AppRoutes.login,
+        builder: (context, state) => LoginScreen(
+          draftId: state.uri.queryParameters['draftId'],
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.register,
+        builder: (context, state) => const RegisterScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.accountReady,
+        builder: (context, state) => const AccountReadyScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.account,
+        builder: (context, state) => const AccountScreen(),
+      ),
       ShellRoute(
         builder: (context, state, child) => child,
         routes: [
           GoRoute(
             path: AppRoutes.main,
             builder: (context, state) {
-              final tab = int.tryParse(state.uri.queryParameters['tab'] ?? '0') ?? 0;
+              final tab =
+                  int.tryParse(state.uri.queryParameters['tab'] ?? '0') ?? 0;
               return MainShell(initialTab: tab);
             },
           ),
@@ -80,7 +113,9 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
             builder: (context, state) {
               final duration = RecordingSession.durationSec != 0
                   ? RecordingSession.durationSec
-                  : int.tryParse(state.uri.queryParameters['duration'] ?? '1') ?? 1;
+                  : int.tryParse(
+                          state.uri.queryParameters['duration'] ?? '1') ??
+                      1;
               final audioPath = RecordingSession.audioPath ?? '';
               return ResultScreen(
                 durationSec: duration,
@@ -102,11 +137,11 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
                 onBack: () => context.pop(),
                 onPress: () {
                   final item = SoundRepository.instance.get(id);
-                  if (item?.status == SoundStatus.chainFailed) {
-                    context.push(AppRoutes.pressMethodPath(id, chainOnly: true));
-                  } else {
-                    context.push(AppRoutes.pressMethodPath(id));
-                  }
+                  openPressFlow(
+                    context,
+                    id,
+                    chainOnly: item?.status == SoundStatus.chainFailed,
+                  );
                 },
                 onDeleted: () => context.pop(),
               );
@@ -116,14 +151,17 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
             path: AppRoutes.pressMethod,
             builder: (context, state) {
               final id = state.pathParameters['id']!;
-              final chainOnly = state.uri.queryParameters['chainOnly'] == '1';
+              final chainOnly =
+                  state.uri.queryParameters['chainOnly'] == '1';
               return PressMethodScreen(
                 id: id,
                 chainOnly: chainOnly,
                 onBack: () => context.pop(),
                 onNfc: () {
                   if (chainOnly) {
-                    context.pushReplacement(AppRoutes.pressProgressPath(id, chainOnly: true));
+                    context.pushReplacement(
+                      AppRoutes.pressProgressPath(id, chainOnly: true),
+                    );
                   } else {
                     context.push(AppRoutes.pressDetectPath(id));
                   }
@@ -138,7 +176,8 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
               return PressDetectScreen(
                 id: id,
                 onBack: () => context.pop(),
-                onDetected: () => context.pushReplacement(AppRoutes.pressConfirmPath(id)),
+                onDetected: () =>
+                    context.pushReplacement(AppRoutes.pressConfirmPath(id)),
               );
             },
           ),
@@ -149,7 +188,8 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
               return PressConfirmScreen(
                 id: id,
                 onBack: () => context.pop(),
-                onConfirm: () => context.pushReplacement(AppRoutes.pressProgressPath(id)),
+                onConfirm: () =>
+                    context.pushReplacement(AppRoutes.pressProgressPath(id)),
               );
             },
           ),
@@ -157,11 +197,13 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
             path: AppRoutes.pressProgress,
             builder: (context, state) {
               final id = state.pathParameters['id']!;
-              final chainOnly = state.uri.queryParameters['chainOnly'] == '1';
+              final chainOnly =
+                  state.uri.queryParameters['chainOnly'] == '1';
               return PressProgressScreen(
                 id: id,
                 chainOnly: chainOnly,
-                onDone: () => context.pushReplacement(AppRoutes.pressDonePath(id)),
+                onDone: () =>
+                    context.pushReplacement(AppRoutes.pressDonePath(id)),
               );
             },
           ),
@@ -220,7 +262,7 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.canvasBg,
+      backgroundColor: AppColors.bgPrimary,
       body: IndexedStack(
         index: _tab,
         children: [
@@ -229,18 +271,22 @@ class _MainShellState extends State<MainShell> {
             onOpenDetail: (id) => context.push(AppRoutes.draftPath(id)),
             onPress: (id) {
               final item = SoundRepository.instance.get(id);
-              if (item?.status == SoundStatus.chainFailed) {
-                context.push(AppRoutes.pressMethodPath(id, chainOnly: true));
-              } else {
-                context.push(AppRoutes.pressMethodPath(id));
-              }
+              openPressFlow(
+                context,
+                id,
+                chainOnly: item?.status == SoundStatus.chainFailed,
+              );
             },
             onStartRecord: () {
               setState(() => _tab = 0);
               context.push(AppRoutes.recording);
             },
+            onLogin: () => context.push(AppRoutes.login),
           ),
-          CollectionScreen(onOpenMemory: (id) => context.push(AppRoutes.memoryPath(id))),
+          CollectionScreen(
+            onOpenMemory: (id) => context.push(AppRoutes.memoryPath(id)),
+            onLogin: () => context.push(AppRoutes.login),
+          ),
         ],
       ),
       bottomNavigationBar: BottomNavBar(

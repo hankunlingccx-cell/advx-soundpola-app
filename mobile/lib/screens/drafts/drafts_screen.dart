@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../data/sound_repository.dart';
+import '../../services/audio_playback_service.dart';
+import '../../services/auth_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
@@ -13,11 +15,13 @@ class DraftsScreen extends StatefulWidget {
     required this.onOpenDetail,
     required this.onPress,
     required this.onStartRecord,
+    required this.onLogin,
   });
 
   final ValueChanged<String> onOpenDetail;
   final ValueChanged<String> onPress;
   final VoidCallback onStartRecord;
+  final VoidCallback onLogin;
 
   @override
   State<DraftsScreen> createState() => _DraftsScreenState();
@@ -30,11 +34,14 @@ class _DraftsScreenState extends State<DraftsScreen> {
     return switch (_filter) {
       '已暂存' => items.where((s) => s.status == SoundStatus.drafted).toList(),
       '处理中' => items
-          .where((s) => s.status == SoundStatus.writing || s.status == SoundStatus.chainPending)
+          .where((s) =>
+              s.status == SoundStatus.writing ||
+              s.status == SoundStatus.chainPending)
           .toList(),
       '失败' => items
           .where((s) =>
-              s.status == SoundStatus.writeFailed || s.status == SoundStatus.chainFailed)
+              s.status == SoundStatus.writeFailed ||
+              s.status == SoundStatus.chainFailed)
           .toList(),
       _ => items,
     };
@@ -43,11 +50,15 @@ class _DraftsScreenState extends State<DraftsScreen> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: SoundRepository.instance,
+      animation: Listenable.merge([
+        SoundRepository.instance,
+        AuthService.instance,
+      ]),
       builder: (context, _) {
         final items = _filtered(SoundRepository.instance.drafts);
+        final loggedIn = AuthService.instance.isLoggedIn;
         return ColoredBox(
-          color: AppColors.canvasBg,
+          color: AppColors.bgPrimary,
           child: SafeArea(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -56,6 +67,10 @@ class _DraftsScreenState extends State<DraftsScreen> {
                   title: 'Drafts',
                   subtitle: '${SoundRepository.instance.drafts.length} 段暂存',
                 ),
+                if (!loggedIn) ...[
+                  LoginHintCard(onLogin: widget.onLogin),
+                  const SizedBox(height: AppSpacing.item),
+                ],
                 FilterChipRow(
                   options: _filters,
                   selected: _filter,
@@ -71,7 +86,8 @@ class _DraftsScreenState extends State<DraftsScreen> {
                             vertical: AppSpacing.tight,
                           ),
                           itemCount: items.length,
-                          separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.tight),
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: AppSpacing.tight),
                           itemBuilder: (context, index) {
                             final item = items[index];
                             return _DraftCard(
@@ -103,17 +119,23 @@ class _EmptyDrafts extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SizedBox(
+            const SizedBox(
               height: 120,
               width: 120,
               child: SoundVisualCanvas(seed: 42, active: false),
             ),
             const SizedBox(height: AppSpacing.item),
-            const Text('还没有暂存的声音', style: TextStyle(color: AppColors.ink950, fontSize: 16)),
+            const Text(
+              '还没有暂存的声音',
+              style: TextStyle(color: AppColors.textPrimary, fontSize: 16),
+            ),
             const SizedBox(height: 8),
-            const Text('去捕捉此刻的声音', style: TextStyle(color: AppColors.ink600)),
+            const Text(
+              '去捕捉此刻的声音',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
             const SizedBox(height: AppSpacing.section),
-            PrimaryButton(text: '开始录音', onPressed: onStartRecord),
+            PrimaryButton(text: '开始捕捉', onPressed: onStartRecord),
           ],
         ),
       ),
@@ -139,58 +161,72 @@ class _DraftCard extends StatelessWidget {
         item.status == SoundStatus.chainFailed;
 
     return Material(
-      color: AppColors.white,
+      color: AppColors.surface1,
       borderRadius: BorderRadius.circular(AppRadii.card),
       child: InkWell(
         onTap: onOpen,
         borderRadius: BorderRadius.circular(AppRadii.card),
         child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.tight),
-          child: Row(
+          padding: const EdgeInsets.all(AppSpacing.cardPadding),
+          child: Column(
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadii.chip),
-                child: SizedBox(
-                  width: 72,
-                  height: 72,
+              AspectRatio(
+                aspectRatio: 16 / 10,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadii.chip),
                   child: ColoredBox(
-                    color: AppColors.primary50,
-                    child: SoundVisualCanvas(seed: item.visualSeed, active: false),
+                    color: AppColors.surface2,
+                    child: SoundVisualCanvas(
+                      seed: item.visualSeed,
+                      mode: SoundVisualMode.complete,
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(width: AppSpacing.tight),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.ink950,
+              const SizedBox(height: AppSpacing.tight),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${item.category} · ${formatDuration(item.durationSec)} · ${item.locationLabel}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.textTertiary,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        StatusChip(status: item.status),
+                      ],
+                    ),
+                  ),
+                  if (canPress)
+                    TextButton(
+                      onPressed: onPress,
+                      child: Text(
+                        item.status == SoundStatus.chainFailed
+                            ? '重试上链'
+                            : 'Press',
+                        style: const TextStyle(color: AppColors.accent),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${item.category} · ${formatDuration(item.durationSec)}',
-                      style: const TextStyle(color: AppColors.ink600, fontSize: 13),
-                    ),
-                    const SizedBox(height: 6),
-                    StatusChip(status: item.status),
-                  ],
-                ),
+                ],
               ),
-              if (canPress)
-                TextButton(
-                  onPressed: onPress,
-                  child: Text(
-                    item.status == SoundStatus.chainFailed ? '重试上链' : 'Press',
-                    style: const TextStyle(color: AppColors.primary700),
-                  ),
-                ),
             ],
           ),
         ),
@@ -199,7 +235,7 @@ class _DraftCard extends StatelessWidget {
   }
 }
 
-class DraftDetailScreen extends StatelessWidget {
+class DraftDetailScreen extends StatefulWidget {
   const DraftDetailScreen({
     super.key,
     required this.id,
@@ -213,14 +249,79 @@ class DraftDetailScreen extends StatelessWidget {
   final VoidCallback onPress;
   final VoidCallback onDeleted;
 
-  Future<void> _confirmDelete(BuildContext context) async {
+  @override
+  State<DraftDetailScreen> createState() => _DraftDetailScreenState();
+}
+
+class _DraftDetailScreenState extends State<DraftDetailScreen> {
+  bool _playing = false;
+  bool _editing = false;
+  final _player = AudioPlaybackService.instance;
+  late final TextEditingController _titleCtrl;
+  late final TextEditingController _descCtrl;
+  String? _category;
+
+  @override
+  void initState() {
+    super.initState();
+    final item = SoundRepository.instance.get(widget.id);
+    _titleCtrl = TextEditingController(text: item?.title ?? '');
+    _descCtrl = TextEditingController(text: item?.description ?? '');
+    _category = item?.category;
+  }
+
+  @override
+  void dispose() {
+    _player.stop();
+    _titleCtrl.dispose();
+    _descCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _togglePlay(String? path) async {
+    if (path == null || path.isEmpty) {
+      setState(() => _playing = !_playing);
+      return;
+    }
+    if (_playing) {
+      await _player.stop();
+      setState(() => _playing = false);
+    } else {
+      await _player.play(path);
+      setState(() => _playing = true);
+    }
+  }
+
+  void _saveEdit() {
+    final title = _titleCtrl.text.trim();
+    if (title.isEmpty || _category == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('名称与分类不能为空')),
+      );
+      return;
+    }
+    SoundRepository.instance.update(
+      widget.id,
+      (s) => s.copyWith(
+        title: title,
+        category: _category,
+        description: _descCtrl.text.trim(),
+      ),
+    );
+    setState(() => _editing = false);
+  }
+
+  Future<void> _confirmDelete() async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除这段声音？'),
         content: const Text('录音、声音视觉和相关记忆信息将被永久移除。'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('确认删除', style: TextStyle(color: AppColors.error)),
@@ -229,9 +330,9 @@ class DraftDetailScreen extends StatelessWidget {
       ),
     );
     if (ok == true) {
-      if (SoundRepository.instance.delete(id)) {
-        onDeleted();
-      } else if (context.mounted) {
+      if (SoundRepository.instance.delete(widget.id)) {
+        widget.onDeleted();
+      } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('NFC 已写入的声音不可删除，请重试上链')),
         );
@@ -244,7 +345,7 @@ class DraftDetailScreen extends StatelessWidget {
     return AnimatedBuilder(
       animation: SoundRepository.instance,
       builder: (context, _) {
-        final item = SoundRepository.instance.get(id);
+        final item = SoundRepository.instance.get(widget.id);
         if (item == null) {
           return Scaffold(
             appBar: AppBar(title: const Text('Drafts')),
@@ -253,69 +354,170 @@ class DraftDetailScreen extends StatelessWidget {
         }
 
         return Scaffold(
-          backgroundColor: AppColors.canvasBg,
+          backgroundColor: AppColors.bgPrimary,
           appBar: AppBar(
-            backgroundColor: AppColors.canvasBg,
-            elevation: 0,
-            foregroundColor: AppColors.ink600,
-            title: const Text('暂存详情', style: TextStyle(color: AppColors.ink950)),
+            title: const Text('暂存详情'),
             leading: IconButton(
               icon: const Icon(Icons.arrow_back),
-              onPressed: onBack,
+              onPressed: widget.onBack,
             ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  if (_editing) {
+                    _saveEdit();
+                  } else {
+                    setState(() => _editing = true);
+                  }
+                },
+                child: Text(
+                  _editing ? '保存' : '编辑',
+                  style: const TextStyle(color: AppColors.accent),
+                ),
+              ),
+            ],
           ),
           body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageHorizontal),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadii.collectionCard),
+            child: ListView(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.pageHorizontal,
+              ),
+              children: [
+                GestureDetector(
+                  onTap: () => _togglePlay(item.audioPath),
+                  child: ClipRRect(
+                    borderRadius:
+                        BorderRadius.circular(AppRadii.collectionCard),
                     child: AspectRatio(
                       aspectRatio: 1,
                       child: ColoredBox(
-                        color: AppColors.primary50,
-                        child: SoundVisualCanvas(seed: item.visualSeed, active: true),
+                        color: AppColors.surface1,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            SoundVisualCanvas(
+                              seed: item.visualSeed,
+                              mode: _playing
+                                  ? SoundVisualMode.playback
+                                  : SoundVisualMode.complete,
+                            ),
+                            Icon(
+                              _playing
+                                  ? Icons.pause_circle_outline
+                                  : Icons.play_circle_outline,
+                              size: 44,
+                              color: AppColors.accent.withValues(alpha: 0.85),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
+                ),
+                const SizedBox(height: AppSpacing.item),
+                if (_editing) ...[
+                  SpTextField(
+                    controller: _titleCtrl,
+                    label: '声音名称',
+                    maxLength: 20,
+                  ),
                   const SizedBox(height: AppSpacing.item),
+                  const SectionLabel('分类'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: soundCategories.map((c) {
+                      final active = c == _category;
+                      return GestureDetector(
+                        onTap: () => setState(() => _category = c),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: active
+                                ? AppColors.accent.withValues(alpha: 0.15)
+                                : AppColors.surface1,
+                            borderRadius: BorderRadius.circular(50),
+                            border: Border.all(
+                              color: active
+                                  ? AppColors.accent
+                                  : AppColors.border,
+                            ),
+                          ),
+                          child: Text(
+                            c,
+                            style: TextStyle(
+                              color: active
+                                  ? AppColors.accent
+                                  : AppColors.textTertiary,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: AppSpacing.item),
+                  SpTextField(
+                    controller: _descCtrl,
+                    label: '描述（选填）',
+                    maxLines: 3,
+                    maxLength: 200,
+                  ),
+                ] else ...[
                   Text(
                     item.title,
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.ink950,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     '#${item.category} · ${formatDuration(item.durationSec)}',
-                    style: const TextStyle(color: AppColors.ink600),
+                    style: const TextStyle(color: AppColors.textSecondary),
                   ),
                   const SizedBox(height: 8),
                   StatusChip(status: item.status),
                   if (item.description.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.item),
-                    Text(item.description, style: const TextStyle(color: AppColors.ink600, height: 1.5)),
+                    Text(
+                      item.description,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        height: 1.5,
+                      ),
+                    ),
                   ],
                   const SizedBox(height: AppSpacing.item),
-                  Text(formatRecordedAt(item.recordedAt), style: const TextStyle(color: AppColors.ink400, fontSize: 13)),
-                  Text(item.locationLabel, style: const TextStyle(color: AppColors.ink600, fontSize: 13)),
-                  const Spacer(),
-                  PrimaryButton(
-                    text: item.status == SoundStatus.chainFailed ? '重试上链' : '写入声片',
-                    onPressed: onPress,
+                  MetaRow(
+                    label: '录制时间',
+                    value: formatRecordedAt(item.recordedAt),
                   ),
-                  const SizedBox(height: AppSpacing.tight),
-                  SecondaryButton(
-                    text: '删除声音',
-                    onPressed: () => _confirmDelete(context),
+                  MetaRow(label: '地点', value: item.locationLabel),
+                  MetaRow(
+                    label: '时长',
+                    value: formatDuration(item.durationSec),
                   ),
-                  const SizedBox(height: AppSpacing.section),
+                  MetaRow(label: '设备', value: item.deviceLabel),
                 ],
-              ),
+                const SizedBox(height: AppSpacing.block),
+                PrimaryButton(
+                  text: item.status == SoundStatus.chainFailed
+                      ? '重试上链'
+                      : '写入声片',
+                  onPressed: widget.onPress,
+                ),
+                const SizedBox(height: AppSpacing.tight),
+                SecondaryButton(
+                  text: '删除声音',
+                  danger: true,
+                  onPressed: _confirmDelete,
+                ),
+                const SizedBox(height: AppSpacing.section),
+              ],
             ),
           ),
         );

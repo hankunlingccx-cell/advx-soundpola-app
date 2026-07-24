@@ -117,14 +117,20 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final visualActive = !_paused && _level > -50;
+    final visualActive = !_paused && _error == null;
+    final ampNorm = ((_level + 45) / 45).clamp(0.05, 1.0);
+    final levelHint = _error != null
+        ? null
+        : (_level < -40
+            ? '音量偏低，靠近声源'
+            : (_level > -8 ? '音量偏高' : '音量正常'));
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _confirmCancel();
       },
       child: Scaffold(
-        backgroundColor: AppColors.darkCanvas,
+        backgroundColor: AppColors.bgPrimary,
         body: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageHorizontal),
@@ -135,13 +141,16 @@ class _RecordingScreenState extends State<RecordingScreen> {
                   children: [
                     TextButton(
                       onPressed: _confirmCancel,
-                      child: const Text('取消', style: TextStyle(color: AppColors.darkSecondary)),
+                      child: const Text('取消', style: TextStyle(color: AppColors.textSecondary)),
                     ),
                     Text(
                       _error != null
                           ? '录音不可用'
                           : (_paused ? '录音已暂停' : '正在录音'),
-                      style: const TextStyle(color: AppColors.darkText, fontWeight: FontWeight.w500),
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                     const SizedBox(width: 48),
                   ],
@@ -150,15 +159,23 @@ class _RecordingScreenState extends State<RecordingScreen> {
                   const SizedBox(height: 8),
                   Text(_error!, style: const TextStyle(color: AppColors.error, fontSize: 13)),
                 ],
+                if (levelHint != null) ...[
+                  const SizedBox(height: 4),
+                  Text(levelHint, style: const TextStyle(color: AppColors.textTertiary, fontSize: 12)),
+                ],
                 const Spacer(),
                 Expanded(
                   child: SoundVisualCanvas(
                     seed: 8801 + _seconds,
-                    active: visualActive,
-                    dark: true,
+                    mode: _paused
+                        ? SoundVisualMode.paused
+                        : (visualActive
+                            ? SoundVisualMode.recording
+                            : SoundVisualMode.idle),
+                    amplitude: ampNorm,
                   ),
                 ),
-                TimerText(seconds: _seconds, dark: true),
+                TimerText(seconds: _seconds),
                 const SizedBox(height: AppSpacing.block),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -167,12 +184,12 @@ class _RecordingScreenState extends State<RecordingScreen> {
                       onPressed: _error != null ? null : _togglePause,
                       child: Text(
                         _paused ? '继续' : '暂停',
-                        style: const TextStyle(color: AppColors.primary500),
+                        style: const TextStyle(color: AppColors.accent),
                       ),
                     ),
                     const SizedBox(width: 32),
                     RecordFab(
-                      recording: visualActive,
+                      recording: visualActive && !_paused,
                       onTap: _error != null || _busy ? () {} : _finish,
                     ),
                   ],

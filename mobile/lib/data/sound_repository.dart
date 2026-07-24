@@ -26,6 +26,12 @@ class SoundMemory {
     this.assetId,
     this.audioPath,
     this.nfcTagId,
+    this.pressedAt,
+    this.chainedAt,
+    this.networkLabel = 'SoundPola Chain (模拟)',
+    this.contractLabel,
+    this.tokenId,
+    this.txHash,
   })  : id = id ?? _newId(),
         recordedAt = recordedAt ?? DateTime.now(),
         visualSeed = visualSeed ?? DateTime.now().millisecondsSinceEpoch % 10000;
@@ -49,6 +55,12 @@ class SoundMemory {
   final String? assetId;
   final String? audioPath;
   final String? nfcTagId;
+  final DateTime? pressedAt;
+  final DateTime? chainedAt;
+  final String networkLabel;
+  final String? contractLabel;
+  final String? tokenId;
+  final String? txHash;
 
   SoundMemory copyWith({
     String? title,
@@ -59,6 +71,12 @@ class SoundMemory {
     String? assetId,
     String? audioPath,
     String? nfcTagId,
+    DateTime? pressedAt,
+    DateTime? chainedAt,
+    String? networkLabel,
+    String? contractLabel,
+    String? tokenId,
+    String? txHash,
   }) {
     return SoundMemory(
       id: id,
@@ -75,6 +93,12 @@ class SoundMemory {
       assetId: assetId ?? this.assetId,
       audioPath: audioPath ?? this.audioPath,
       nfcTagId: nfcTagId ?? this.nfcTagId,
+      pressedAt: pressedAt ?? this.pressedAt,
+      chainedAt: chainedAt ?? this.chainedAt,
+      networkLabel: networkLabel ?? this.networkLabel,
+      contractLabel: contractLabel ?? this.contractLabel,
+      tokenId: tokenId ?? this.tokenId,
+      txHash: txHash ?? this.txHash,
     );
   }
 }
@@ -202,6 +226,7 @@ class SoundRepository extends ChangeNotifier {
   }
 
   void markCollected(String id, String discId, String assetId, {String? nfcTagId}) {
+    final now = DateTime.now();
     update(
       id,
       (s) => s.copyWith(
@@ -209,6 +234,11 @@ class SoundRepository extends ChangeNotifier {
         discId: discId,
         assetId: assetId,
         nfcTagId: nfcTagId ?? s.nfcTagId,
+        pressedAt: s.pressedAt ?? now,
+        chainedAt: now,
+        contractLabel: s.contractLabel ?? '0xSoundPola…mock',
+        tokenId: s.tokenId ?? id.substring(0, id.length.clamp(0, 8)),
+        txHash: s.txHash ?? assetId,
       ),
     );
   }
@@ -220,6 +250,7 @@ class SoundRepository extends ChangeNotifier {
         status: SoundStatus.chainFailed,
         discId: discId,
         nfcTagId: nfcTagId ?? s.nfcTagId,
+        pressedAt: s.pressedAt ?? DateTime.now(),
       ),
     );
   }

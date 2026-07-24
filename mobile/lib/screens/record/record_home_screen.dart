@@ -25,38 +25,50 @@ class RecordHomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: AppColors.canvasBg,
+      color: AppColors.bgPrimary,
       child: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: AppSpacing.section),
-            const Text(
-              'Record',
-              style: TextStyle(
-                fontSize: 14,
-                color: AppColors.ink400,
-                fontWeight: FontWeight.w500,
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.pageHorizontal,
+                vertical: AppSpacing.item,
+              ),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'SoundPola',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  const AccountAvatarButton(),
+                ],
               ),
             ),
             const Spacer(),
-            SizedBox(
-              height: 320,
+            const Expanded(
+              flex: 3,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageHorizontal),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadii.collectionCard),
-                  child: Container(
-                    color: AppColors.primary50,
-                    padding: const EdgeInsets.all(AppSpacing.section),
-                    child: const SoundVisualCanvas(seed: 8801, active: false),
-                  ),
-                ),
+                padding: EdgeInsets.symmetric(horizontal: AppSpacing.pageHorizontal),
+                child: SoundVisualCanvas(seed: 8801, active: false),
               ),
             ),
-            const SizedBox(height: AppSpacing.block),
+            const SizedBox(height: AppSpacing.section),
             RecordFab(recording: false, onTap: () => _start(context)),
             const SizedBox(height: 12),
-            const Text('点击开始录音', style: TextStyle(color: AppColors.ink600, fontSize: 14)),
+            const Text(
+              '点击开始捕捉声音',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+            ),
+            const Text(
+              '麦克风就绪 · 地点可在结果页补充',
+              style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+            ),
             const Spacer(flex: 2),
           ],
         ),

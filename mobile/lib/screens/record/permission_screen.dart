@@ -38,10 +38,12 @@ class _PermissionScreenState extends State<PermissionScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.canvasBg,
+      backgroundColor: AppColors.bgPrimary,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageHorizontal),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.pageHorizontal,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -51,29 +53,29 @@ class _PermissionScreenState extends State<PermissionScreen> {
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.w600,
-                  color: AppColors.ink950,
+                  color: AppColors.textPrimary,
                 ),
               ),
               const SizedBox(height: 12),
               const Text(
                 'SoundPola 需要麦克风权限来录制声音，并可选择记录地点以丰富记忆。',
-                style: TextStyle(color: AppColors.ink600, fontSize: 15, height: 1.6),
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 15,
+                  height: 1.6,
+                ),
               ),
               if (_error != null) ...[
                 const SizedBox(height: AppSpacing.item),
-                Text(_error!, style: const TextStyle(color: AppColors.error, fontSize: 14)),
+                Text(
+                  _error!,
+                  style: const TextStyle(color: AppColors.error, fontSize: 14),
+                ),
               ],
               const Spacer(),
-              AspectRatio(
+              const AspectRatio(
                 aspectRatio: 1,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadii.collectionCard),
-                  child: Container(
-                    color: AppColors.primary50,
-                    padding: const EdgeInsets.all(AppSpacing.section),
-                    child: const SoundVisualCanvas(seed: 2048, active: true),
-                  ),
-                ),
+                child: SoundVisualCanvas(seed: 2048, active: true),
               ),
               const Spacer(),
               PrimaryButton(

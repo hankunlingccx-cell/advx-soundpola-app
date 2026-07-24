@@ -692,7 +692,7 @@ class PressDoneScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final item = SoundRepository.instance.get(id);
     return Scaffold(
-      backgroundColor: AppColors.canvasBg,
+      backgroundColor: AppColors.bgPrimary,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.pageHorizontal),
@@ -701,18 +701,48 @@ class PressDoneScreen extends StatelessWidget {
               const Spacer(),
               SizedBox(
                 height: 160,
-                child: SoundVisualCanvas(seed: item?.visualSeed ?? 999, active: true),
+                child: SoundVisualCanvas(
+                  seed: item?.visualSeed ?? 999,
+                  mode: SoundVisualMode.complete,
+                ),
               ),
               const SizedBox(height: AppSpacing.section),
-              const Text('写入完成', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600)),
+              const Text(
+                '写入完成',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
               const SizedBox(height: 8),
-              Text(item?.title ?? '', style: const TextStyle(color: AppColors.ink600)),
+              Text(
+                item?.title ?? '',
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
               if (item?.discId != null) ...[
                 const SizedBox(height: 8),
-                Text('声片 ${item!.discId}', style: const TextStyle(color: AppColors.ink400, fontSize: 13)),
+                Text(
+                  '声片 ${item!.discId}',
+                  style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
+                ),
+              ],
+              if (item?.assetId != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  '数字资产 ${item!.assetId}',
+                  style: const TextStyle(color: AppColors.accent, fontSize: 13),
+                ),
+              ],
+              if (item?.chainedAt != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  '上链 ${formatRecordedAt(item!.chainedAt!)}',
+                  style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                ),
               ],
               const Spacer(),
-              PrimaryButton(text: '查看 Collection', onPressed: onCollection),
+              PrimaryButton(text: '返回 Collection', onPressed: onCollection),
               const SizedBox(height: AppSpacing.tight),
               SecondaryButton(text: '打开 Memory', onPressed: onMemory),
               const SizedBox(height: AppSpacing.section),
