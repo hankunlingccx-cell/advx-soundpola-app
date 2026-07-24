@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import '../audio/audio_feature_analyzer.dart';
+import '../audio/audio_features.dart';
 
 class AudioRecordingService {
   AudioRecordingService._();
@@ -18,6 +21,9 @@ class AudioRecordingService {
       StreamController<double>.broadcast();
   Stream<double> get amplitudeStream => _amplitudeController.stream;
 
+  AudioFeatureAnalyzer? _analyzer;
+  ValueNotifier<AudioFeatures>? get featuresNotifier => _analyzer?.features;
+
   bool get isRecording => _startedAt != null;
   bool _paused = false;
   bool get isPaused => _paused;
@@ -32,10 +38,15 @@ class AudioRecordingService {
     return '${recordings.path}/$name';
   }
 
+  Future<void> _ensureAnalyzer() async {
+    _analyzer ??= await AudioFeatureAnalyzer.spawn();
+  }
+
   Future<void> start() async {
     if (!await _recorder.hasPermission()) {
       throw StateError('麦克风权限未授予');
     }
+    await _ensureAnalyzer();
     _currentPath = await _newFilePath();
     await _recorder.start(
       const RecordConfig(
@@ -48,10 +59,14 @@ class AudioRecordingService {
     _startedAt = DateTime.now();
     _paused = false;
     _pausedTotal = Duration.zero;
+    _analyzer!.setActive(true);
     _ampSub?.cancel();
     _ampSub = _recorder
-        .onAmplitudeChanged(const Duration(milliseconds: 120))
-        .listen((amp) => _amplitudeController.add(amp.current));
+        .onAmplitudeChanged(const Duration(milliseconds: 40))
+        .listen((amp) {
+      _amplitudeController.add(amp.current);
+      _analyzer?.pushAmplitude(amp.current);
+    });
   }
 
   Future<void> pause() async {
@@ -59,6 +74,7 @@ class AudioRecordingService {
       await _recorder.pause();
       _paused = true;
       _pausedAt = DateTime.now();
+      _analyzer?.setActive(false);
     }
   }
 
@@ -68,6 +84,7 @@ class AudioRecordingService {
       _pausedAt = null;
       await _recorder.resume();
       _paused = false;
+      _analyzer?.setActive(true);
     }
   }
 
@@ -75,6 +92,7 @@ class AudioRecordingService {
     final path = await _recorder.stop();
     await _ampSub?.cancel();
     _ampSub = null;
+    _analyzer?.setActive(false);
     final end = DateTime.now();
     final started = _startedAt ?? end;
     var duration = end.difference(started) - _pausedTotal;
@@ -97,6 +115,7 @@ class AudioRecordingService {
     await _recorder.stop();
     await _ampSub?.cancel();
     _ampSub = null;
+    _analyzer?.setActive(false);
     if (_currentPath != null) {
       final f = File(_currentPath!);
       if (await f.exists()) await f.delete();
@@ -120,6 +139,8 @@ class AudioRecordingService {
   void dispose() {
     _ampSub?.cancel();
     _amplitudeController.close();
+    _analyzer?.dispose();
+    _analyzer = null;
     _recorder.dispose();
   }
 }

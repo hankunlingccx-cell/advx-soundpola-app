@@ -160,6 +160,8 @@ MVP 优先：
 
 手机号或邮箱作为账号标识，配合密码登录 / 注册（本版不做验证码）。
 
+支持「记住密码」：勾选后将账号写入本地偏好、密码写入安全存储，下次打开登录页自动回填；取消勾选则清除。
+
 登录后由系统自动创建或关联托管数字资产账户。
 
 后续可选：
@@ -386,23 +388,23 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 04 录音首页
 
-顶部：SoundPola 标识、账号头像。
+顶部：SoundPola 标识、账户入口（图标 +「账户」文案，避免单字歧义）。
 
-中央：黑底实时声音粒子或线性可视化。
+中央：黑底有机线束可视化（单一 Seed → 六重旋转+镜像；2–3 组主线束，中心由曲线避让形成负空间，无遮罩黑圆）。
 
-状态文案：“点击开始捕捉声音”。
+状态文案：“点击开始捕捉声音”（提高对比度）。
 
 麦克风与地点记录状态。
 
-主录音按钮。
+主录音按钮（待机态）靠底部导航上方放置；与可视化通过淡色轴线视觉关联。
 
-底部三项导航。
+底部三项导航（Record / Drafts / Collection，中英一致）。
 
 05 录音中
 
 关闭 / 取消入口。
 
-实时声音可视化。
+实时声音可视化：音频分析在 Isolate（低频），Flutter 仅消费 RMS / Pitch / 低中高能量 / Onset / 置信度；主体控制点 20–30Hz 更新目标，60FPS 插值绘制；单 Seed 几何经 Canvas 六重旋转复制。
 
 录音计时。
 
@@ -484,21 +486,25 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 7.4 登录与账户建立
 
-09 登录触发页
+09 登录页 / 登录触发页
 
-从 Press 进入时显示，不中断用户对当前声音的确认：
+启动进入或从 Press 进入时显示；Press 场景不中断用户对当前声音的确认。
 
-当前待写入声音的缩略图与名称。
+品牌名 SoundPola（大号标题）。
 
-说明：“登录后，这段声音将归属于你的数字收藏。”
+从 Press 进入时：当前待写入声音的缩略图与名称。
 
-手机号 / 邮箱 + 密码。
+说明：“登录后，这段声音将归属于你的数字收藏。”（启动登录用“登录后开始捕捉声音…”）
 
-注册入口。
+手机号 / 邮箱 + 密码（胶囊输入框，带账号 / 锁图标）。
 
-用户协议、隐私政策。
+记住密码（勾选后本机安全存储账号与密码，便于下次回填）。
 
-“稍后再说”，返回 Drafts。
+登录主按钮；注册账号次按钮。
+
+用户协议、隐私政策提示。
+
+从 Press 进入时可“稍后再说”，返回 Drafts。
 
 10 注册页（本版替代验证码页）
 
@@ -893,7 +899,7 @@ error：权限、网络、写入、上链或账号异常。
 
 安全存储：登录令牌、账号凭证与敏感标识。
 
-云端接口：账号、Collection、资产归属、同步状态。
+云端接口：AdventureX Cloud Media（UserToken、上传/轮询/列表）；契约 `docs/openapi-cloud-media.yaml`。基址可用 `--dart-define=CLOUD_MEDIA_BASE=` 覆盖。
 
 原生能力桥接：麦克风、NFC、蓝牙、定位与触觉。
 
@@ -970,23 +976,23 @@ Account 首页。
 
 全站深色主题（#000000 + #63E0CB），对齐 designstyle.md V2。
 
-声音视觉：对齐 `visuallization/` Axis Field V1.4 线性万花筒（K=6 扇区+镜像、Core/Inner/Mid/Outer 四层平行曲线束、Morph 自主形变；音量调制亮度与幅度）。
+声音视觉：K=6 单一 Seed 有机线束；Isolate 音频分析（RMS/频段 ~28Hz、Pitch ~20Hz）产出归一化特征；渲染层 60FPS 在目标控制点间插值；Canvas 旋转复制六次；RepaintBoundary 隔离；High/Medium/Low 动态画质（掉帧时关 Bloom→减粒子→降分辨率→降帧率）；待机停分析并约 24FPS。
 
 三 Tab：Record / Drafts / Collection；Press / Memory / Account 不进底栏。
 
 一级页右上角 Account 头像入口。
 
-账号密码注册 / 登录（本地账号库 + 安全 session）；无验证码流程。
+账号密码注册 / 登录（本地账号库 + 安全 session）；登录后映射签发 Cloud Media UserToken（SecureStorage，一次下发长期持有）。
 
-Press 前登录拦截与任务恢复（draftId + chainOnly）。
+Press：multipart 上传源音频 → 轮询至 READY（FAILED 可 retry）→ NFC 写入 `contentId` + `nfc_url`（兼容 Trigger）→ 本地仍模拟 NFT 上链。
 
-Drafts 未登录提示卡；Collection 未登录引导。
+Drafts 保持本地优先；Collection 登录后 `listOwnedContents` 同步 READY 内容。
 
-真实麦克风录音、本地播放、NFC 读写（设备支持时）；上链仍为模拟。
+真实麦克风录音、本地播放、NFC 读写（设备支持时）；云媒体契约见 `docs/openapi-cloud-media.yaml`。
 
 Account 首页：昵称、收藏/声片数量、数字资产账户缩写、退出登录（不清 Drafts）。
 
-待后续：启动引导全套、地点 GPS、云端同步、Account 子树完整页、真实链上服务。
+待后续：启动引导全套、地点 GPS、Account 子树完整页、真实链上 Mint（本 OpenAPI 不含 NFT）。
 
 11. UI/UX 验收要点
 

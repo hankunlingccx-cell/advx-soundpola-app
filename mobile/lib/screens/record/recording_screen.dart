@@ -24,11 +24,13 @@ class RecordingScreen extends StatefulWidget {
 class _RecordingScreenState extends State<RecordingScreen> {
   final _recorder = AudioRecordingService.instance;
   Timer? _uiTimer;
+  Timer? _hintTimer;
   int _seconds = 0;
   bool _paused = false;
   bool _busy = false;
   String? _error;
-  double _level = -45;
+  String? _levelHint;
+  static const _visualSeed = 8801;
 
   @override
   void initState() {
@@ -51,8 +53,17 @@ class _RecordingScreenState extends State<RecordingScreen> {
           setState(() => _seconds = _recorder.elapsedSeconds());
         }
       });
-      _recorder.amplitudeStream.listen((amp) {
-        if (mounted && !_paused) setState(() => _level = amp);
+      // Level hint at ~2 Hz — does not drive visual; visual reads isolate features.
+      _hintTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        final n = _recorder.featuresNotifier;
+        if (!mounted || n == null || _paused) return;
+        final rms = n.value.rms;
+        final hint = rms < 0.15
+            ? '音量偏低，靠近声源'
+            : (rms > 0.85 ? '音量偏高' : '音量正常');
+        if (hint != _levelHint) {
+          setState(() => _levelHint = hint);
+        }
       });
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -62,6 +73,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
   @override
   void dispose() {
     _uiTimer?.cancel();
+    _hintTimer?.cancel();
     if (_recorder.isRecording) {
       _recorder.cancel();
     }
@@ -104,6 +116,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
     try {
       final result = await _recorder.stop();
       _uiTimer?.cancel();
+      _hintTimer?.cancel();
       if (mounted) widget.onComplete(result.path, result.durationSec);
     } catch (e) {
       if (mounted) {
@@ -118,12 +131,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
   @override
   Widget build(BuildContext context) {
     final visualActive = !_paused && _error == null;
-    final ampNorm = ((_level + 45) / 45).clamp(0.05, 1.0);
-    final levelHint = _error != null
-        ? null
-        : (_level < -40
-            ? '音量偏低，靠近声源'
-            : (_level > -8 ? '音量偏高' : '音量正常'));
+    final features = _recorder.featuresNotifier;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -159,20 +167,22 @@ class _RecordingScreenState extends State<RecordingScreen> {
                   const SizedBox(height: 8),
                   Text(_error!, style: const TextStyle(color: AppColors.error, fontSize: 13)),
                 ],
-                if (levelHint != null) ...[
+                if (_levelHint != null && _error == null) ...[
                   const SizedBox(height: 4),
-                  Text(levelHint, style: const TextStyle(color: AppColors.textTertiary, fontSize: 12)),
+                  Text(
+                    _levelHint!,
+                    style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                  ),
                 ],
-                const Spacer(),
                 Expanded(
                   child: SoundVisualCanvas(
-                    seed: 8801 + _seconds,
+                    seed: _visualSeed,
                     mode: _paused
                         ? SoundVisualMode.paused
                         : (visualActive
                             ? SoundVisualMode.recording
                             : SoundVisualMode.idle),
-                    amplitude: ampNorm,
+                    features: features,
                   ),
                 ),
                 TimerText(seconds: _seconds),
@@ -189,7 +199,11 @@ class _RecordingScreenState extends State<RecordingScreen> {
                     ),
                     const SizedBox(width: 32),
                     RecordFab(
-                      recording: visualActive && !_paused,
+                      state: _paused
+                          ? RecordFabState.paused
+                          : (visualActive
+                              ? RecordFabState.recording
+                              : RecordFabState.idle),
                       onTap: _error != null || _busy ? () {} : _finish,
                     ),
                   ],

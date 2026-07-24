@@ -134,35 +134,47 @@ class AccountAvatarButton extends StatelessWidget {
     return AnimatedBuilder(
       animation: AuthService.instance,
       builder: (context, _) {
-        final user = AuthService.instance.currentUser;
-        final loggedIn = user != null;
-        return GestureDetector(
-          onTap: () => context.push('/account'),
-          child: Container(
-            width: AppSizes.avatar,
-            height: AppSizes.avatar,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.surface2,
-              border: Border.all(
-                color: loggedIn ? AppColors.accent.withValues(alpha: 0.5) : AppColors.border,
+        final loggedIn = AuthService.instance.currentUser != null;
+        return Tooltip(
+          message: '账户',
+          child: GestureDetector(
+            onTap: () => context.push('/account'),
+            child: Semantics(
+              label: '账户',
+              button: true,
+              child: Container(
+                height: AppSizes.avatar,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppSizes.avatar / 2),
+                  color: AppColors.surface2,
+                  border: Border.all(
+                    color: loggedIn
+                        ? AppColors.accent.withValues(alpha: 0.5)
+                        : AppColors.border,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      loggedIn ? Icons.person : Icons.person_outline,
+                      size: 16,
+                      color: loggedIn ? AppColors.accent : AppColors.textTertiary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '账户',
+                      style: TextStyle(
+                        color: loggedIn ? AppColors.accent : AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            alignment: Alignment.center,
-            child: loggedIn
-                ? Text(
-                    user.initial,
-                    style: const TextStyle(
-                      color: AppColors.accent,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                    ),
-                  )
-                : const Icon(
-                    Icons.person_outline,
-                    size: 18,
-                    color: AppColors.textTertiary,
-                  ),
           ),
         );
       },
@@ -273,10 +285,17 @@ class FilterChipRow extends StatelessWidget {
   }
 }
 
+enum RecordFabState { idle, recording, paused }
+
 class RecordFab extends StatefulWidget {
-  const RecordFab({super.key, required this.recording, required this.onTap});
-  final bool recording;
+  const RecordFab({
+    super.key,
+    required this.onTap,
+    this.state = RecordFabState.idle,
+  });
+
   final VoidCallback onTap;
+  final RecordFabState state;
 
   @override
   State<RecordFab> createState() => _RecordFabState();
@@ -303,54 +322,113 @@ class _RecordFabState extends State<RecordFab>
 
   @override
   Widget build(BuildContext context) {
+    final fabState = widget.state;
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
         final ripple = 0.85 + 0.3 * _controller.value;
+        final fill = switch (fabState) {
+          RecordFabState.idle => AppColors.accent.withValues(alpha: 0.92),
+          RecordFabState.recording => AppColors.accent,
+          RecordFabState.paused => AppColors.accent.withValues(alpha: 0.55),
+        };
         return SizedBox(
-          width: AppSizes.recordButton + 24,
-          height: AppSizes.recordButton + 24,
+          width: AppSizes.recordButton + 28,
+          height: AppSizes.recordButton + 28,
           child: Stack(
             alignment: Alignment.center,
             children: [
-              if (widget.recording)
+              // Soft mint halo ties FAB to visualization.
+              Container(
+                width: AppSizes.recordButton + 18,
+                height: AppSizes.recordButton + 18,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      AppColors.accent.withValues(
+                        alpha: fabState == RecordFabState.recording
+                            ? 0.18
+                            : (fabState == RecordFabState.paused ? 0.08 : 0.1),
+                      ),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+              if (fabState == RecordFabState.recording)
                 Container(
                   width: AppSizes.recordButton * ripple,
                   height: AppSizes.recordButton * ripple,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: AppColors.accent.withValues(alpha: 0.25),
+                      color: AppColors.accent.withValues(alpha: 0.28),
+                    ),
+                  ),
+                ),
+              if (fabState == RecordFabState.paused)
+                Container(
+                  width: AppSizes.recordButton + 8,
+                  height: AppSizes.recordButton + 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: AppColors.accent.withValues(alpha: 0.35),
+                      width: 1.2,
                     ),
                   ),
                 ),
               GestureDetector(
                 onTap: widget.onTap,
-                child: Container(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 280),
                   width: AppSizes.recordButton,
                   height: AppSizes.recordButton,
-                  decoration: const BoxDecoration(
-                    color: AppColors.accent,
+                  decoration: BoxDecoration(
+                    color: fill,
                     shape: BoxShape.circle,
+                    border: fabState == RecordFabState.paused
+                        ? Border.all(
+                            color: AppColors.accentHighlight.withValues(alpha: 0.5),
+                          )
+                        : null,
                   ),
                   alignment: Alignment.center,
-                  child: widget.recording
-                      ? Container(
-                          width: 20,
-                          height: 20,
-                          decoration: BoxDecoration(
-                            color: AppColors.accentOn,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        )
-                      : Container(
-                          width: 16,
-                          height: 16,
-                          decoration: const BoxDecoration(
-                            color: AppColors.accentOn,
-                            shape: BoxShape.circle,
-                          ),
+                  child: switch (fabState) {
+                    RecordFabState.recording => Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: AppColors.accentOn,
+                          borderRadius: BorderRadius.circular(4),
                         ),
+                      ),
+                    RecordFabState.paused => Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 4,
+                            height: 16,
+                            color: AppColors.accentOn,
+                          ),
+                          const SizedBox(width: 5),
+                          Container(
+                            width: 4,
+                            height: 16,
+                            color: AppColors.accentOn,
+                          ),
+                        ],
+                      ),
+                    RecordFabState.idle => Container(
+                        width: 16,
+                        height: 16,
+                        decoration: const BoxDecoration(
+                          color: AppColors.accentOn,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                  },
                 ),
               ),
             ],

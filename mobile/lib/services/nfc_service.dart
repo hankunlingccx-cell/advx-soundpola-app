@@ -20,17 +20,25 @@ class NfcBinding {
     required this.soundId,
     required this.discId,
     required this.title,
+    this.contentId,
+    this.nfcUrl,
   });
 
   final String soundId;
   final String discId;
   final String title;
+  /// Cloud Media content id (32-hex) for Trigger `GET /c/{content_id}`.
+  final String? contentId;
+  /// Absolute NFC resolve URL from ContentSummary.nfc_url when READY.
+  final String? nfcUrl;
 
   Map<String, dynamic> toJson() => {
-        'v': 1,
+        'v': 2,
         'soundId': soundId,
         'discId': discId,
         'title': title,
+        if (contentId != null) 'contentId': contentId,
+        if (nfcUrl != null) 'nfcUrl': nfcUrl,
       };
 
   static NfcBinding? fromJson(Map<String, dynamic> json) {
@@ -41,6 +49,8 @@ class NfcBinding {
       soundId: soundId,
       discId: discId,
       title: json['title'] as String? ?? '',
+      contentId: json['contentId'] as String? ?? json['content_id'] as String?,
+      nfcUrl: json['nfcUrl'] as String? ?? json['nfc_url'] as String?,
     );
   }
 }
@@ -121,7 +131,12 @@ class NfcService {
         if (text.startsWith('SOUNDPOLA:')) {
           final parts = text.split(':');
           if (parts.length >= 3) {
-            return NfcBinding(soundId: parts[1], discId: parts[2], title: '');
+            return NfcBinding(
+              soundId: parts[1],
+              discId: parts[2],
+              title: '',
+              contentId: parts.length >= 4 ? parts[3] : null,
+            );
           }
         }
       }
@@ -146,27 +161,58 @@ class NfcService {
     required String soundId,
     required String discId,
     required String title,
+    String? contentId,
+    String? nfcUrl,
   }) async {
     final writable = await _isWritable(tag);
     if (!writable) {
       throw StateError('该声片不可写入');
     }
-    final binding = NfcBinding(soundId: soundId, discId: discId, title: title);
-    final message = NdefMessage(records: [
+    final binding = NfcBinding(
+      soundId: soundId,
+      discId: discId,
+      title: title,
+      contentId: contentId,
+      nfcUrl: nfcUrl,
+    );
+    final records = <NdefRecord>[
       NdefRecord(
         typeNameFormat: TypeNameFormat.media,
         type: Uint8List.fromList(utf8.encode(soundpolaMimeType)),
         identifier: Uint8List(0),
         payload: Uint8List.fromList(utf8.encode(jsonEncode(binding.toJson()))),
       ),
+    ];
+    // Prefer URI for Trigger boards that resolve nfc_url; keep text fallback.
+    final uri = nfcUrl;
+    if (uri != null && uri.isNotEmpty) {
+      records.add(
+        NdefRecord(
+          typeNameFormat: TypeNameFormat.wellKnown,
+          type: Uint8List.fromList([0x55]), // 'U'
+          identifier: Uint8List(0),
+          payload: _encodeUriPayload(uri),
+        ),
+      );
+    }
+    final textPayload = contentId != null && contentId.isNotEmpty
+        ? 'SOUNDPOLA:$soundId:$discId:$contentId'
+        : 'SOUNDPOLA:$soundId:$discId';
+    records.add(
       NdefRecord(
         typeNameFormat: TypeNameFormat.wellKnown,
         type: Uint8List.fromList([0x54]),
         identifier: Uint8List(0),
-        payload: _encodeTextPayload('SOUNDPOLA:$soundId:$discId'),
+        payload: _encodeTextPayload(textPayload),
       ),
-    ]);
-    await _writeMessage(tag, message);
+    );
+    await _writeMessage(tag, NdefMessage(records: records));
+  }
+
+  /// NDEF URI payload: code 0x00 = full URI in UTF-8 (no abbreviation).
+  Uint8List _encodeUriPayload(String uri) {
+    final bytes = utf8.encode(uri);
+    return Uint8List.fromList([0x00, ...bytes]);
   }
 
   Future<NdefMessage?> _readMessage(NfcTag tag) async {

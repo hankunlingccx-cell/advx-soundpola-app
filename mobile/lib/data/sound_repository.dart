@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'dart:math';
+import '../cloud/cloud_media_models.dart';
 
 enum SoundStatus {
   drafted,
@@ -32,6 +33,9 @@ class SoundMemory {
     this.contractLabel,
     this.tokenId,
     this.txHash,
+    this.contentId,
+    this.nfcUrl,
+    this.cloudState,
   })  : id = id ?? _newId(),
         recordedAt = recordedAt ?? DateTime.now(),
         visualSeed = visualSeed ?? DateTime.now().millisecondsSinceEpoch % 10000;
@@ -61,6 +65,11 @@ class SoundMemory {
   final String? contractLabel;
   final String? tokenId;
   final String? txHash;
+  /// Cloud Media content_id (32-hex).
+  final String? contentId;
+  final String? nfcUrl;
+  /// Wire state: UPLOADED / PROCESSING / READY / FAILED / DELETED
+  final String? cloudState;
 
   SoundMemory copyWith({
     String? title,
@@ -77,6 +86,9 @@ class SoundMemory {
     String? contractLabel,
     String? tokenId,
     String? txHash,
+    String? contentId,
+    String? nfcUrl,
+    String? cloudState,
   }) {
     return SoundMemory(
       id: id,
@@ -99,6 +111,9 @@ class SoundMemory {
       contractLabel: contractLabel ?? this.contractLabel,
       tokenId: tokenId ?? this.tokenId,
       txHash: txHash ?? this.txHash,
+      contentId: contentId ?? this.contentId,
+      nfcUrl: nfcUrl ?? this.nfcUrl,
+      cloudState: cloudState ?? this.cloudState,
     );
   }
 }
@@ -225,7 +240,15 @@ class SoundRepository extends ChangeNotifier {
     return true;
   }
 
-  void markCollected(String id, String discId, String assetId, {String? nfcTagId}) {
+  void markCollected(
+    String id,
+    String discId,
+    String assetId, {
+    String? nfcTagId,
+    String? contentId,
+    String? nfcUrl,
+    String? cloudState,
+  }) {
     final now = DateTime.now();
     update(
       id,
@@ -239,6 +262,9 @@ class SoundRepository extends ChangeNotifier {
         contractLabel: s.contractLabel ?? '0xSoundPola…mock',
         tokenId: s.tokenId ?? id.substring(0, id.length.clamp(0, 8)),
         txHash: s.txHash ?? assetId,
+        contentId: contentId ?? s.contentId,
+        nfcUrl: nfcUrl ?? s.nfcUrl,
+        cloudState: cloudState ?? s.cloudState ?? 'READY',
       ),
     );
   }
@@ -257,5 +283,49 @@ class SoundRepository extends ChangeNotifier {
 
   void markWriteFailed(String id) {
     update(id, (s) => s.copyWith(status: SoundStatus.writeFailed));
+  }
+
+  /// Merge READY cloud contents into local collection (Drafts stay local-only).
+  void syncCloudCollection(List<ContentSummary> remote) {
+    for (final item in remote) {
+      if (item.state != CloudContentState.ready) continue;
+      final existingIndex = _sounds.indexWhere(
+        (s) => s.contentId == item.contentId,
+      );
+      final durationSec = ((item.durationMs ?? 0) / 1000).round().clamp(1, 30);
+      if (existingIndex >= 0) {
+        final cur = _sounds[existingIndex];
+        _sounds[existingIndex] = cur.copyWith(
+          status: SoundStatus.collected,
+          title: cur.title.isNotEmpty ? cur.title : item.displayLabel,
+          nfcUrl: item.nfcUrl ?? cur.nfcUrl,
+          cloudState: item.state.wire,
+          assetId: cur.assetId ?? item.contentId,
+          discId: cur.discId ?? 'CLOUD-${item.contentId.substring(0, 8)}',
+          chainedAt: cur.chainedAt ?? DateTime.now(),
+        );
+      } else {
+        _sounds.insert(
+          0,
+          SoundMemory(
+            id: 'cloud_${item.contentId}',
+            title: item.displayLabel.isNotEmpty
+                ? item.displayLabel
+                : '云端声音 ${item.contentId.substring(0, 8)}',
+            category: '其他',
+            durationSec: durationSec,
+            status: SoundStatus.collected,
+            contentId: item.contentId,
+            nfcUrl: item.nfcUrl,
+            cloudState: item.state.wire,
+            assetId: item.contentId,
+            discId: 'CLOUD-${item.contentId.substring(0, 8)}',
+            chainedAt: DateTime.tryParse(item.readyAt ?? '') ?? DateTime.now(),
+            networkLabel: 'Cloud Media',
+          ),
+        );
+      }
+    }
+    notifyListeners();
   }
 }

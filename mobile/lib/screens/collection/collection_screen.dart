@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../cloud/cloud_media_client.dart';
 import '../../data/sound_repository.dart';
 import '../../services/audio_playback_service.dart';
 import '../../services/auth_service.dart';
@@ -7,7 +8,7 @@ import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
 import '../../widgets/sound_visual.dart';
 
-class CollectionScreen extends StatelessWidget {
+class CollectionScreen extends StatefulWidget {
   const CollectionScreen({
     super.key,
     required this.onOpenMemory,
@@ -16,6 +17,53 @@ class CollectionScreen extends StatelessWidget {
 
   final ValueChanged<String> onOpenMemory;
   final VoidCallback onLogin;
+
+  @override
+  State<CollectionScreen> createState() => _CollectionScreenState();
+}
+
+class _CollectionScreenState extends State<CollectionScreen> {
+  final _cloud = CloudMediaClient();
+  bool _syncing = false;
+  String? _syncError;
+
+  @override
+  void initState() {
+    super.initState();
+    AuthService.instance.addListener(_onAuthChanged);
+    _maybeSync();
+  }
+
+  @override
+  void dispose() {
+    AuthService.instance.removeListener(_onAuthChanged);
+    _cloud.close();
+    super.dispose();
+  }
+
+  void _onAuthChanged() {
+    _maybeSync();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _maybeSync() async {
+    if (!AuthService.instance.isLoggedIn || _syncing) return;
+    setState(() {
+      _syncing = true;
+      _syncError = null;
+    });
+    try {
+      final token = await AuthService.instance.requireCloudToken();
+      final list = await _cloud.listContents(token);
+      SoundRepository.instance.syncCloudCollection(list.items);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _syncError = e.toString());
+      }
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,44 +83,80 @@ class CollectionScreen extends StatelessWidget {
               children: [
                 PageHeader(
                   title: 'Collection',
-                  subtitle: loggedIn ? '${items.length} 段收藏' : '数字收藏',
+                  subtitle: loggedIn
+                      ? (_syncing
+                          ? '同步云端收藏…'
+                          : '${items.length} 段收藏')
+                      : '数字收藏',
                 ),
+                if (loggedIn && _syncError != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.pageHorizontal,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '云端同步失败：$_syncError',
+                            style: const TextStyle(
+                              color: AppColors.error,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _syncing ? null : _maybeSync,
+                          child: const Text('重试'),
+                        ),
+                      ],
+                    ),
+                  ),
                 Expanded(
                   child: !loggedIn
-                      ? _LoginGate(onLogin: onLogin)
+                      ? _LoginGate(onLogin: widget.onLogin)
                       : items.isEmpty
-                          ? const Center(
+                          ? Center(
                               child: Padding(
-                                padding: EdgeInsets.all(AppSpacing.pageHorizontal),
+                                padding: const EdgeInsets.all(
+                                  AppSpacing.pageHorizontal,
+                                ),
                                 child: Text(
-                                  '还没有收藏的声音\n从 Drafts 写入第一张声片吧',
+                                  _syncing
+                                      ? '正在从云端加载…'
+                                      : '还没有收藏的声音\n从 Drafts 写入第一张声片吧',
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     color: AppColors.textSecondary,
                                     height: 1.5,
                                   ),
                                 ),
                               ),
                             )
-                          : GridView.builder(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.pageHorizontal,
+                          : RefreshIndicator(
+                              onRefresh: _maybeSync,
+                              color: AppColors.accent,
+                              child: GridView.builder(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.pageHorizontal,
+                                ),
+                                gridDelegate:
+                                    const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 2,
+                                  crossAxisSpacing: AppSpacing.tight,
+                                  mainAxisSpacing: AppSpacing.tight,
+                                  childAspectRatio: 0.72,
+                                ),
+                                itemCount: items.length,
+                                itemBuilder: (context, index) {
+                                  final item = items[index];
+                                  return _CollectionCard(
+                                    item: item,
+                                    onTap: () => widget.onOpenMemory(item.id),
+                                  );
+                                },
                               ),
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                crossAxisSpacing: AppSpacing.tight,
-                                mainAxisSpacing: AppSpacing.tight,
-                                childAspectRatio: 0.72,
-                              ),
-                              itemCount: items.length,
-                              itemBuilder: (context, index) {
-                                final item = items[index];
-                                return _CollectionCard(
-                                  item: item,
-                                  onTap: () => onOpenMemory(item.id),
-                                );
-                              },
                             ),
                 ),
               ],

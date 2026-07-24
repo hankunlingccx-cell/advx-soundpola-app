@@ -50,26 +50,52 @@ class RecordHomeScreen extends StatelessWidget {
                 ],
               ),
             ),
-            const Spacer(),
-            const Expanded(
-              flex: 3,
+            Expanded(
               child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: AppSpacing.pageHorizontal),
-                child: SoundVisualCanvas(seed: 8801, active: false),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.pageHorizontal,
+                ),
+                child: const SoundVisualCanvas(seed: 8801, active: false),
               ),
             ),
-            const SizedBox(height: AppSpacing.section),
-            RecordFab(recording: false, onTap: () => _start(context)),
+            // Soft bridge between visual and record control
+            Container(
+              height: 20,
+              width: 2,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(1),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppColors.accent.withValues(alpha: 0.18),
+                    AppColors.accent.withValues(alpha: 0.05),
+                  ],
+                ),
+              ),
+            ),
+            RecordFab(
+              state: RecordFabState.idle,
+              onTap: () => _start(context),
+            ),
             const SizedBox(height: 12),
             const Text(
               '点击开始捕捉声音',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-            const Text(
+            const SizedBox(height: 4),
+            Text(
               '麦克风就绪 · 地点可在结果页补充',
-              style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+              style: TextStyle(
+                color: AppColors.textSecondary.withValues(alpha: 0.9),
+                fontSize: 12,
+              ),
             ),
-            const Spacer(flex: 2),
+            const SizedBox(height: 20),
           ],
         ),
       ),

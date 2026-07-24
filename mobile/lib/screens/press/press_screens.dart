@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import '../../cloud/cloud_media_client.dart';
+import '../../cloud/cloud_media_models.dart';
 import '../../data/session.dart';
 import '../../data/sound_repository.dart';
+import '../../services/auth_service.dart';
 import '../../services/chain_service.dart';
 import '../../services/nfc_service.dart';
 import '../../theme/app_colors.dart';
@@ -486,12 +490,13 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
   String _phase = '准备中…';
   String? _error;
   bool _nfcWritten = false;
+  final _cloud = CloudMediaClient();
 
   static const _phases = [
+    '上传音频至云端',
+    '云端渲染可视化',
     '写入声片',
-    '校验声片',
     '创建数字资产',
-    '完成上链',
     '加入 Collection',
   ];
 
@@ -506,6 +511,7 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
     if (!_nfcWritten && !widget.chainOnly) {
       NfcService.instance.stopSession();
     }
+    _cloud.close();
     super.dispose();
   }
 
@@ -513,43 +519,63 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
     final item = SoundRepository.instance.get(widget.id);
     if (item == null) return;
 
-    SoundRepository.instance.update(widget.id, (s) => s.copyWith(status: SoundStatus.writing));
+    SoundRepository.instance.update(
+      widget.id,
+      (s) => s.copyWith(status: SoundStatus.writing),
+    );
 
     try {
+      setState(() {
+        _phase = _phases[0];
+        _progress = 0.08;
+      });
+
+      final token = await AuthService.instance.requireCloudToken();
+      final ready = await _ensureCloudReady(item, token);
+
+      SoundRepository.instance.update(
+        widget.id,
+        (s) => s.copyWith(
+          contentId: ready.contentId,
+          nfcUrl: ready.nfcUrl,
+          cloudState: ready.state.wire,
+        ),
+      );
+
       if (!widget.chainOnly) {
-        setState(() => _phase = _phases[0]);
+        setState(() {
+          _phase = _phases[2];
+          _progress = 0.55;
+        });
         final discId = PressSession.discId!;
-        final written = await _writeNfc(item, discId);
+        final written = await _writeNfc(
+          item,
+          discId,
+          contentId: ready.contentId,
+          nfcUrl: ready.nfcUrl,
+        );
         if (!written) return;
         _nfcWritten = true;
         SoundRepository.instance.update(
           widget.id,
           (s) => s.copyWith(discId: discId, nfcTagId: PressSession.tagIdHex),
         );
-        setState(() {
-          _progress = 0.35;
-          _phase = _phases[1];
-        });
-        await Future.delayed(const Duration(milliseconds: 600));
+        setState(() => _progress = 0.7);
+        await Future.delayed(const Duration(milliseconds: 400));
       } else {
         setState(() {
-          _progress = 0.35;
-          _phase = _phases[2];
+          _progress = 0.7;
+          _phase = _phases[3];
         });
       }
 
       setState(() {
-        _progress = 0.55;
-        _phase = _phases[2];
-      });
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      setState(() {
-        _progress = 0.75;
+        _progress = 0.85;
         _phase = _phases[3];
       });
 
-      final discId = PressSession.discId ?? item.discId ?? NfcService.instance.generateDiscId('RETRY');
+      final discId =
+          PressSession.discId ?? item.discId ?? NfcService.instance.generateDiscId('RETRY');
       final assetId = await ChainService.instance.submitAsset(
         soundId: widget.id,
         discId: discId,
@@ -564,6 +590,9 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
         discId,
         assetId,
         nfcTagId: PressSession.tagIdHex ?? item.nfcTagId,
+        contentId: ready.contentId,
+        nfcUrl: ready.nfcUrl,
+        cloudState: ready.state.wire,
       );
       PressSession.clear();
       await Future.delayed(const Duration(milliseconds: 400));
@@ -588,7 +617,86 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
     }
   }
 
-  Future<bool> _writeNfc(SoundMemory item, String discId) async {
+  Future<ContentSummary> _ensureCloudReady(SoundMemory item, String token) async {
+    var contentId = item.contentId;
+
+    if (contentId != null && contentId.isNotEmpty) {
+      var summary = await _cloud.getContent(token: token, contentId: contentId);
+      if (summary.state == CloudContentState.ready) {
+        setState(() {
+          _phase = _phases[1];
+          _progress = 0.5;
+        });
+        return summary;
+      }
+      if (summary.state == CloudContentState.failed) {
+        setState(() {
+          _phase = '重试云端处理…';
+          _progress = 0.2;
+        });
+        summary = await _cloud.retryContent(token: token, contentId: contentId);
+      }
+      if (summary.state == CloudContentState.ready) return summary;
+      setState(() {
+        _phase = _phases[1];
+        _progress = 0.25;
+      });
+      return _cloud.waitUntilReady(
+        token: token,
+        contentId: contentId,
+        onUpdate: (s) {
+          if (!mounted) return;
+          setState(() {
+            _phase = '云端处理：${s.state.wire}';
+            _progress = s.state == CloudContentState.processing ? 0.4 : 0.3;
+          });
+        },
+      );
+    }
+
+    final path = item.audioPath;
+    if (path == null || path.isEmpty || !File(path).existsSync()) {
+      throw StateError('缺少本地录音文件，无法上传云端');
+    }
+
+    setState(() {
+      _phase = _phases[0];
+      _progress = 0.15;
+    });
+    final created = await _cloud.uploadAudio(
+      token: token,
+      file: File(path),
+      filename: path.split(Platform.pathSeparator).last,
+    );
+    contentId = created.contentId;
+    SoundRepository.instance.update(
+      widget.id,
+      (s) => s.copyWith(contentId: contentId, cloudState: created.state.wire),
+    );
+
+    setState(() {
+      _phase = _phases[1];
+      _progress = 0.28;
+    });
+    return _cloud.waitUntilReady(
+      token: token,
+      contentId: contentId,
+      onUpdate: (s) {
+        if (!mounted) return;
+        setState(() {
+          _phase = '云端处理：${s.state.wire}';
+          _progress = s.state == CloudContentState.processing ? 0.42 : 0.32;
+        });
+      },
+    );
+  }
+
+  Future<bool> _writeNfc(
+    SoundMemory item,
+    String discId, {
+    required String contentId,
+    String? nfcUrl,
+  }) async {
     final completer = Completer<bool>();
     await NfcService.instance.startSession(
       alertMessage: '保持手机贴近声片，正在写入…',
@@ -600,6 +708,8 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
             soundId: widget.id,
             discId: discId,
             title: item.title,
+            contentId: contentId,
+            nfcUrl: nfcUrl,
           );
           await NfcService.instance.stopSession(message: '写入成功');
           if (!completer.isCompleted) completer.complete(true);
