@@ -1,0 +1,28 @@
+name: soundpola
+description: SoundPola — 声音记忆收藏 App（first.md / designstyle.md）
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  go_router: ^16.0.0
+  record: ^6.0.0
+  permission_handler: ^12.0.0
+  path_provider: ^2.1.5
+  audioplayers: ^6.1.0
+  nfc_manager: ^4.0.2
+  ndef_record: ^1.4.2
+  android_intent_plus: ^5.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

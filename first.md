@@ -1241,25 +1241,25 @@ Collection 首屏以声音视觉为主要识别元素，而不是技术编号或
 
 Memory 首屏优先呈现声音和记忆，数字资产信息默认折叠。
 
-## 12. 实现进度（Android Compose MVP · 2026-07）
+## 12. 实现进度（2026-07）
 
-技术说明：`first.md` 目标为 Flutter/RN 跨平台；当前以 Jetpack Compose 实现 Android 可运行原型，验证 IA 与 `designstyle.md` 视觉。
+### Flutter 跨平台（`mobile/` · 主工程）
+
+Flutter 3.44.7，对齐 `first.md` IA 与 `designstyle.md` 视觉。
 
 **P0 已落地：**
 
-- 权限说明（§7.1）
-- Record 待机 / 录音中 / 暂停 / 完成（§7.2–7.3）
-- 录音结果：命名、分类、描述、保存 Drafts（§7.4）
-- Drafts 列表筛选、详情、Press 入口、上链失败重试（§7.5–7.6）
-- Press 完整流程：方式 → 检测 → 确认 → 进度 → 完成（§7.7–7.10）
-- Collection 两列视觉网格
-- Memory 详情，资产信息默认折叠
+- 权限说明 → Record / 录音中 / 暂停 / 结果 → Drafts → Press → Collection → Memory
+- 底部三 Tab：Record · Drafts · Collection
+- 设计 Token、有机声音视觉、状态标签、Press 全流程
+- **真实麦克风录音**（`record` + 系统权限，`audioplayers` 试听）
+- **真实 NFC 写入**（`nfc_manager` NDEF 绑定；上链仍为模拟 `ChainService`）
 
-**设计系统：** `designstyle.md` 色彩 Token、间距、圆角、按钮/导航/状态标签、有机对称声音视觉。
+**待实现：** 真实上链 API、定位、P1 搜索/排序/分享卡
 
-**待迁移 / 待实现：**
+### Android Compose 原型（`app/` · 参考实现）
 
-- Flutter 跨平台工程
-- 真实麦克风、NFC、上链
-- 系统权限弹窗串联
-- P1：搜索、排序、时间轴、分享卡
+Jetpack Compose Android 可运行原型，功能与 Flutter 版对齐，用于早期验证。
+
+**待实现：** 同上硬件能力与 P1 功能
+
