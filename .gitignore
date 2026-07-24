@@ -1,13 +1,17 @@
-*.iml
-.gradle
-/local.properties
-/.idea/
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+*.iml
+.idea/
 *.apk
-*.ap_
 *.aab
-app/build/
+
+# Flutter / mobile
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/build/
+mobile/**/GeneratedPluginRegistrant.java
+
+# Android local
+**/local.properties
+**/.gradle/

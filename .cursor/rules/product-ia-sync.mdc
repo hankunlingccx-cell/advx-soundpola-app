@@ -14,7 +14,7 @@ alwaysApply: true
 ## 技术栈（first.md）
 
 目标：**Flutter / React Native** 跨平台（Android + iOS）。  
-当前 MVP：**Jetpack Compose** Android 原型，验证 IA 与视觉；后续迁移 Flutter。
+当前实现：**Flutter** 工程位于 `mobile/`。
 
 ## 一级结构（不可违背）
 
