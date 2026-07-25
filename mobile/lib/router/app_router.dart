@@ -77,13 +77,15 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
       final loc = state.matchedLocation;
       final onSplash = loc == AppRoutes.splash;
       final onPermission = loc == AppRoutes.permission;
-      final onAuth = loc == AppRoutes.login ||
+      final onAuth =
+          loc == AppRoutes.login ||
           loc == AppRoutes.register ||
           loc == AppRoutes.accountReady ||
           loc == AppRoutes.privateKeyBackup;
       final onSettings = loc == AppRoutes.serverSettings;
       // Custom scheme keeps host as "c"; path-only /c/{id} uses pathSegments.
-      final onResolve = DeepLinkService.contentIdFromUri(state.uri) != null ||
+      final onResolve =
+          DeepLinkService.contentIdFromUri(state.uri) != null ||
           state.uri.path.startsWith('/c/');
 
       // 启动页自行分流
@@ -119,15 +121,13 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
       ),
       GoRoute(
         path: AppRoutes.permission,
-        builder: (context, state) => PermissionScreen(
-          onContinue: () => consented.value = true,
-        ),
+        builder: (context, state) =>
+            PermissionScreen(onContinue: () => consented.value = true),
       ),
       GoRoute(
         path: AppRoutes.login,
-        builder: (context, state) => LoginScreen(
-          draftId: state.uri.queryParameters['draftId'],
-        ),
+        builder: (context, state) =>
+            LoginScreen(draftId: state.uri.queryParameters['draftId']),
       ),
       GoRoute(
         path: AppRoutes.register,
@@ -170,9 +170,8 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
       ),
       GoRoute(
         path: AppRoutes.resolveContent,
-        builder: (context, state) => ContentResolveScreen(
-          contentId: state.pathParameters['contentId']!,
-        ),
+        builder: (context, state) =>
+            ContentResolveScreen(contentId: state.pathParameters['contentId']!),
       ),
       ShellRoute(
         builder: (context, state, child) => child,
@@ -201,19 +200,25 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
               final duration = RecordingSession.durationSec != 0
                   ? RecordingSession.durationSec
                   : int.tryParse(
-                          state.uri.queryParameters['duration'] ?? '1') ??
-                      1;
+                          state.uri.queryParameters['duration'] ?? '1',
+                        ) ??
+                        1;
               final audioPath = RecordingSession.audioPath ?? '';
               return ResultScreen(
                 durationSec: duration,
                 audioPath: audioPath,
                 fromImport: RecordingSession.fromImport,
+                fromRing: RecordingSession.fromRing,
                 suggestedTitle: RecordingSession.suggestedTitle,
+                cloudContentId: RecordingSession.cloudContentId,
+                cloudState: RecordingSession.cloudState,
+                cloudUploadError: RecordingSession.cloudUploadError,
                 onSaved: () => context.go(AppRoutes.mainTab(1)),
                 onReRecord: () {
                   final wasImport = RecordingSession.fromImport;
+                  final wasRing = RecordingSession.fromRing;
                   RecordingSession.clear();
-                  if (wasImport) {
+                  if (wasImport || wasRing) {
                     context.pop();
                   } else {
                     context.pushReplacement(AppRoutes.recording);
@@ -237,8 +242,7 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
             path: AppRoutes.pressMethod,
             builder: (context, state) {
               final id = state.pathParameters['id']!;
-              final chainOnly =
-                  state.uri.queryParameters['chainOnly'] == '1';
+              final chainOnly = state.uri.queryParameters['chainOnly'] == '1';
               return PressMethodScreen(
                 id: id,
                 chainOnly: chainOnly,
@@ -259,10 +263,7 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
             path: AppRoutes.pressHardware,
             builder: (context, state) {
               final id = state.pathParameters['id']!;
-              return HardwarePressScreen(
-                id: id,
-                onBack: () => context.pop(),
-              );
+              return HardwarePressScreen(id: id, onBack: () => context.pop());
             },
           ),
           GoRoute(
@@ -305,8 +306,7 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
             path: AppRoutes.pressProgress,
             builder: (context, state) {
               final id = state.pathParameters['id']!;
-              final chainOnly =
-                  state.uri.queryParameters['chainOnly'] == '1';
+              final chainOnly = state.uri.queryParameters['chainOnly'] == '1';
               return PressProgressScreen(
                 id: id,
                 chainOnly: chainOnly,
@@ -323,9 +323,7 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
                 id: id,
                 onCollection: () => context.go(AppRoutes.mainTab(2)),
                 onOpenCategoryPlay: (category) {
-                  context.go(
-                    AppRoutes.categoryPlayPath(category, soundId: id),
-                  );
+                  context.go(AppRoutes.categoryPlayPath(category, soundId: id));
                 },
               );
             },

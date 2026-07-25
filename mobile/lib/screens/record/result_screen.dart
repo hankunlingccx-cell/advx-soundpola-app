@@ -22,7 +22,11 @@ class ResultScreen extends StatefulWidget {
     required this.onSaved,
     required this.onReRecord,
     this.fromImport = false,
+    this.fromRing = false,
     this.suggestedTitle,
+    this.cloudContentId,
+    this.cloudState,
+    this.cloudUploadError,
   });
 
   final int durationSec;
@@ -30,7 +34,11 @@ class ResultScreen extends StatefulWidget {
   final VoidCallback onSaved;
   final VoidCallback onReRecord;
   final bool fromImport;
+  final bool fromRing;
   final String? suggestedTitle;
+  final String? cloudContentId;
+  final String? cloudState;
+  final String? cloudUploadError;
 
   @override
   State<ResultScreen> createState() => _ResultScreenState();
@@ -51,8 +59,7 @@ class _ResultScreenState extends State<ResultScreen> {
   void initState() {
     super.initState();
     final hint = widget.suggestedTitle?.trim();
-    _nameCtrl.text =
-        (hint != null && hint.isNotEmpty) ? hint : '未命名声音';
+    _nameCtrl.text = (hint != null && hint.isNotEmpty) ? hint : '未命名声音';
     _seed = RecordingSession.visualSeed != 0
         ? RecordingSession.visualSeed
         : DateTime.now().millisecondsSinceEpoch % 10000;
@@ -87,6 +94,12 @@ class _ResultScreenState extends State<ResultScreen> {
   }
 
   Future<void> _togglePlay() async {
+    if (widget.fromRing) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('指环录音已上传，云端处理中。本地暂不预览 Speex 音频。')),
+      );
+      return;
+    }
     if (_playing) {
       await _player.stop();
       setState(() => _playing = false);
@@ -97,31 +110,32 @@ class _ResultScreenState extends State<ResultScreen> {
   }
 
   Future<void> _pickCategory() async {
-    final picked = await SpCategoryPicker.show(
-      context,
-      current: _category,
-    );
+    final picked = await SpCategoryPicker.show(context, current: _category);
     if (picked != null) setState(() => _category = picked);
   }
 
   Future<void> _save() async {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请完成命名')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请完成命名')));
       return;
     }
     if (_category == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请选择分类')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请选择分类')));
       return;
     }
     if (_saving) return;
     setState(() => _saving = true);
 
     try {
+      final isCloudUploaded = widget.cloudContentId != null;
+      final visualBakeStatus = widget.fromRing
+          ? VisualBakeStatus.none
+          : VisualBakeStatus.processingVisual;
       final memory = SoundMemory(
         title: name,
         category: _category!,
@@ -130,12 +144,16 @@ class _ResultScreenState extends State<ResultScreen> {
         visualSeed: _seed,
         audioPath: widget.audioPath,
         locationLabel: _locationLabel,
-        visualBakeStatus: VisualBakeStatus.processingVisual,
+        deviceLabel: widget.fromRing ? 'Ring Sound' : 'Mobile Device',
+        status: isCloudUploaded ? SoundStatus.writing : SoundStatus.drafted,
+        contentId: widget.cloudContentId,
+        cloudState: widget.cloudState,
+        visualBakeStatus: visualBakeStatus,
         rendererVersion: kSoundVisualRendererVersion,
       );
 
-      final timeline = RecordingSession.featureTimeline ??
-          AudioFeatureTimeline();
+      final timeline =
+          RecordingSession.featureTimeline ?? AudioFeatureTimeline();
       final paths = await SoundPackageStore.instance.materialize(
         soundId: memory.id,
         sourceAudioPath: widget.audioPath,
@@ -150,23 +168,25 @@ class _ResultScreenState extends State<ResultScreen> {
         visualIdxPath: paths.idxPath,
         visualManifestPath: paths.manifestPath,
         coverPath: paths.coverPath,
-        visualBakeStatus: VisualBakeStatus.processingVisual,
+        visualBakeStatus: visualBakeStatus,
       );
 
       SoundRepository.instance.addDraft(packaged);
       RecordingSession.clear();
 
-      // Offline bake — does not block navigation.
-      unawaited(VisualBakeService.instance.bakeSound(packaged.id));
+      if (!widget.fromRing) {
+        // Offline bake does not block navigation.
+        unawaited(VisualBakeService.instance.bakeSound(packaged.id));
+      }
 
       if (!mounted) return;
       widget.onSaved();
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('保存失败：$e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('保存失败：$e')));
       }
     }
   }
@@ -181,7 +201,9 @@ class _ResultScreenState extends State<ResultScreen> {
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
       appBar: AppBar(
-        title: Text(widget.fromImport ? '导入结果' : '录音结果'),
+        title: Text(
+          widget.fromRing ? '指环录音完成' : (widget.fromImport ? '导入结果' : '录音结果'),
+        ),
       ),
       body: SafeArea(
         child: ListView(
@@ -212,7 +234,7 @@ class _ResultScreenState extends State<ResultScreen> {
                         Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: Text(
-                            _playing ? '暂停' : '试听',
+                            widget.fromRing ? '已接收' : (_playing ? '暂停' : '试听'),
                             style: TextStyle(
                               color: AppColors.accent.withValues(alpha: 0.9),
                               fontWeight: FontWeight.w500,
@@ -229,19 +251,28 @@ class _ResultScreenState extends State<ResultScreen> {
             Text(
               '${formatRecordedAt(now)}  ·  ${formatDuration(widget.durationSec)} · '
               '${_locating ? '定位中…' : _locationLabel}',
-              style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
+              style: const TextStyle(
+                color: AppColors.textTertiary,
+                fontSize: 13,
+              ),
             ),
             const SizedBox(height: 4),
-            Text(
-              '可视化帧约 $estMb MB（512² · 12fps · 离线生成）',
-              style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
-            ),
+            if (widget.fromRing)
+              _RingCloudStatus(
+                contentId: widget.cloudContentId,
+                cloudState: widget.cloudState,
+                uploadError: widget.cloudUploadError,
+              )
+            else
+              Text(
+                '可视化帧约 $estMb MB（512² · 12fps · 离线生成）',
+                style: const TextStyle(
+                  color: AppColors.textTertiary,
+                  fontSize: 12,
+                ),
+              ),
             const SizedBox(height: AppSpacing.section),
-            SpTextField(
-              controller: _nameCtrl,
-              label: '声音名称',
-              maxLength: 20,
-            ),
+            SpTextField(controller: _nameCtrl, label: '声音名称', maxLength: 20),
             const SizedBox(height: AppSpacing.item),
             const SectionLabel('分类'),
             GestureDetector(
@@ -282,13 +313,67 @@ class _ResultScreenState extends State<ResultScreen> {
             TextButton(
               onPressed: _saving ? null : widget.onReRecord,
               child: Text(
-                widget.fromImport ? '重新选择' : '重新录音',
+                widget.fromRing
+                    ? '继续等待指环录音'
+                    : (widget.fromImport ? '重新选择' : '重新录音'),
                 style: const TextStyle(color: AppColors.accent),
               ),
             ),
             const SizedBox(height: AppSpacing.block),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _RingCloudStatus extends StatelessWidget {
+  const _RingCloudStatus({this.contentId, this.cloudState, this.uploadError});
+
+  final String? contentId;
+  final String? cloudState;
+  final String? uploadError;
+
+  @override
+  Widget build(BuildContext context) {
+    final failed = uploadError != null && uploadError!.trim().isNotEmpty;
+    final title = failed
+        ? '上传失败，已保留本地指环录音'
+        : '已上传至云端 · ${cloudState ?? 'UPLOADED'}';
+    final detail = failed
+        ? uploadError!
+        : (contentId == null ? '等待云端返回内容 ID' : 'Content ID: $contentId');
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surface1,
+        borderRadius: BorderRadius.circular(AppRadii.input),
+        border: Border.all(
+          color: failed
+              ? AppColors.error.withValues(alpha: 0.45)
+              : AppColors.border,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: failed ? AppColors.error : AppColors.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            detail,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+          ),
+        ],
       ),
     );
   }
