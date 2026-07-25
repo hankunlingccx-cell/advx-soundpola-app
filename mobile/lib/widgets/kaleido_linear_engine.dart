@@ -68,6 +68,10 @@ class KaleidoLinearEngine {
   double zcr = 0.2;
   /// Continuous volume→style morph 0–1 (quiet↔loud). Not overall scale.
   double volumeStyle = 0.28;
+  /// Volume-driven field rotation (radians, accumulates while loud).
+  double audioSpin = 0;
+  /// Volume-driven fold amount 0–1 (quiet flat ↔ loud folded).
+  double audioFold = 0;
   List<double> spectrum = const [];
 
   double userPhase = 0;
@@ -84,36 +88,38 @@ class KaleidoLinearEngine {
   static const _violet = Color(0xFF8B7AD6);
   static const _pink = Color(0xFFD4A0C8);
 
-  /// Quiet / mid / loud styles — always lerp neighbors (never hard-cut).
-  /// Differentiated structure: sharpness, density, bead character, wave, tint.
+  /// Quiet / mid / loud — rotate/fold character is the main visible morph.
   static const _lookA = _StyleLook(
-    sharpness: 0.12,
-    density: 0.62,
-    beadScale: 1.35,
-    flowMul: 0.45,
-    foldMul: 0.72,
-    waveAmp: 0.55,
+    sharpness: 0.15,
+    density: 0.75,
+    beadScale: 1.2,
+    flowMul: 0.4,
+    foldMul: 0.35,
+    waveAmp: 0.4,
     structureShift: 0.0,
+    spinMul: 0.25,
     tint: _deep,
   );
   static const _lookB = _StyleLook(
-    sharpness: 0.52,
+    sharpness: 0.55,
     density: 1.05,
     beadScale: 0.95,
-    flowMul: 1.05,
-    foldMul: 1.05,
-    waveAmp: 1.0,
-    structureShift: 0.45,
+    flowMul: 1.15,
+    foldMul: 1.15,
+    waveAmp: 1.15,
+    structureShift: 0.5,
+    spinMul: 1.0,
     tint: _accent,
   );
   static const _lookC = _StyleLook(
     sharpness: 1.0,
-    density: 1.55,
-    beadScale: 0.58,
-    flowMul: 1.85,
-    foldMul: 1.35,
-    waveAmp: 1.55,
+    density: 1.4,
+    beadScale: 0.7,
+    flowMul: 1.9,
+    foldMul: 1.85,
+    waveAmp: 1.75,
     structureShift: 1.0,
+    spinMul: 2.1,
     tint: _pink,
   );
 
@@ -217,6 +223,8 @@ class KaleidoLinearEngine {
     userPhase = 0;
     userFold = 0;
     velPhase = 0;
+    audioSpin = 0;
+    audioFold = 0;
   }
 
   void setZoom(double z) => zoom = z.clamp(0.8, 1.3);
@@ -242,8 +250,16 @@ class KaleidoLinearEngine {
     volumeStyle = _ar(
       volumeStyle,
       targetStyle,
-      rising ? 0.08 : 0.16,
-      rising ? 0.08 : 0.16,
+      rising ? 0.06 : 0.14,
+      rising ? 0.06 : 0.14,
+      dt,
+    );
+    // Fold tracks volume tightly — this is the main silhouette morph.
+    audioFold = _ar(
+      audioFold,
+      targetStyle,
+      rising ? 0.05 : 0.12,
+      rising ? 0.05 : 0.12,
       dt,
     );
   }
@@ -259,14 +275,20 @@ class KaleidoLinearEngine {
     final flowSpeed = 0.06 *
         (1.0 + drive * 1.2 + look.flowMul * 0.55 + onset * 0.45);
     flowPhase = (flowPhase + dt * flowSpeed) % 1.0;
+    // Continuous field spin — quiet almost still, loud spins + folds open.
+    final spinSpeed = 0.12 +
+        audioFold * 1.35 * look.spinMul +
+        onset * 0.55 +
+        drive * 0.25;
+    audioSpin += dt * spinSpeed;
   }
 
   /// Map mic energy to style progress. Soft thresholds so only clear volume
   /// shifts cross quiet↔mid↔loud looks.
   static double _volumeToStyle(double energy, double onset) {
-    final e = (energy + onset * 0.22).clamp(0.0, 1.0);
-    // Below ~0.12 stays near quiet; above ~0.7 saturates loud style.
-    return _smoothstep(0.12, 0.70, e);
+    final e = (energy + onset * 0.28).clamp(0.0, 1.0);
+    // More responsive: quiet below ~0.08; loud saturates ~0.58.
+    return _smoothstep(0.08, 0.58, e);
   }
 
   /// Adjacent A↔B / B↔C morph from continuous volumeStyle.
@@ -297,15 +319,18 @@ class KaleidoLinearEngine {
     final idle = 0.035 + math.sin(time * 0.55) * 0.008;
     final drive = math.max(energy, idle);
     final look = _styleLook(volumeStyle);
-    final shapeT = _smoothstep(0.12, 0.82, volumeStyle);
-    // Style morphs structure — keep silhouette size almost fixed (no balloon).
-    final geo = _soft(drive) * 0.28;
-    final fold = (0.22 + look.foldMul * 0.22 + userFold * 0.45 + shapeT * 0.08)
-        .clamp(0.12, 0.68);
-    final outerBoost = 0.995 + shapeT * 0.012 + onset * 0.015;
-    final tipSharp = 0.15 + look.sharpness * 0.85 + shapeT * 0.1;
-    final waveMul = look.waveAmp;
+    final shapeT = _smoothstep(0.05, 0.9, volumeStyle);
+    final foldAmt = (audioFold * 0.72 + look.foldMul * 0.28).clamp(0.0, 1.0);
+    // Big fold/twist — quiet nearly flat, loud strongly folded (not scaled).
+    final geo = _soft(drive) * 0.22;
+    final fold = (0.08 + foldAmt * 0.95 + userFold.abs() * 0.55).clamp(0.06, 1.15);
+    final outerBoost = 0.992 + foldAmt * 0.02 + onset * 0.012;
+    final tipSharp = 0.12 + look.sharpness * 0.9 + foldAmt * 0.2;
+    final waveMul = look.waveAmp * (0.55 + foldAmt * 0.9);
     final struct = look.structureShift;
+    // Differential twist: outer layers lag/lead for a folding-open feel.
+    final twistBase = foldAmt * 0.55 + userFold * 0.35;
+    final spinDraw = audioSpin * 0.55 + userPhase * 0.4;
 
     // Build Q1 once (pure circles). Coordinates: +x right, +y up from origin.
     // Cull rect keeps mirrored Picture draws finite (avoids unbounded glitches).
@@ -325,14 +350,14 @@ class KaleidoLinearEngine {
         2 => 0.6 + mid * 0.2 + treble * 0.15,
         _ => 0.55 + treble * 0.3 + zcr * 0.1,
       };
-      // Brightness follows mic energy / onset; style morphs pattern character.
       final bright =
           (0.18 + drive * 0.55 + localSoft * 0.22 + onset * 0.22) * layerW;
       final color = _color(bright.clamp(0.0, 1.0), rib.layer);
       final half = (rib.parallel - 1) * 0.5;
+      final layerTwist =
+          twistBase * (rib.layer - 1.5) * 0.22 + spinDraw * 0.08 * rib.flowDir;
 
       for (var p = 0; p < rib.parallel; p++) {
-        // Louder → denser parallel rows (tighter spacing), not overall zoom.
         final offNorm = (p - half) *
             rib.spacing *
             (0.92 + geo * 0.08 + localSoft * 0.06) /
@@ -340,15 +365,15 @@ class KaleidoLinearEngine {
 
         for (var i = 0; i < rib.particles; i++) {
           final u = rib.particles <= 1 ? 0.5 : i / (rib.particles - 1);
-          // Style-driven drift along the ribbon (quiet slow / loud snappy).
           final styleDrift =
               math.sin(time * (0.28 + look.flowMul * 0.7) + rib.phase) *
-                  (0.015 + shapeT * 0.06 + struct * 0.04);
+                  (0.02 + shapeT * 0.08 + struct * 0.05);
           final flowU = (u +
-                  flowPhase * rib.flowDir * (0.28 + flux * 0.25) *
+                  flowPhase * rib.flowDir * (0.35 + foldAmt * 0.45) *
                       look.flowMul +
                   rib.phase * 0.02 +
-                  userPhase * 0.15 +
+                  userPhase * 0.2 +
+                  audioSpin * 0.04 * rib.flowDir +
                   styleDrift)
               .remainder(1.0);
           final fu = flowU < 0 ? flowU + 1.0 : flowU;
@@ -364,11 +389,12 @@ class KaleidoLinearEngine {
             drive: geo,
             waveMul: waveMul,
             structureShift: struct,
+            twist: layerTwist,
+            foldAmt: foldAmt,
           );
           final px = xy.$1 * scale;
           final py = xy.$2 * scale;
 
-          // Bead character follows style (thick soft ↔ fine sharp), not balloon.
           final bead = (0.58 +
                   localSoft * 0.12 +
                   geo * 0.1 +
@@ -379,7 +405,6 @@ class KaleidoLinearEngine {
           final a = (0.12 + bright * 0.62).clamp(0.08, 0.72) *
               (0.6 + (1 - (p - half).abs() / (half + 1)) * 0.4);
           _fill.color = color.withValues(alpha: a);
-          // Flutter y-down: store Q1 as (+px, -py) so +y math is screen-up.
           q1.drawCircle(Offset(px, -py), bead.clamp(0.22, 1.55), _fill);
         }
       }
@@ -387,9 +412,10 @@ class KaleidoLinearEngine {
 
     final picture = recorder.endRecording();
 
-    // Draw Q1 once, then mirror with Canvas scale — do not recompute geometry.
+    // Whole field rotates with volume; mirrors stay 4-fold symmetric.
     canvas.save();
     canvas.translate(cx, cy);
+    canvas.rotate(spinDraw);
     canvas.drawPicture(picture); // Q1
     canvas.save();
     canvas.scale(-1, 1);
@@ -438,6 +464,8 @@ class KaleidoLinearEngine {
     required double drive,
     required double waveMul,
     required double structureShift,
+    required double twist,
+    required double foldAmt,
   }) {
     switch (rib.kind) {
       case _LineKind.radial:
@@ -451,6 +479,8 @@ class KaleidoLinearEngine {
           drive: drive,
           waveMul: waveMul,
           structureShift: structureShift,
+          twist: twist,
+          foldAmt: foldAmt,
         );
         final nx = -math.sin(polar.$2);
         final ny = math.cos(polar.$2);
@@ -459,32 +489,32 @@ class KaleidoLinearEngine {
         return (_clampQ1(x), _clampQ1(y));
 
       case _LineKind.arc:
-        // Quiet: smooth arcs; loud: more angular sweep + ripple.
         final rBase = ui.lerpDouble(rib.r0, rib.r1, 0.45 + local * 0.06)! *
             (0.995 + drive * 0.01);
-        final r = (rBase + offNorm) *
-            (1.0 +
-                math.sin(u * math.pi * (2 + structureShift) +
-                        rib.phase +
-                        time * 0.4) *
-                    (0.006 + fold * 0.01) *
-                    waveMul);
+        final foldRipple = math.sin(
+              u * math.pi * (1.5 + foldAmt * 2.2) + rib.phase + time * 0.55,
+            ) *
+            (0.01 + fold * 0.055) *
+            waveMul;
+        final r = (rBase + offNorm) * (1.0 + foldRipple);
         final theta = ui.lerpDouble(0.04, math.pi * 0.5 - 0.04, u)! +
+            twist +
             math.sin(u * math.pi * rib.bend +
                     flowPhase * math.pi * 2 * rib.flowDir) *
-                (0.014 + fold * 0.028 + structureShift * 0.03) *
+                (0.02 + fold * 0.12 + structureShift * 0.06) *
                 waveMul +
-            userFold * 0.04 * math.sin(u * math.pi);
+            math.sin(u * math.pi) * foldAmt * 0.28 +
+            userFold * 0.18 * math.sin(u * math.pi * 2);
         final th = theta.clamp(0.015, math.pi * 0.5 - 0.015);
         return (_clampQ1(r * math.cos(th)), _clampQ1(r * math.sin(th)));
 
       case _LineKind.chord:
-        // Quiet: soft bend; loud: sharper zig / higher-frequency warp.
-        final span = 0.28 + structureShift * 0.22 + rib.bend * 0.15;
-        final x0 = rib.r0 * math.cos(rib.baseTheta);
-        final y0 = rib.r0 * math.sin(rib.baseTheta);
-        final x1 = rib.r1 * math.cos(rib.baseTheta + span);
-        final y1 = rib.r1 * math.sin(rib.baseTheta + span);
+        final span =
+            0.22 + structureShift * 0.35 + rib.bend * 0.12 + foldAmt * 0.4;
+        final x0 = rib.r0 * math.cos(rib.baseTheta + twist * 0.6);
+        final y0 = rib.r0 * math.sin(rib.baseTheta + twist * 0.6);
+        final x1 = rib.r1 * math.cos(rib.baseTheta + span + twist);
+        final y1 = rib.r1 * math.sin(rib.baseTheta + span + twist);
         final ease = u * u * (3 - 2 * u);
         var x = ui.lerpDouble(x0, x1, ease)!;
         var y = ui.lerpDouble(y0, y1, ease)!;
@@ -493,14 +523,15 @@ class KaleidoLinearEngine {
         final len = math.sqrt(dx * dx + dy * dy).clamp(0.001, 2.0);
         final nx = -dy / len;
         final ny = dx / len;
-        final freq = 1.0 + structureShift * 1.6;
+        final freq = 1.0 + structureShift * 1.2 + foldAmt * 2.0;
         final wave = math.sin(
               u * math.pi * (freq + rib.bend) + time * 0.65 + rib.phase,
             ) *
-            (0.005 + fold * 0.014) *
+            (0.008 + fold * 0.06) *
             waveMul;
-        x += nx * (offNorm + wave);
-        y += ny * (offNorm + wave);
+        final crease = math.sin(u * math.pi) * foldAmt * 0.07;
+        x += nx * (offNorm + wave + crease);
+        y += ny * (offNorm + wave + crease);
         return (_clampQ1(x), _clampQ1(y));
     }
   }
@@ -515,29 +546,35 @@ class KaleidoLinearEngine {
     required double drive,
     required double waveMul,
     required double structureShift,
+    required double twist,
+    required double foldAmt,
   }) {
     final ease = u * u * (3 - 2 * u);
     var r = ui.lerpDouble(rib.r0, rib.r1 * outerBoost, ease)!;
-    // Loud → pointed tips along radius (shape change, not zoom).
-    r *= 1.0 + (ease - 0.5) * tipSharp * 0.14;
+    r *= 1.0 + (ease - 0.5) * tipSharp * 0.16;
 
+    // Strong angular fold along the ray — reads as 旋转折叠, not scale.
     final wave = math.sin(
-              u * math.pi * (1.0 + rib.bend + structureShift * 0.8) +
+              u * math.pi * (1.0 + rib.bend + structureShift + foldAmt) +
                   time * 0.7 +
                   rib.phase,
             ) *
-            (0.018 + fold * 0.035) *
+            (0.02 + fold * 0.14) *
             waveMul +
-        math.sin(u * math.pi * (2.0 + structureShift * 1.4) +
+        math.sin(u * math.pi * (2.2 + foldAmt * 2.0) +
                 flowPhase * math.pi * 2 * rib.flowDir) *
-            (0.008 + local * 0.012 + tipSharp * 0.01) *
+            (0.012 + local * 0.02 + tipSharp * 0.02) *
             waveMul;
-    final lobe =
-        math.sin(u * math.pi) * (0.01 + fold * 0.03 + onset * 0.015) * waveMul;
-    var theta =
-        rib.baseTheta + wave + lobe + userFold * 0.05 * math.sin(u * math.pi);
-    // Structure shift fans rays slightly without growing the silhouette.
-    theta += (structureShift - 0.5) * 0.04 * math.sin(u * math.pi * 2);
+    final lobe = math.sin(u * math.pi) *
+        (0.015 + fold * 0.12 + onset * 0.04 + foldAmt * 0.18) *
+        waveMul;
+    var theta = rib.baseTheta +
+        twist +
+        wave +
+        lobe +
+        userFold * 0.22 * math.sin(u * math.pi) +
+        math.sin(u * math.pi * 2 + audioSpin) * foldAmt * 0.12;
+    theta += (foldAmt - 0.35) * 0.18 * math.sin(u * math.pi);
     theta = theta.clamp(0.015, math.pi * 0.5 - 0.015);
     r = r.clamp(0.02, 0.96) * (0.995 + drive * 0.012);
     return (r, theta);
@@ -609,6 +646,7 @@ class _StyleLook {
     required this.foldMul,
     required this.waveAmp,
     required this.structureShift,
+    required this.spinMul,
     required this.tint,
   });
 
@@ -619,6 +657,7 @@ class _StyleLook {
   final double foldMul;
   final double waveAmp;
   final double structureShift;
+  final double spinMul;
   final Color tint;
 
   static _StyleLook lerp(_StyleLook a, _StyleLook b, double t) {
@@ -631,6 +670,7 @@ class _StyleLook {
       foldMul: ui.lerpDouble(a.foldMul, b.foldMul, k)!,
       waveAmp: ui.lerpDouble(a.waveAmp, b.waveAmp, k)!,
       structureShift: ui.lerpDouble(a.structureShift, b.structureShift, k)!,
+      spinMul: ui.lerpDouble(a.spinMul, b.spinMul, k)!,
       tint: Color.lerp(a.tint, b.tint, k)!,
     );
   }

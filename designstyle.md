@@ -201,13 +201,13 @@ Info
 
 空闲／完成／列表缩略：单帧静态（不跑 ticker）；录音／当前播放／暂停才连续动画。
 
-录音：音量（响度）达阈值后驱动样式连续变形（尖锐度、密度、珠径性格、波纹结构、流速、色相）；亮度／onset 作辅助；粒子半径随样式性格变，整体半径几乎固定，禁止单纯放大缩小或随音量胀成一团。按设备帧率分档降粒子数与目标 fps（约 24–48）。
+录音：音量（响度）达阈值后驱动**旋转＋折叠**连续变形（整体场旋转、层间扭转、线束折曲张开），辅以密度／珠径／色相；亮度／onset 作辅助；整体半径几乎固定，禁止单纯放大缩小或随音量胀成一团。按设备帧率分档降粒子数与目标 fps（约 24–48）。
 
 交互：拖动微调相位／折叠；双击复位；双指缩放 0.8–1.3（仅活动态）。
 
 3.4 音频驱动（与视觉分离）
 
-麦克风幅度流（主）→ Isolate：DC／RMS／自适应噪声底 → PixMusic 式快攻慢释峰值 AGC → soft gate → 多频段包络 → 128-bin 调制频谱 → flux／onset → `AudioFeatures`（分析约 30–50Hz；UI 通知约 25Hz）。CustomPainter 禁止直接处理原始 PCM／幅度。视觉用平滑后的 `volumeStyle`（由 energy 经 softstep 映射）在安静／中等／响亮状态 A／B／C 间连续插值（尖锐度、密度、珠径、波纹／结构偏移、流速、色相）；禁止硬切离散图案与整图 scale。
+麦克风幅度流（主）→ Isolate：DC／RMS／自适应噪声底 → PixMusic 式快攻慢释峰值 AGC → soft gate → 多频段包络 → 128-bin 调制频谱 → flux／onset → `AudioFeatures`（分析约 30–50Hz；UI 通知约 25Hz）。CustomPainter 禁止直接处理原始 PCM／幅度。视觉用平滑后的 `volumeStyle`／`audioFold`／`audioSpin`（由 energy 经 softstep 映射）在安静／中等／响亮状态间连续插值；主效果为旋转与折叠，禁止硬切离散图案与整图 scale。
 
 3.5 可视化留存（Indexed-MJPEG）
 

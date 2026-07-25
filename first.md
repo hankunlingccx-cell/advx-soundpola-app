@@ -448,7 +448,7 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 关闭 / 取消入口。
 
-实时声音可视化：参考 visuallization Axis Field 线性声场，Flutter 端为四象限严格镜像。几何只在第一象限计算并绘制一次（纯 `drawCircle` 圆形粒子：径向／弧向／弦向平行珠串），其余三象限用 Canvas `scale(±1,±1)` 镜像，不重复生成粒子。Isolate 输出 `AudioFeatures`；CustomPainter 只读快照。主驱动为音量（响度）：达到一定变化后，在安静／中等／响亮样式 A／B／C 间流畅连续变形（尖锐度、密度、珠径性格、波纹／弦向结构、流速、青→粉着色），禁止单纯放大缩小或整图 scale。整体外轮廓几乎固定；粒子半径仅随样式性格变化。待机持续慢漂移。禁止球体点阵、线段／非圆粒子、按阈值硬切离散图案、每帧随机闪烁。
+实时声音可视化：参考 visuallization Axis Field 线性声场，Flutter 端为四象限严格镜像。几何只在第一象限计算并绘制一次（纯 `drawCircle` 圆形粒子：径向／弧向／弦向平行珠串），其余三象限用 Canvas `scale(±1,±1)` 镜像，不重复生成粒子。Isolate 输出 `AudioFeatures`；CustomPainter 只读快照。主驱动为音量（响度）：达到一定变化后，图案以**旋转＋折叠**为主连续变形（整体场旋转、层间扭转、射线／弧／弦的折曲张开），辅以密度、珠径性格与青→粉着色；禁止单纯放大缩小或整图 scale。安静时近乎平展慢转，响亮时加速旋转并明显折叠开合。整体外轮廓几乎固定。待机持续慢漂移。禁止球体点阵、线段／非圆粒子、按阈值硬切离散图案、每帧随机闪烁。
 
 录音计时。
 
@@ -1070,7 +1070,7 @@ error：权限、网络、写入、上链或账号异常。
 
 安全存储：登录令牌、账号凭证与敏感标识。
 
-云端接口：AdventureX Cloud Media（UserToken、上传/轮询/列表）；契约 `docs/openapi-cloud-media.yaml`；预设基址 `http://soundpola.babelbeast.com:9000`，可在登录页「服务器设置」运行时改写。
+云端接口：AdventureX Cloud Media（UserToken、上传/轮询/列表）；契约 `docs/openapi-cloud-media.yaml`；预设基址 `https://soundpola.babelbeast.com`，可在登录页「服务器设置」运行时改写。
 
 原生能力桥接：麦克风、NFC、蓝牙、定位与触觉。
 
@@ -1168,7 +1168,7 @@ Account 首页。
 
 声音视觉：四象限镜像线性粒子线束（Q1 纯圆粒子确定性生成一次 → Canvas scale 镜像三象限）；参考 visuallization 线性万花筒密度与流动感；Isolate AGC＋spectrum 局部映射；CustomPainter + RepaintBoundary。**性能**：idle／complete／列表缩略静态单帧（不停 60fps ticker）；仅录音／当前播放／暂停保留动画，并按实际帧率分档降粒子与目标 fps；全息／SSR 粒子仅主卡或选中卡；播放 Indexed-MJPEG 解码去重＋小 LRU／封面兜底；录音特征 UI 约 25Hz；大面积毛玻璃降低 sigma。录音钮：实心青圆＋黑点，录音变圆角方停止符。
 
-可视化留存：录音中记录 AudioDrive 时间序列；保存后离屏确定性 bake（低粒子档、逐帧向 UI yield）→ Indexed-MJPEG（512²／12fps／q≈80）＋idx＋manifest＋cover；播放按 audioPositionMs 随机访问帧（最新帧优先、旧解码丢弃）；`rendererVersion=soundpola_kaleido_linear_v1`。Press／云上传在 bake 就绪后将帧包与音频一并 multipart 上传（服务端未支持视觉字段时回退仅音频）。
+可视化留存：录音中记录 AudioDrive 时间序列；保存后离屏确定性 bake（低粒子档、逐帧向 UI yield）→ Indexed-MJPEG（512²／12fps／q≈80）＋idx＋manifest＋cover；播放按 audioPositionMs 随机访问帧（最新帧优先、旧解码丢弃）；`rendererVersion=soundpola_kaleido_linear_v1`。Press／云上传：先传音频拿 `content_id`，再将 bake 帧硬件编码为 H.264 `visual.mp4` 经 `POST /contents/{id}/video` 上传；READY 后公开预览 `/preview/{id}/video` 与 `/preview/{id}/audio`。
 
 四 Tab：Record / Drafts / Collection / Lab；Press / 分类声片播放页 / Account 不进底栏。
 
@@ -1178,7 +1178,7 @@ Account 首页。
 
 账号密码注册 / 登录（本地账号库 + 安全 session）；登录后映射签发 Cloud Media UserToken（SecureStorage，一次下发长期持有）。
 
-Press：multipart 上传源音频，并在本机 Indexed-MJPEG bake 就绪时附带帧包（`visual`／`visual_idx`／`visual_manifest`／`cover`／`audio_features`＋`visual_seed`／`renderer_version`；服务端若不支持视觉字段则回退仅传音频）→ 轮询至 READY（FAILED 可 retry）→ NFC 写入 `contentId` + `nfc_url`（兼容 Trigger）→ 本地仍模拟 NFT 上链；可选经已配对 Memory Terminal 硬件完成物理写入／出卡（HMI 见 `hadwareui.md`）。Draft 详情／列表「发送至设备写入」走硬件任务路径：APP 发任务、设备端放卡写入校验、状态回传；成功进 Collection，失败保留 Draft 可重发。
+Press：multipart 上传源音频 → 本机 bake 导出 H.264 MP4 → `POST /contents/{contentId}/video`（字段 `video`）→ 通常直接 READY（否则轮询；FAILED 可 retry）→ NFC 写入 `contentId` + `nfc_url`（兼容 Trigger）→ 本地仍模拟 NFT 上链；可选经已配对 Memory Terminal 硬件完成物理写入／出卡（HMI 见 `hadwareui.md`）。Draft 详情／列表「发送至设备写入」走硬件任务路径：APP 发任务、设备端放卡写入校验、状态回传；成功进 Collection，失败保留 Draft 可重发。
 
 NFC 深链打开：声片 URI 记录（`https://{host}/c/{contentId}` 或自定义 scheme `soundpola://c/{contentId}`）冷／热启动均进入 `/c/:contentId` 内容解析页（本机已有则进分类播放；未登录先登录再恢复；可 claim 云端记忆）。`go_router` 忽略平台原始 URI 作为初始 location，由 DeepLinkService 归一化后导航，避免 `soundpola://…` 被当成未知路由。
 

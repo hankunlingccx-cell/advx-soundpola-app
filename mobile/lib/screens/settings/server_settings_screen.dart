@@ -91,7 +91,7 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('已恢复预设：http://soundpola.babelbeast.com:9000'),
+        content: Text('已恢复预设：https://soundpola.babelbeast.com'),
       ),
     );
   }
@@ -124,7 +124,7 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              '预设地址为 soundpola.babelbeast.com:9000。一般无需修改；仅在联调或切换环境时改写。',
+              '预设地址为 https://soundpola.babelbeast.com。一般无需修改；仅在联调或切换环境时改写。',
               style: TextStyle(
                 color: AppColors.textSecondary,
                 fontSize: 14,
@@ -149,7 +149,7 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
             SpTextField(
               controller: _portCtrl,
               label: '端口（可选）',
-              hint: '默认 9000',
+              hint: 'HTTPS 默认可留空',
               keyboardType: TextInputType.number,
               onChanged: (_) => setState(() {}),
             ),

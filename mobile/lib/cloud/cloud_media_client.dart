@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'cloud_media_config.dart';
 import 'cloud_media_models.dart';
-import 'cloud_visual_package.dart';
 
 /// AdventureX Cloud Media API client (UserToken scope only).
 class CloudMediaClient {
@@ -86,21 +85,13 @@ class CloudMediaClient {
     return ContentList.fromJson(_jsonMap(res.body));
   }
 
-  /// Upload source audio, optionally attaching the local Indexed-MJPEG package.
+  /// Step 1: upload source audio.
   ///
-  /// Protocol:
-  ///   POST /api/v1/contents
-  ///   Authorization: Bearer <token>
-  ///   multipart/form-data — required field `audio`; optional visual package
-  ///   fields when [visual] is provided (see [CloudVisualPackage]).
-  ///
-  /// If the server rejects unknown visual fields (HTTP 422), retries audio-only so
-  /// Press still works against older Cloud Media deployments.
+  /// `POST /api/v1/contents` multipart field `audio`.
   Future<ContentCreated> uploadAudio({
     required String token,
     required File file,
     String? filename,
-    CloudVisualPackage? visual,
   }) async {
     final length = await file.length();
     if (length <= 0) {
@@ -116,84 +107,21 @@ class CloudMediaClient {
             ? file.uri.pathSegments.last
             : 'recording.wav';
 
-    final withVisual = visual != null && visual.hasFrames;
-    try {
-      return await _postContent(
-        token: token,
-        audio: file,
-        audioFilename: name,
-        visual: withVisual ? visual : null,
-      );
-    } on CloudMediaException catch (e) {
-      if (withVisual && e.statusCode == 422) {
-        debugPrint(
-          '[CloudMedia] visual fields rejected (422); falling back to audio-only',
-        );
-        return _postContent(
-          token: token,
-          audio: file,
-          audioFilename: name,
-          visual: null,
-        );
-      }
-      rethrow;
-    }
-  }
-
-  Future<ContentCreated> _postContent({
-    required String token,
-    required File audio,
-    required String audioFilename,
-    CloudVisualPackage? visual,
-  }) async {
     final uri = CloudMediaConfig.uri('/api/v1/contents');
     final req = http.MultipartRequest('POST', uri);
     req.headers['Authorization'] = 'Bearer $token';
     req.headers['Accept'] = 'application/json';
-    // Do NOT set Content-Type manually — boundary must be included by the client.
     req.files.add(
       await http.MultipartFile.fromPath(
         'audio',
-        audio.path,
-        filename: audioFilename,
+        file.path,
+        filename: name,
       ),
     );
 
-    var visualNote = '';
-    if (visual != null && visual.hasFrames) {
-      Future<void> addFile(String field, File? f, String fallbackName) async {
-        if (f == null || !await f.exists()) return;
-        final fname = f.uri.pathSegments.isNotEmpty
-            ? f.uri.pathSegments.last
-            : fallbackName;
-        req.files.add(
-          await http.MultipartFile.fromPath(field, f.path, filename: fname),
-        );
-      }
-
-      await addFile('visual', visual.mjpg, 'visual.mjpg');
-      await addFile('visual_idx', visual.idx, 'visual.idx');
-      await addFile(
-        'visual_manifest',
-        visual.manifest,
-        'visual_manifest.json',
-      );
-      await addFile('cover', visual.cover, 'cover.jpg');
-      await addFile('audio_features', visual.features, 'audio_features.bin');
-      if (visual.visualSeed != null) {
-        req.fields['visual_seed'] = '${visual.visualSeed}';
-      }
-      req.fields['renderer_version'] = visual.rendererVersion;
-      visualNote =
-          ' +visual package (mjpg/idx/manifest'
-          '${visual.cover != null ? '/cover' : ''}'
-          '${visual.features != null ? '/features' : ''})';
-    }
-
-    final audioBytes = await audio.length();
     debugPrint(
       '[CloudMedia] POST $uri multipart field=audio '
-      'file=$audioFilename bytes=$audioBytes$visualNote',
+      'file=$name bytes=$length',
     );
 
     final streamed = await _http.send(req).timeout(
@@ -201,9 +129,59 @@ class CloudMediaClient {
       onTimeout: () => throw CloudMediaException('上传超时（180s），请检查网络或服务状态'),
     );
     final res = await http.Response.fromStream(streamed);
-    debugPrint('[CloudMedia] upload -> ${res.statusCode} body=${res.body}');
+    debugPrint(
+      '[CloudMedia] upload audio -> ${res.statusCode} body=${res.body}',
+    );
     if (res.statusCode != 201) throw _error(res);
     return ContentCreated.fromJson(_jsonMap(res.body));
+  }
+
+  /// Step 2: upload on-device visualization MP4.
+  ///
+  /// `POST /api/v1/contents/{contentId}/video` multipart field `video`.
+  /// Success typically returns `state: READY`.
+  Future<ContentVideoUploaded> uploadVideo({
+    required String token,
+    required String contentId,
+    required File file,
+    String filename = 'visualization.mp4',
+  }) async {
+    final length = await file.length();
+    if (length <= 0) {
+      throw CloudMediaException('可视化视频为空，无法上传');
+    }
+    if (length > 100 * 1024 * 1024) {
+      throw CloudMediaException('可视化视频超过 100 MiB 上限', statusCode: 413);
+    }
+
+    final uri = CloudMediaConfig.uri('/api/v1/contents/$contentId/video');
+    final req = http.MultipartRequest('POST', uri);
+    req.headers['Authorization'] = 'Bearer $token';
+    req.headers['Accept'] = 'application/json';
+    req.files.add(
+      await http.MultipartFile.fromPath(
+        'video',
+        file.path,
+        filename: filename,
+      ),
+    );
+
+    debugPrint(
+      '[CloudMedia] POST $uri multipart field=video '
+      'file=$filename bytes=$length',
+    );
+
+    final streamed = await _http.send(req).timeout(
+      const Duration(seconds: 180),
+      onTimeout: () =>
+          throw CloudMediaException('视频上传超时（180s），请检查网络或服务状态'),
+    );
+    final res = await http.Response.fromStream(streamed);
+    debugPrint(
+      '[CloudMedia] upload video -> ${res.statusCode} body=${res.body}',
+    );
+    if (res.statusCode != 200 && res.statusCode != 201) throw _error(res);
+    return ContentVideoUploaded.fromJson(_jsonMap(res.body));
   }
 
   Future<ContentSummary> getContent({

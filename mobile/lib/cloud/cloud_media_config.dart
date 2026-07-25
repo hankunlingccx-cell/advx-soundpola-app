@@ -2,14 +2,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Cloud Media Service base URL.
 ///
-/// 预设固定为 `http://soundpola.babelbeast.com`。
+/// 预设固定为 `https://soundpola.babelbeast.com`。
 /// 可在登录页「服务器设置」中运行时覆盖，并经 [SharedPreferences] 持久化。
 class CloudMediaConfig {
   CloudMediaConfig._();
 
   static const _overrideKey = 'sp_cloud_base_url_override';
 
-  static const String defaultBaseUrl = 'http://soundpola.babelbeast.com:9000';
+  static const String defaultBaseUrl = 'https://soundpola.babelbeast.com';
 
   static String? _override;
 
@@ -19,6 +19,13 @@ class CloudMediaConfig {
 
   /// True when a user-defined server address is currently active.
   static bool get hasOverride => _override != null && _override!.isNotEmpty;
+
+  /// Public preview URLs after content is READY.
+  static String previewVideoUrl(String contentId) =>
+      '$baseUrl/preview/$contentId/video';
+
+  static String previewAudioUrl(String contentId) =>
+      '$baseUrl/preview/$contentId/audio';
 
   /// Load a persisted override. Call once during app startup.
   static Future<void> init() async {

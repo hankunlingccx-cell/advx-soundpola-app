@@ -7,7 +7,7 @@ info:
   version: 2.0.0
   x-service-id: advx26-cloud-media
 servers:
-  - url: http://8.129.229.10:9000
+  - url: https://soundpola.babelbeast.com
     description: Configured public Cloud Media Service endpoint.
 paths:
   /c/{content_id}:
@@ -603,14 +603,9 @@ paths:
     post:
       tags:
         - contents
-      summary: Upload source audio (optional on-device visual package)
-      description: >
-        Stores the exact original audio and queues deterministic cloud media
-        processing. When present, optional Indexed-MJPEG fields
-        (`visual` / `visual_idx` / `visual_manifest` / `cover` /
-        `audio_features`, plus form `visual_seed` / `renderer_version`) carry
-        the App-baked frame sequence so NFC / web playback can reuse the same
-        visual instead of (or in addition to) server-side Puppeteer render.
+      summary: Upload source audio
+      description: Stores the exact original audio and returns a content_id. Follow with
+        POST /api/v1/contents/{content_id}/video to attach the on-device visualization MP4.
       operationId: uploadContent
       requestBody:
         content:
@@ -639,6 +634,76 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '413':
           description: The uploaded audio exceeds the configured byte limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+        - UserToken: []
+  /api/v1/contents/{content_id}/video:
+    post:
+      tags:
+        - contents
+      summary: Upload on-device visualization video
+      description: >
+        Attach an H.264 MP4 visualization for an existing content. Typical App
+        flow: bake Indexed-MJPEG locally, encode to MP4, then POST here. Success
+        usually returns state READY; public preview becomes available at
+        /preview/{content_id}/video and /preview/{content_id}/audio.
+      operationId: uploadContentVideo
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^[0-9a-f]{32}$
+            title: Content Id
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_uploadContentVideo'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentVideoUploaded'
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentVideoUploaded'
+        '400':
+          description: The request body or parameters are invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: A required Bearer Token is missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: The content or media object does not exist or is not visible to this role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: The uploaded video exceeds the configured byte limit.
           content:
             application/json:
               schema:
@@ -829,43 +894,42 @@ components:
           contentMediaType: application/octet-stream
           title: Audio
           description: One source audio file, maximum 50 MiB
-        visual:
-          type: string
-          contentMediaType: application/octet-stream
-          title: Visual
-          description: Optional Indexed-MJPEG frame stream (visual.mjpg) baked on device
-        visual_idx:
-          type: string
-          contentMediaType: application/octet-stream
-          title: Visual Idx
-          description: Optional byte-offset index for visual.mjpg (visual.idx)
-        visual_manifest:
-          type: string
-          contentMediaType: application/json
-          title: Visual Manifest
-          description: Optional visual_manifest.json (fps, frameCount, rendererVersion, …)
-        cover:
-          type: string
-          contentMediaType: image/jpeg
-          title: Cover
-          description: Optional cover.jpg selected from the bake
-        audio_features:
-          type: string
-          contentMediaType: application/octet-stream
-          title: Audio Features
-          description: Optional SPAF audio_features.bin timeline used for deterministic bake
-        visual_seed:
-          type: string
-          title: Visual Seed
-          description: Optional integer seed as form field (matches on-device bake)
-        renderer_version:
-          type: string
-          title: Renderer Version
-          description: Optional renderer version string (e.g. soundpola_kaleido_linear_v1)
       type: object
       required:
         - audio
       title: Body_uploadContent
+    Body_uploadContentVideo:
+      properties:
+        video:
+          type: string
+          contentMediaType: video/mp4
+          title: Video
+          description: On-device H.264 MP4 visualization (e.g. visualization.mp4)
+      type: object
+      required:
+        - video
+      title: Body_uploadContentVideo
+    ContentVideoUploaded:
+      properties:
+        content_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+          title: Content Id
+        state:
+          type: string
+          const: READY
+          title: State
+        video_sha256:
+          anyOf:
+            - type: string
+              pattern: ^[0-9a-f]{64}$
+            - type: 'null'
+          title: Video Sha256
+      type: object
+      required:
+        - content_id
+        - state
+      title: ContentVideoUploaded
     CompactContent:
       properties:
         schema_version:
