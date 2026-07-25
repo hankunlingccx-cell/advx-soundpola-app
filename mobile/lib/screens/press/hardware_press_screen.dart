@@ -105,7 +105,7 @@ class _HardwarePressScreenState extends State<HardwarePressScreen> {
   Future<void> _startTransfer() async {
     final device = DeviceRegistry.instance.activeDevice;
     if (device == null) {
-      context.push(AppRoutes.myDevices);
+      context.push(AppRoutes.pairDevice);
       return;
     }
     setState(() {
@@ -209,7 +209,7 @@ class _HardwarePressScreenState extends State<HardwarePressScreen> {
                 _DeviceStatusCard(
                   device: device,
                   conn: _conn,
-                  onBind: () => context.push(AppRoutes.myDevices),
+                  onBind: () => context.push(AppRoutes.pairDevice),
                   onSwitch: () => context.push(AppRoutes.myDevices),
                 ),
                 const SizedBox(height: AppSpacing.section),
@@ -262,9 +262,9 @@ class _HardwarePressScreenState extends State<HardwarePressScreen> {
 
                 if (canStart)
                   PrimaryButton(
-                    text: device == null ? '绑定设备' : '发送到设备',
+                    text: device == null ? 'WiFi 扫码连接设备' : '发送到设备',
                     onPressed: device == null
-                        ? () => context.push(AppRoutes.myDevices)
+                        ? () => context.push(AppRoutes.pairDevice)
                         : _startTransfer,
                   ),
 
@@ -391,11 +391,11 @@ class _DeviceStatusCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              '绑定 Memory Terminal 后，可将写入任务发送到硬件完成 NFC 封存。',
+              '扫描 Memory Terminal 屏幕上的配对二维码，将手机与设备连到同一 WiFi 后完成授权。',
               style: TextStyle(color: AppColors.textSecondary, height: 1.4),
             ),
             const SizedBox(height: 12),
-            SecondaryButton(text: '绑定设备', onPressed: onBind),
+            SecondaryButton(text: 'WiFi 扫码连接', onPressed: onBind),
           ],
         ),
       );

@@ -6,7 +6,7 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
 
-/// Advanced settings: configure the Cloud Media server host/domain and port.
+/// 登录管理：配置 Cloud Media 服务器地址（默认预设固定域名）。
 class ServerSettingsScreen extends StatefulWidget {
   const ServerSettingsScreen({super.key});
 
@@ -33,6 +33,8 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
       _hostCtrl.text = uri.host;
       if (uri.hasPort) {
         _portCtrl.text = uri.port.toString();
+      } else {
+        _portCtrl.clear();
       }
     }
   }
@@ -71,12 +73,11 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
       }
     }
     final scheme = _https ? 'https' : 'http';
-    final url = portText.isEmpty ? '$scheme://$host' : '$scheme://$host:$portText';
+    final url =
+        portText.isEmpty ? '$scheme://$host' : '$scheme://$host:$portText';
     await CloudMediaConfig.save(url);
     if (!mounted) return;
-    setState(() {
-      _error = null;
-    });
+    setState(() => _error = null);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('已保存服务器地址：$url')),
     );
@@ -85,15 +86,13 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
   Future<void> _reset() async {
     await CloudMediaConfig.reset();
     if (!mounted) return;
-    _hostCtrl.clear();
-    _portCtrl.clear();
-    setState(() {
-      _error = null;
-    });
+    setState(() => _error = null);
     _loadCurrent();
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已恢复默认服务器地址')),
+      const SnackBar(
+        content: Text('已恢复预设：http://soundpola.babelbeast.com:9000'),
+      ),
     );
   }
 
@@ -102,7 +101,7 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
       appBar: AppBar(
-        title: const Text('高级设置'),
+        title: const Text('服务器设置'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.pop(),
@@ -125,7 +124,7 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              '配置登录与云端服务的服务器地址。修改后立即生效，并在下次启动时保留。',
+              '预设地址为 soundpola.babelbeast.com:9000。一般无需修改；仅在联调或切换环境时改写。',
               style: TextStyle(
                 color: AppColors.textSecondary,
                 fontSize: 14,
@@ -142,7 +141,7 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
             SpTextField(
               controller: _hostCtrl,
               label: '服务器 IP 或域名',
-              hint: '例如 192.168.1.10 或 api.example.com',
+              hint: 'soundpola.babelbeast.com',
               keyboardType: TextInputType.url,
               onChanged: (_) => setState(() {}),
             ),
@@ -150,7 +149,7 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
             SpTextField(
               controller: _portCtrl,
               label: '端口（可选）',
-              hint: '例如 9000',
+              hint: '默认 9000',
               keyboardType: TextInputType.number,
               onChanged: (_) => setState(() {}),
             ),
@@ -168,7 +167,10 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
                 children: [
                   const Text(
                     '当前地址',
-                    style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                    style: TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 12,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -183,8 +185,11 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
                   if (!CloudMediaConfig.hasOverride) ...[
                     const SizedBox(height: 6),
                     const Text(
-                      '（默认地址，尚未自定义）',
-                      style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                      '（使用预设地址）',
+                      style: TextStyle(
+                        color: AppColors.textTertiary,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ],
@@ -200,7 +205,7 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
             const SizedBox(height: AppSpacing.section),
             PrimaryButton(text: '保存', onPressed: _save),
             const SizedBox(height: AppSpacing.tight),
-            SecondaryButton(text: '恢复默认', onPressed: _reset),
+            SecondaryButton(text: '恢复预设', onPressed: _reset),
             const SizedBox(height: AppSpacing.block),
           ],
         ),

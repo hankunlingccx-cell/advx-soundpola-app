@@ -43,10 +43,11 @@ class _MyDevicesScreenState extends State<MyDevicesScreen> {
                 ? EmptyStatePanel(
                     statusCode: 'NO DEVICE BOUND',
                     title: '尚未绑定设备',
-                    description: '扫描 Memory Terminal 屏幕上的配对二维码，将设备绑定到当前账号。',
+                    description:
+                        '确认手机与设备在同一 WiFi，扫描 Memory Terminal 屏幕上的配对二维码完成连接。',
                     visual: const EmptyTrayVisual(),
                     variant: EmptyStateVariant.firstUse,
-                    primaryLabel: '扫码绑定设备',
+                    primaryLabel: 'WiFi 扫码连接设备',
                     onPrimary: () => context.push(AppRoutes.pairDevice),
                   )
                 : ListView(
@@ -65,7 +66,7 @@ class _MyDevicesScreenState extends State<MyDevicesScreen> {
                       ],
                       const SizedBox(height: AppSpacing.section),
                       SecondaryButton(
-                        text: '绑定新设备',
+                        text: 'WiFi 扫码连接新设备',
                         onPressed: () => context.push(AppRoutes.pairDevice),
                       ),
                     ],

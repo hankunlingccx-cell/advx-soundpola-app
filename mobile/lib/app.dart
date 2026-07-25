@@ -90,6 +90,10 @@ class _SoundpolaAppState extends State<SoundpolaApp> {
         ),
       );
     }
+    // Router is now attached; flush any cold-start NFC / App Link.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      DeepLinkService.instance.markRouterReady();
+    });
     return MaterialApp.router(
       title: 'SoundPola',
       debugShowCheckedModeBanner: false,

@@ -1,22 +1,22 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// ──────────────────────────────────────────────────────────────
-/// ★ AI 节拍 API 链接配置（接模型服务只改这里）
+/// ★ AI 阿卡贝拉 / 随机节拍 API（接模型只改这里）
 /// ──────────────────────────────────────────────────────────────
 ///
 /// 用法：
-/// 1. 把 [endpointUrl] 改成你的 AI 接口完整地址，例如：
-///    `https://your-ai.example.com/v1/soundpola/beat-plan`
-/// 2. 将 [enabled] 设为 `true`
-/// 3. （可选）填 [apiKey]，会以 `Authorization: Bearer …` 发送
+/// 1. 填 [endpointUrl]
+/// 2. [enabled] = true
+/// 3. 可选 [apiKey]
 ///
-/// 也可运行时覆盖（SharedPreferences），或：
-/// `flutter run --dart-define=BEAT_AI_API_URL=https://…`
-/// `flutter run --dart-define=BEAT_AI_API_ENABLED=true`
+/// 请求：FeatureSummary + seed，且 requestRandomRhythm=true
+/// 响应：BeatPlan，**必须随机发明节拍**，例如：
+///   "rhythmLabel": "咚咚打咚咚-",
+///   "rhythmHits": [1, 1, 0.55, 1, 1, 0],
+///   "events": [ { timeMs, sourceIndex, playDurationMs, sliceOffsetMs, role, ... } ]
 ///
-/// 请求：POST JSON = FeatureSummary + seed（不含完整音频）
-/// 响应：BeatPlan JSON（events 含 timeMs / sourceIndex / playDurationMs …）
-/// 失败时自动回退本地随机轮播算法。
+/// 每次请求应产生不同节奏（可用 seed）。不返回 PCM。
+/// 失败时回退本地随机 [RhythmPattern.invent]。
 class BeatAiApiConfig {
   BeatAiApiConfig._();
 
@@ -26,6 +26,7 @@ class BeatAiApiConfig {
   static const String endpointUrl = '';
 
   /// 设为 true 后才会请求上方 URL。
+  /// 当前网关已切到本地随机，即使 true 也不会走网络，除非改回 AiBeatGenerationApi。
   static const bool enabled = false;
 
   /// 可选：API Key（Bearer）。不需要可留空。

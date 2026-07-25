@@ -517,9 +517,10 @@ class BeatAnalyzer {
     AudioFeatureTimeline? timeline,
     int? preferredWindowMs,
   }) async {
-    final dur = durationMs.clamp(200, 180000);
+    final dur = durationMs.clamp(200, 180000).toInt();
     final windowMs = (preferredWindowMs ?? _defaultHotWindow(dur))
-        .clamp(200, math.min(dur, 4000));
+        .clamp(200, math.min(dur, 4000))
+        .toInt();
 
     AudioFeatureTimeline? tl = timeline;
     if (tl == null && featuresPath != null) {
@@ -609,8 +610,10 @@ class BeatAnalyzer {
       if (e < expandThr) break;
       right = math.min(durationMs, right + hop);
     }
-    final clipDur = math.max(windowMs, right - left).clamp(200, durationMs);
-    final start = left.clamp(0, math.max(0, durationMs - clipDur));
+    final clipDur =
+        math.max(windowMs, right - left).clamp(200, durationMs).toInt();
+    final start =
+        left.clamp(0, math.max(0, durationMs - clipDur)).toInt();
     return HotClip(
       startMs: start,
       durationMs: clipDur,
@@ -628,7 +631,8 @@ class BeatAnalyzer {
     if (pcm.length <= win) {
       return HotClip(
         startMs: 0,
-        durationMs: ((pcm.length / sampleRate) * 1000).round().clamp(200, windowMs),
+        durationMs:
+            ((pcm.length / sampleRate) * 1000).round().clamp(200, windowMs).toInt(),
         peakEnergy: 1,
       );
     }

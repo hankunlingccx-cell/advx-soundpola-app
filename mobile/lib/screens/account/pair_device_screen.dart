@@ -101,7 +101,7 @@ class _PairDeviceScreenState extends State<PairDeviceScreen> {
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
       appBar: AppBar(
-        title: const Text('配对 NFC 设备'),
+        title: const Text('WiFi 扫码连接设备'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.pop(),
@@ -115,7 +115,7 @@ class _PairDeviceScreenState extends State<PairDeviceScreen> {
             children: [
               const SizedBox(height: AppSpacing.item),
               const Text(
-                '扫描设备屏幕上显示的二维码，将当前账号授权给设备。',
+                '请确认手机与 Memory Terminal 在同一 WiFi。扫描设备屏幕上的配对二维码，将当前账号授权给设备。',
                 style: TextStyle(color: AppColors.textSecondary, height: 1.5),
               ),
               const SizedBox(height: AppSpacing.item),

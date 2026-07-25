@@ -51,19 +51,22 @@ class AudioRecordingService {
     return elapsed.inMilliseconds.clamp(0, kMaxRecordingDurationSec * 1000);
   }
 
-  Future<String> _newFilePath() async {
+  Future<String> _newFilePath(String ext) async {
     final dir = await getApplicationDocumentsDirectory();
     final recordings = Directory('${dir.path}/recordings');
     if (!await recordings.exists()) {
       await recordings.create(recursive: true);
     }
-    final name = 'rec_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    final name = 'rec_${DateTime.now().millisecondsSinceEpoch}.$ext';
     return '${recordings.path}${Platform.pathSeparator}$name';
   }
 
   Future<void> _ensureAnalyzer() async {
     if (_analyzer != null) return;
-    _analyzer = await AudioFeatureAnalyzer.spawn();
+    _analyzer = await AudioFeatureAnalyzer.spawn().timeout(
+      const Duration(seconds: 4),
+      onTimeout: () => throw TimeoutException('音高分析器启动超时'),
+    );
     _analyzerLiveListener = () {
       liveVolume.value = _analyzer!.liveVolume.value;
     };
@@ -77,12 +80,20 @@ class AudioRecordingService {
     if (!await _recorder.hasPermission()) {
       throw StateError('麦克风权限未授予');
     }
-    await _ensureAnalyzer();
+
+    // Spawn analyzer in parallel so mic start is not delayed by isolate boot.
+    final analyzerFuture = _ensureAnalyzer();
+
     _visualSeed = visualSeed ??
         (DateTime.now().millisecondsSinceEpoch % 900000) + 1000;
     _timeline.clear();
-    final path = await _newFilePath();
+
+    // Primary path = previous known-good AAC file recording.
+    // Avoid startStream(pcm16): on some Android devices the native
+    // RecordThread CountDownLatch never releases → UI stuck on「正在启动」.
+    final path = await _newFilePath('m4a');
     _currentPath = path;
+
     try {
       await _recorder.start(
         const RecordConfig(
@@ -94,25 +105,36 @@ class AudioRecordingService {
         ),
         path: path,
       );
+      debugPrint('[Rec] AAC recording started');
     } catch (e) {
       _currentPath = null;
       rethrow;
     }
+
+    try {
+      await analyzerFuture;
+    } catch (e) {
+      debugPrint('[Rec] analyzer spawn failed: $e');
+    }
+
     _startedAt = DateTime.now();
     _paused = false;
     _pausedTotal = Duration.zero;
-    _analyzer!.setActive(true);
+    _analyzer?.setActive(true);
     _featuresListener = () {
       if (_paused || _analyzer == null) return;
       _timeline.add(_audioTimeMs(), _analyzer!.features.value);
     };
-    _analyzer!.features.addListener(_featuresListener!);
+    _analyzer?.features.addListener(_featuresListener!);
+
     _ampSub?.cancel();
     _ampSub = _recorder
         .onAmplitudeChanged(const Duration(milliseconds: 16))
         .listen((amp) {
       final v = amp.current;
       _amplitudeController.add(v);
+      // Live path: amplitude → isolate (pitch falls back to spectral centroid
+      // when no PCM window is available — still continuous, no pattern hard-cut).
       _analyzer?.pushAmplitude(v);
       if (_analyzer == null || !_analyzer!.liveVolume.value.isFinite) {
         final n = (v <= 1.0 && v >= 0.0) ? v : ((v + 60) / 60).clamp(0.0, 1.0);
@@ -166,7 +188,6 @@ class AudioRecordingService {
       _featuresListener = null;
     }
     _analyzer?.setActive(false);
-
     liveVolume.value = 0;
 
     final end = DateTime.now();

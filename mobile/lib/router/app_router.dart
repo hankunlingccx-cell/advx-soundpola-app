@@ -3,12 +3,14 @@ import 'package:go_router/go_router.dart';
 import '../data/press_resume.dart';
 import '../data/session.dart';
 import '../screens/account/account_screen.dart';
+import '../screens/account/my_devices_screen.dart';
 import '../screens/account/pair_device_screen.dart';
 import '../screens/auth/auth_screens.dart';
 import '../screens/collection/category_play_screen.dart';
 import '../screens/collection/collection_screen.dart';
 import '../screens/content/content_resolve_screen.dart';
 import '../screens/drafts/drafts_screen.dart';
+import '../screens/press/hardware_press_screen.dart';
 import '../screens/press/press_screens.dart';
 import '../screens/record/permission_screen.dart';
 import '../screens/record/record_home_screen.dart';
@@ -18,6 +20,7 @@ import '../screens/lab/sound_lab_screen.dart';
 import '../screens/settings/server_settings_screen.dart';
 import '../screens/splash/splash_screen.dart';
 import '../services/auth_service.dart';
+import '../services/deep_link_service.dart';
 import '../services/mint_pipeline.dart';
 import '../theme/app_colors.dart';
 import '../widgets/design_components.dart';
@@ -58,7 +61,18 @@ void openPressFlow(BuildContext context, String id, {bool chainOnly = false}) {
 GoRouter createRouter({required ValueNotifier<bool> consented}) {
   return GoRouter(
     initialLocation: AppRoutes.splash,
+    // NFC custom scheme (soundpola://c/{id}) arrives as platform default route;
+    // do not let go_router treat the full URI as a path location.
+    overridePlatformDefaultLocation: true,
     refreshListenable: Listenable.merge([consented, AuthService.instance]),
+    onException: (context, state, router) {
+      final contentId = DeepLinkService.contentIdFromUri(state.uri);
+      if (contentId != null) {
+        router.go(AppRoutes.contentPath(contentId));
+        return;
+      }
+      router.go(AppRoutes.splash);
+    },
     redirect: (context, state) {
       final loc = state.matchedLocation;
       final onSplash = loc == AppRoutes.splash;
@@ -68,7 +82,9 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
           loc == AppRoutes.accountReady ||
           loc == AppRoutes.privateKeyBackup;
       final onSettings = loc == AppRoutes.serverSettings;
-      final onResolve = state.uri.path.startsWith('/c/');
+      // Custom scheme keeps host as "c"; path-only /c/{id} uses pathSegments.
+      final onResolve = DeepLinkService.contentIdFromUri(state.uri) != null ||
+          state.uri.path.startsWith('/c/');
 
       // 启动页自行分流
       if (onSplash) return null;
@@ -132,6 +148,17 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
       GoRoute(
         path: AppRoutes.pairDevice,
         builder: (context, state) => const PairDeviceScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.myDevices,
+        builder: (context, state) => const MyDevicesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.deviceDetail,
+        builder: (context, state) {
+          final raw = state.pathParameters['deviceId'] ?? '';
+          return DeviceDetailScreen(deviceId: raw);
+        },
       ),
       GoRoute(
         path: AppRoutes.serverSettings,
@@ -225,6 +252,16 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
                     context.push(AppRoutes.pressDetectPath(id));
                   }
                 },
+              );
+            },
+          ),
+          GoRoute(
+            path: AppRoutes.pressHardware,
+            builder: (context, state) {
+              final id = state.pathParameters['id']!;
+              return HardwarePressScreen(
+                id: id,
+                onBack: () => context.pop(),
               );
             },
           ),

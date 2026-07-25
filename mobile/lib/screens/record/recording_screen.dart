@@ -74,7 +74,10 @@ class _RecordingScreenState extends State<RecordingScreen> {
     }
     try {
       _visualSeed = DateTime.now().millisecondsSinceEpoch % 900000 + 1000;
-      await _recorder.start(visualSeed: _visualSeed);
+      await _recorder.start(visualSeed: _visualSeed).timeout(
+        const Duration(seconds: 12),
+        onTimeout: () => throw TimeoutException('麦克风启动超时，请重试'),
+      );
       if (!mounted) return;
       setState(() {
         _starting = false;

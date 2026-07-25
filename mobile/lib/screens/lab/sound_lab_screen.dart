@@ -70,8 +70,7 @@ class _SoundLabScreenState extends State<SoundLabScreen> {
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 0, 16, 6),
                   child: Text(
-                    '点选 1–4 段声音 → 按内容随机生成节拍轮播。\n'
-                    '接 AI：改 mobile/lib/lab/beat_ai_api_config.dart 里的 endpointUrl。',
+                    '点选 1–4 段声音 → 截取有效声段 → 程序随机发明节拍并编排阿卡贝拉。',
                     style: TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 13,
@@ -151,7 +150,7 @@ class _SoundLabScreenState extends State<SoundLabScreen> {
                         ? '处理中…'
                         : playing
                             ? '停止'
-                            : '随机节拍轮播试听',
+                            : '生成阿卡贝拉并试听',
                     enabled: !_c.busy && (_c.canPlay || playing),
                     onPressed: () async {
                       if (playing) {

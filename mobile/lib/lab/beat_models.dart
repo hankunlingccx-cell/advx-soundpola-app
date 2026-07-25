@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-/// Built-in one-shot beat sample kinds (no AI PCM generation).
+/// Built-in one-shot kinds（兼容旧字段；阿卡贝拉编排可忽略）。
 enum BeatType {
   kick,
   snare,
@@ -45,6 +45,51 @@ enum BeatType {
         BeatType.closedHat => 'closed_hat',
         _ => name,
       };
+}
+
+/// 阿卡贝拉声部角色（按选中顺序自动赋，可被 AI 覆盖）。
+enum AcapellaRole {
+  /// 主声 / 主句
+  lead,
+
+  /// 应答 / 呼应
+  response,
+
+  /// 衬底叠唱（音量偏低）
+  pad,
+
+  /// 节奏向短切片
+  percussion;
+
+  String get label => switch (this) {
+        AcapellaRole.lead => '主声',
+        AcapellaRole.response => '应答',
+        AcapellaRole.pad => '衬底',
+        AcapellaRole.percussion => '节奏',
+      };
+
+  static AcapellaRole parse(String? raw) {
+    final key = (raw ?? '').trim().toLowerCase();
+    return switch (key) {
+      'response' || '应答' => AcapellaRole.response,
+      'pad' || '衬底' => AcapellaRole.pad,
+      'percussion' || 'perc' || '节奏' => AcapellaRole.percussion,
+      _ => AcapellaRole.lead,
+    };
+  }
+
+  /// 按画布顺序默认赋角色：0 lead → 1 response → 2 pad → 3+ percussion。
+  static List<AcapellaRole> assignDefaults(int sourceCount) {
+    final n = sourceCount.clamp(1, 4);
+    return List<AcapellaRole>.generate(n, (i) {
+      return switch (i) {
+        0 => AcapellaRole.lead,
+        1 => AcapellaRole.response,
+        2 => AcapellaRole.pad,
+        _ => AcapellaRole.percussion,
+      };
+    });
+  }
 }
 
 enum BeatDensity {
@@ -132,21 +177,17 @@ class LabCanvasNode {
   });
 
   final LabSoundSource source;
-
-  /// Normalized canvas coords in [-1, 1]; (0,0) = listener core.
   double nx;
   double ny;
   bool isPrimary;
   bool muted;
 
-  /// Distance from center → volume (near = loud).
   double get volume {
     final d = math.sqrt(nx * nx + ny * ny).clamp(0.0, 1.414);
     final t = (1.0 - d / 1.414).clamp(0.0, 1.0);
     return 0.12 + t * 0.88;
   }
 
-  /// Left/right pan from nx (−1 left … +1 right).
   double get pan => nx.clamp(-1.0, 1.0);
 }
 
@@ -162,23 +203,23 @@ class BeatEvent {
     this.pan = 0,
     this.generated = true,
     this.isDownbeat = false,
-    /// 兼容旧字段；轮播模式下可忽略。
+    this.role = AcapellaRole.lead,
     this.type = BeatType.click,
     this.sampleAsset = '',
   });
 
   final String id;
 
-  /// 轮播触发时间（相对混音时间轴）。
+  /// 触发时间（相对混音时间轴）。
   int timeMs;
 
   /// 播放哪一段已选声音（0-based，对应画布顺序）。
   int sourceIndex;
 
-  /// 本拍持续时长（通常 = 1 拍）。
+  /// 本句/本拍持续时长。
   int playDurationMs;
 
-  /// 从该声音的何处起播（切片起点）。
+  /// 起播偏移；阿卡贝拉模式下应落在该源 [HotClip] 内。
   int sliceOffsetMs;
 
   double strength;
@@ -186,6 +227,10 @@ class BeatEvent {
   double pan;
   bool generated;
   bool isDownbeat;
+
+  /// 声部角色。
+  AcapellaRole role;
+
   BeatType type;
   String sampleAsset;
 
@@ -199,6 +244,7 @@ class BeatEvent {
     double? pan,
     bool? generated,
     bool? isDownbeat,
+    AcapellaRole? role,
     BeatType? type,
     String? sampleAsset,
   }) {
@@ -213,6 +259,7 @@ class BeatEvent {
       pan: pan ?? this.pan,
       generated: generated ?? this.generated,
       isDownbeat: isDownbeat ?? this.isDownbeat,
+      role: role ?? this.role,
       type: type ?? this.type,
       sampleAsset: sampleAsset ?? this.sampleAsset,
     );
@@ -229,6 +276,7 @@ class BeatEvent {
         'pan': pan,
         'generated': generated,
         'isDownbeat': isDownbeat,
+        'role': role.name,
       };
 
   factory BeatEvent.fromJson(Map<String, dynamic> j, {int index = 0}) {
@@ -248,6 +296,7 @@ class BeatEvent {
       pan: ((j['pan'] as num?)?.toDouble() ?? 0.0).clamp(-1.0, 1.0),
       generated: j['generated'] as bool? ?? true,
       isDownbeat: j['isDownbeat'] as bool? ?? false,
+      role: AcapellaRole.parse(j['role']?.toString()),
       type: type,
       sampleAsset: j['sampleAsset']?.toString() ?? '',
     );
@@ -264,6 +313,8 @@ class BeatPlan {
     required this.events,
     this.style = BeatStyle.minimal,
     this.density = BeatDensity.balanced,
+    this.rhythmLabel = '',
+    this.rhythmHits = const [],
   });
 
   final String id;
@@ -275,11 +326,18 @@ class BeatPlan {
   final BeatStyle style;
   final BeatDensity density;
 
-  static const generatorVersionLocal = 'local_rotate_planner_v1';
-  static const generatorVersionCodex = 'codex_rotate_plan_v1';
+  /// AI/本地随机生成的节拍口诀，如「咚咚打咚咚-」。
+  final String rhythmLabel;
+
+  /// 一小节内的强弱序列：1=重击(咚)，0.5≈轻击(打)，0=休止(-)。
+  final List<double> rhythmHits;
+
+  static const generatorVersionLocal = 'local_acapella_rhythm_v2';
+  static const generatorVersionCodex = 'codex_acapella_rhythm_v1';
 
   Map<String, dynamic> toJson() => {
         'id': id,
+        'mode': 'acapella',
         'sourceSoundId': sourceSoundId,
         'bpm': estimatedBpm,
         'estimatedBpm': estimatedBpm,
@@ -287,6 +345,8 @@ class BeatPlan {
         'generatorVersion': generatorVersion,
         'style': style.name,
         'density': density.name,
+        'rhythmLabel': rhythmLabel,
+        'rhythmHits': rhythmHits,
         'events': events.map((e) => e.toJson()).toList(),
       };
 
@@ -306,6 +366,13 @@ class BeatPlan {
     final bpm = (j['bpm'] as num?)?.toDouble() ??
         (j['estimatedBpm'] as num?)?.toDouble() ??
         90.0;
+    final rawHits = j['rhythmHits'];
+    final hits = <double>[];
+    if (rawHits is List) {
+      for (final h in rawHits) {
+        if (h is num) hits.add(h.toDouble().clamp(0.0, 1.0));
+      }
+    }
     return BeatPlan(
       id: j['id']?.toString() ?? 'plan_${DateTime.now().millisecondsSinceEpoch}',
       sourceSoundId: j['sourceSoundId']?.toString() ?? '',
@@ -316,6 +383,8 @@ class BeatPlan {
       events: list,
       style: BeatStyle.parse(j['style']?.toString()),
       density: BeatDensity.parse(j['density']?.toString()),
+      rhythmLabel: j['rhythmLabel']?.toString() ?? '',
+      rhythmHits: hits,
     );
   }
 }
@@ -361,7 +430,11 @@ class SilenceRange {
       );
 }
 
-/// 单段声音中音量最高的有效片段（轮播前截取）。
+/// 单段声音中音量最高的有效片段。
+///
+/// 阿卡贝拉流程：生成编排前先对每段所选录音做 HotClip 截取，
+/// 后续所有触发的 [BeatEvent.sliceOffsetMs] 应落在该区间内，
+/// 把「最响/最有效」的人声乐句当作声部素材。
 class HotClip {
   const HotClip({
     required this.startMs,
@@ -388,7 +461,7 @@ class HotClip {
       );
 }
 
-/// Structured audio features for Codex / local BeatPlanner (never full PCM).
+/// 结构化特征：供本地阿卡贝拉编排或 AI API（不传完整 PCM）。
 class FeatureSummary {
   FeatureSummary({
     required this.durationMs,
@@ -404,6 +477,7 @@ class FeatureSummary {
     this.sourceCount = 1,
     this.sourceDurationsMs = const [],
     this.sourceHotClips = const [],
+    this.sourceRoles = const [],
   });
 
   final int durationMs;
@@ -416,15 +490,14 @@ class FeatureSummary {
   final List<int> beatGridMs;
   final List<int> candidateBeatMs;
   final String sourceSoundId;
-
-  /// 已选声音数量（轮播用）。
   final int sourceCount;
-
-  /// 各选中声音时长，与画布顺序一致。
   final List<int> sourceDurationsMs;
 
-  /// 各选中声音的最高音量有效片段（与画布顺序一致）。
+  /// 各选中声音的最高音量有效片段（画布顺序）。
   final List<HotClip> sourceHotClips;
+
+  /// 各选中声音的声部角色（画布顺序）；空则本地按默认赋。
+  final List<AcapellaRole> sourceRoles;
 
   Map<String, dynamic> toJson() => {
         'durationMs': durationMs,
@@ -440,5 +513,9 @@ class FeatureSummary {
         'sourceCount': sourceCount,
         'sourceDurationsMs': sourceDurationsMs,
         'sourceHotClips': sourceHotClips.map((e) => e.toJson()).toList(),
+        'sourceRoles': sourceRoles.map((e) => e.name).toList(),
+        'mode': 'acapella',
+        // 请 AI 随机发明节拍型（如「咚咚打咚咚-」），写入 BeatPlan.rhythmHits / rhythmLabel
+        'requestRandomRhythm': true,
       };
 }

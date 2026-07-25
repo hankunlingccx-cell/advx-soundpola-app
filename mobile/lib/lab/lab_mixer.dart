@@ -6,11 +6,29 @@ import 'package:flutter/foundation.dart';
 
 import 'beat_models.dart';
 
-/// 按 BeatPlan 轮播已选声音：到拍点切换到对应 sourceIndex。
+class _ActiveVoice {
+  _ActiveVoice({
+    required this.sourceId,
+    required this.playerKey,
+    required this.untilMs,
+  });
+
+  final String sourceId;
+  final String playerKey;
+  final int untilMs;
+}
+
+/// 阿卡贝拉混音：按时触发多源，最多同时 2 层。
 class LabMixer extends ChangeNotifier {
   LabMixer();
 
-  final Map<String, AudioPlayer> _sourcePlayers = {};
+  /// 主播放器：每个 sourceId 一个。
+  final Map<String, AudioPlayer> _primary = {};
+
+  /// 叠唱备用池（同源冲突或第二层）。
+  final List<AudioPlayer> _pool = [];
+  final Map<String, AudioPlayer> _borrowed = {};
+
   Timer? _clock;
   int _playheadMs = 0;
   int _durationMs = 0;
@@ -20,33 +38,35 @@ class LabMixer extends ChangeNotifier {
   List<BeatEvent> _beats = const [];
   List<LabCanvasNode> _nodes = const [];
   int _nextBeatIndex = 0;
-  String? _activeSourceId;
-  int _activeUntilMs = 0;
+  final List<_ActiveVoice> _active = [];
+
+  static const maxLayers = 2;
 
   int get playheadMs => _playheadMs;
   int get durationMs => _durationMs;
   bool get isPlaying => _playing;
-  String? get activeSourceId => _activeSourceId;
+  String? get activeSourceId =>
+      _active.isEmpty ? null : _active.last.sourceId;
 
   Future<void> ensureSource(LabCanvasNode node) async {
     final id = node.source.id;
-    if (_sourcePlayers.containsKey(id)) return;
+    if (_primary.containsKey(id)) return;
     final p = AudioPlayer();
     await p.setReleaseMode(ReleaseMode.stop);
     await p.setVolume(node.muted ? 0 : node.volume);
     await p.setBalance(node.pan);
-    _sourcePlayers[id] = p;
+    _primary[id] = p;
   }
 
   Future<void> applySpatial(LabCanvasNode node) async {
-    final p = _sourcePlayers[node.source.id];
+    final p = _primary[node.source.id];
     if (p == null) return;
     await p.setVolume(node.muted ? 0 : node.volume);
     await p.setBalance(node.pan);
   }
 
   Future<void> removeSource(String id) async {
-    final p = _sourcePlayers.remove(id);
+    final p = _primary.remove(id);
     await p?.stop();
     await p?.dispose();
   }
@@ -63,8 +83,22 @@ class LabMixer extends ChangeNotifier {
     }
   }
 
-  /// 按节拍轮播：同一时刻只播一个选中声音。
+  /// 兼容旧调用名。
   Future<void> playRotate({
+    required List<LabCanvasNode> nodes,
+    required List<BeatEvent> beats,
+    required int durationMs,
+    int startMs = 0,
+  }) =>
+      playAcapella(
+        nodes: nodes,
+        beats: beats,
+        durationMs: durationMs,
+        startMs: startMs,
+      );
+
+  /// 阿卡贝拉播放：允许多事件重叠（≤2 层）。
+  Future<void> playAcapella({
     required List<LabCanvasNode> nodes,
     required List<BeatEvent> beats,
     required int durationMs,
@@ -76,45 +110,32 @@ class LabMixer extends ChangeNotifier {
     _nodes = List.of(nodes);
     _durationMs = math.max(durationMs, 1000);
     _playheadMs = startMs.clamp(0, _durationMs);
-    _beats = [...beats]..sort((a, b) => a.timeMs.compareTo(b.timeMs));
+    _beats = [...beats]..sort((a, b) {
+        final c = a.timeMs.compareTo(b.timeMs);
+        if (c != 0) return c;
+        return a.role.index.compareTo(b.role.index);
+      });
     _nextBeatIndex = _beats.indexWhere((e) => e.timeMs >= _playheadMs);
     if (_nextBeatIndex < 0) _nextBeatIndex = _beats.length;
-    _activeSourceId = null;
-    _activeUntilMs = 0;
+    _active.clear();
 
     for (final n in nodes) {
       await ensureSource(n);
       await applySpatial(n);
       try {
-        await _sourcePlayers[n.source.id]!.stop();
+        await _primary[n.source.id]!.stop();
       } catch (_) {}
     }
 
-    // 若起始落在某拍中间，立即切入该拍
-    BeatEvent? current;
+    // 补播当前时间窗内已开始的事件
     for (final e in _beats) {
       if (e.timeMs <= _playheadMs &&
           e.timeMs + e.playDurationMs > _playheadMs) {
-        current = e;
+        await _trigger(e);
       }
     }
-    if (current != null) {
-      await _activate(current);
-      _nextBeatIndex = _beats.indexWhere((e) => e.timeMs > current!.timeMs);
-      if (_nextBeatIndex < 0) _nextBeatIndex = _beats.length;
-    } else if (_beats.isNotEmpty && _playheadMs <= _beats.first.timeMs) {
-      // 等第一拍
-    } else if (_beats.isEmpty) {
-      // 无计划：顺序轮播兜底
-      await _activate(
-        BeatEvent(
-          id: 'fallback',
-          timeMs: 0,
-          sourceIndex: 0,
-          playDurationMs: _durationMs,
-        ),
-      );
-    }
+    _nextBeatIndex = _beats.indexWhere((e) => e.timeMs > _playheadMs);
+    if (_nextBeatIndex < 0) _nextBeatIndex = _beats.length;
 
     _playing = true;
     _startedAt = DateTime.now();
@@ -136,52 +157,116 @@ class LabMixer extends ChangeNotifier {
   Future<void> _tick() async {
     while (_nextBeatIndex < _beats.length &&
         _beats[_nextBeatIndex].timeMs <= _playheadMs) {
-      final ev = _beats[_nextBeatIndex++];
-      await _activate(ev);
+      await _trigger(_beats[_nextBeatIndex++]);
     }
-    // 拍时结束则停
-    if (_activeSourceId != null && _playheadMs >= _activeUntilMs) {
-      final p = _sourcePlayers[_activeSourceId!];
-      try {
-        await p?.pause();
-      } catch (_) {}
+    // 到期停止
+    final still = <_ActiveVoice>[];
+    for (final v in _active) {
+      if (_playheadMs >= v.untilMs) {
+        await _stopVoice(v);
+      } else {
+        still.add(v);
+      }
     }
+    _active
+      ..clear()
+      ..addAll(still);
   }
 
-  Future<void> _activate(BeatEvent ev) async {
+  Future<void> _trigger(BeatEvent ev) async {
     if (_nodes.isEmpty) return;
+
+    // 层数限制：已满则跳过（pad/perc 优先被挤掉——调用方已排序 lead 在前）
+    _active.removeWhere((v) => _playheadMs >= v.untilMs);
+    if (_active.length >= maxLayers) {
+      // 尝试挤掉已过期；仍满则丢弃低优先级
+      if (ev.role == AcapellaRole.pad || ev.role == AcapellaRole.percussion) {
+        return;
+      }
+      // lead/response：挤掉一个 pad/perc
+      final weak = _active.indexWhere((v) {
+        // 无法从 voice 反查 role，按后进弱层挤掉最后一个非 lead 源若可能
+        return true;
+      });
+      if (_active.length >= maxLayers && weak >= 0) {
+        // 挤掉最后一个
+        final dropped = _active.removeLast();
+        await _stopVoice(dropped);
+      }
+      if (_active.length >= maxLayers) return;
+    }
+
     final idx = ev.sourceIndex.clamp(0, _nodes.length - 1);
     final node = _nodes[idx];
     final id = node.source.id;
 
-    // 停掉其他源
-    for (final entry in _sourcePlayers.entries) {
-      if (entry.key == id) continue;
-      try {
-        await entry.value.pause();
-      } catch (_) {}
-    }
+    // 同源：若主播放器正忙，用 pool
+    final primaryBusy = _active.any((v) => v.sourceId == id);
+    final playerKey = primaryBusy ? 'pool_${id}_${ev.id}' : id;
+    final player = primaryBusy
+        ? await _acquirePool(playerKey)
+        : _primary[id];
+    if (player == null) return;
 
-    final p = _sourcePlayers[id];
-    if (p == null) return;
-
-    final vol = (node.muted ? 0.0 : node.volume) * ev.volume;
+    final spatialVol = node.muted ? 0.0 : node.volume;
+    final vol = (spatialVol * ev.volume).clamp(0.0, 1.0);
     final pan = ((node.pan + ev.pan) / 2).clamp(-1.0, 1.0);
+
     try {
-      await p.setVolume(vol);
-      await p.setBalance(pan);
-      await p.stop();
-      await p.setSource(DeviceFileSource(node.source.audioPath));
+      await player.setVolume(vol);
+      await player.setBalance(pan);
+      await player.stop();
+      await player.setSource(DeviceFileSource(node.source.audioPath));
       final offset = ev.sliceOffsetMs
           .clamp(0, math.max(0, node.source.durationMs - 50))
           .toInt();
-      await p.seek(Duration(milliseconds: offset));
-      await p.resume();
-      _activeSourceId = id;
-      _activeUntilMs = ev.timeMs + ev.playDurationMs;
+      await player.seek(Duration(milliseconds: offset));
+      await player.resume();
+      _active.add(
+        _ActiveVoice(
+          sourceId: id,
+          playerKey: playerKey,
+          untilMs: ev.timeMs + ev.playDurationMs,
+        ),
+      );
     } catch (e) {
-      debugPrint('LabMixer rotate activate error: $e');
+      debugPrint('LabMixer acapella trigger error: $e');
     }
+  }
+
+  Future<AudioPlayer> _acquirePool(String key) async {
+    final existing = _borrowed[key];
+    if (existing != null) return existing;
+    AudioPlayer? free;
+    for (final p in _pool) {
+      if (!_borrowed.containsValue(p) && p.state != PlayerState.playing) {
+        free = p;
+        break;
+      }
+    }
+    if (free == null) {
+      free = AudioPlayer();
+      await free.setReleaseMode(ReleaseMode.stop);
+      _pool.add(free);
+      if (_pool.length > 6) {
+        final old = _pool.removeAt(0);
+        _borrowed.removeWhere((_, v) => v == old);
+        await old.dispose();
+      }
+    }
+    _borrowed[key] = free;
+    return free;
+  }
+
+  Future<void> _stopVoice(_ActiveVoice v) async {
+    try {
+      if (v.playerKey == v.sourceId) {
+        await _primary[v.sourceId]?.pause();
+      } else {
+        final p = _borrowed.remove(v.playerKey);
+        await p?.pause();
+      }
+    } catch (_) {}
   }
 
   Future<void> stop({bool resetPlayhead = true}) async {
@@ -189,12 +274,21 @@ class LabMixer extends ChangeNotifier {
     _clock = null;
     _playing = false;
     _startedAt = null;
-    _activeSourceId = null;
-    for (final p in _sourcePlayers.values) {
+    for (final v in List.of(_active)) {
+      await _stopVoice(v);
+    }
+    _active.clear();
+    for (final p in _primary.values) {
       try {
         await p.pause();
       } catch (_) {}
     }
+    for (final p in _pool) {
+      try {
+        await p.pause();
+      } catch (_) {}
+    }
+    _borrowed.clear();
     if (resetPlayhead) _playheadMs = 0;
     notifyListeners();
   }
@@ -202,7 +296,10 @@ class LabMixer extends ChangeNotifier {
   @override
   void dispose() {
     _clock?.cancel();
-    for (final p in _sourcePlayers.values) {
+    for (final p in _primary.values) {
+      p.dispose();
+    }
+    for (final p in _pool) {
       p.dispose();
     }
     super.dispose();

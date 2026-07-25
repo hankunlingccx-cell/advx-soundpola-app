@@ -88,7 +88,7 @@ class CloudMediaClient {
   Future<ContentCreated> uploadAudio({
     required String token,
     required File file,
-    String filename = 'recording.m4a',
+    String? filename,
   }) async {
     final length = await file.length();
     if (length <= 0) {
@@ -97,6 +97,12 @@ class CloudMediaClient {
     if (length > 50 * 1024 * 1024) {
       throw CloudMediaException('音频超过 50 MiB 上限', statusCode: 413);
     }
+
+    final name = (filename != null && filename.isNotEmpty)
+        ? filename
+        : file.uri.pathSegments.isNotEmpty
+            ? file.uri.pathSegments.last
+            : 'recording.wav';
 
     // Protocol:
     //   POST /api/v1/contents
@@ -112,13 +118,13 @@ class CloudMediaClient {
       await http.MultipartFile.fromPath(
         'audio',
         file.path,
-        filename: filename.isEmpty ? 'recording.m4a' : filename,
+        filename: name,
       ),
     );
 
     debugPrint(
       '[CloudMedia] POST $uri multipart field=audio '
-      'file=$filename bytes=$length',
+      'file=$name bytes=$length',
     );
 
     final streamed = await _http.send(req).timeout(

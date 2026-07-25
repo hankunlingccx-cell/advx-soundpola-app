@@ -207,7 +207,7 @@ Info
 
 3.4 音频驱动（与视觉分离）
 
-麦克风幅度 → Isolate：DC／RMS／自适应噪声底 → PixMusic 式快攻慢释峰值 AGC → soft gate → 多频段包络 → 128-bin 调制频谱 → flux／onset → `AudioFeatures`（Isolate 可更高频；UI 通知约 25Hz）。CustomPainter 禁止直接处理原始 PCM／幅度。
+麦克风 PCM16（优先）／幅度回退 → Isolate：DC／RMS／自适应噪声底 → PixMusic 式快攻慢释峰值 AGC → soft gate → 多频段包络 → 128-bin 调制频谱 → flux／onset → YIN 基频＋置信度＋倍频修正 → 对数 `pitchControl`（中值／非对称 EMA／slew）→ `AudioFeatures`（分析约 30–50Hz；UI 通知约 25Hz）。CustomPainter 禁止直接处理原始 PCM／幅度；禁止用音名或离散阈值切换图案。`pitchControl` 在低／中／高视觉状态 A／B／C 间连续插值（尖锐度、密度、珠径、流速、位移、色相），与能量／频谱并行驱动。
 
 3.5 可视化留存（Indexed-MJPEG）
 

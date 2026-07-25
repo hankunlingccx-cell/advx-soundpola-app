@@ -1,15 +1,16 @@
 import 'dart:async';
 import 'dart:isolate';
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart';
-import 'audio_features.dart';
 
-/// Off-UI-thread audio analysis (PixMusic-style AGC / soft gate / multi-band).
+import 'package:flutter/foundation.dart';
+
+import 'audio_features.dart';
+import 'pitch_tracker.dart';
+
+/// Off-UI-thread audio analysis (AGC / soft gate / multi-band + YIN pitch).
 ///
-/// Ingests mic amplitude (dBFS or 0–1) at ~20–50 ms. Builds DC-removed ring,
-/// adaptive noise floor, fast-attack slow-release AGC, soft gate, multi-scale
-/// envelopes, modulation-spectrum bins, flux & onset. UI only observes
-/// [features] / [liveVolume].
+/// Prefer [pushPcm] (PCM16 mono) for continuous pitchControl. [pushAmplitude]
+/// remains a fallback when only level meters are available.
 class AudioFeatureAnalyzer {
   AudioFeatureAnalyzer._(this._worker, this._toWorker);
 
@@ -87,6 +88,17 @@ class AudioFeatureAnalyzer {
     });
   }
 
+  /// Push interleaved little-endian PCM16 mono bytes (analysis sample rate).
+  void pushPcm(Uint8List pcm16le, {int sampleRate = 16000}) {
+    if (_disposed || !_active || pcm16le.isEmpty) return;
+    _toWorker.send({
+      'cmd': 'pcm',
+      'bytes': pcm16le,
+      'sr': sampleRate,
+      't': DateTime.now().microsecondsSinceEpoch,
+    });
+  }
+
   void setActive(bool active) {
     _active = active;
     if (_disposed) return;
@@ -114,11 +126,13 @@ class AudioFeatureAnalyzer {
 
 // ─── Worker isolate ─────────────────────────────────────────────────────────
 
-const _emitHz = 28.0;
+const _emitHz = 36.0;
 const _ringSize = 128;
 const _specBins = AudioFeatures.spectrumBinCount;
 const _minGain = 0.8;
 const _maxGain = 10.0;
+const _pcmSr = 16000;
+const _yinWin = 1024;
 
 double _lerp(double a, double b, double t) => a + (b - a) * t;
 
@@ -167,10 +181,15 @@ void _analyzerMain(SendPort ready) {
   var zcrE = 0.2;
   var lastEmitUs = 0;
   var lastAmpUs = 0;
+  var lastPcmUs = 0;
+  var hasPcm = false;
 
   final prevSpec = Float64List(_specBins);
   final workSpec = Float64List(_specBins);
   final hannScratch = Float64List(_ringSize);
+
+  final pitchTracker = PitchTracker(sampleRate: _pcmSr);
+  final pcmRing = PcmRing(_yinWin * 2);
 
   void emit(AudioFeatures f) => out?.send(f.toMap());
 
@@ -190,6 +209,10 @@ void _analyzerMain(SendPort ready) {
     onsetEnv = 0;
     fluxHold = 0;
     prevGated = 0;
+    hasPcm = false;
+    lastPcmUs = 0;
+    pitchTracker.reset();
+    pcmRing.clear();
     for (var i = 0; i < _specBins; i++) {
       prevSpec[i] = 0;
     }
@@ -248,6 +271,199 @@ void _analyzerMain(SendPort ready) {
     }
   }
 
+  void processAmp(double rawIn, int now) {
+    if (!active || out == null) return;
+    final dt = lastAmpUs == 0
+        ? 1 / 50
+        : ((now - lastAmpUs) / 1e6).clamp(0.008, 0.08);
+    lastAmpUs = now;
+
+    final raw = _normAmp(rawIn);
+
+    // Running DC estimate + ring
+    dcMean = _lerp(dcMean, raw, 0.04);
+    ring[ringWrite] = raw;
+    ringWrite = (ringWrite + 1) % _ringSize;
+    if (ringCount < _ringSize) ringCount++;
+
+    // Instantaneous RMS over short window
+    final win = math.min(ringCount, 24);
+    var e2 = 0.0;
+    for (var i = 0; i < win; i++) {
+      final v = ring[(ringWrite - 1 - i + _ringSize) % _ringSize];
+      e2 += v * v;
+    }
+    final instRms = math.sqrt(e2 / win);
+
+    // Warmup: seed noise floor from quiet start
+    if (warmupUs < warmupTargetUs) {
+      warmupUs += (dt * 1e6).round();
+      noiseFloor = _lerp(noiseFloor, instRms, 0.08);
+    }
+
+    // Fast-attack / slow-release peak tracker (PixMusic SPHERE AGC)
+    if (instRms > trackedPeak) {
+      trackedPeak = trackedPeak * 0.5 + instRms * 0.5;
+    } else {
+      trackedPeak = trackedPeak * 0.995 + instRms * 0.005;
+    }
+    final denom = math.max(noiseFloor * 1.5, trackedPeak);
+    // Map PixMusic-style gain (≈230/peak) into our 0–1 feature space.
+    final targetGain =
+        ((230.0 / math.max(denom * 255.0, 1.0)) * 0.55)
+            .clamp(_minGain, _maxGain);
+    agcGain = _lerp(agcGain, targetGain, 0.18);
+
+    final boosted = (instRms * agcGain).clamp(0.0, 1.5);
+
+    // Soft gate — never hard-zero light speech
+    final gate = _smoothstep(noiseFloor, noiseFloor * 2.5, boosted);
+    final gated = (boosted * gate).clamp(0.0, 1.0);
+
+    // Adaptive noise floor only when truly quiet
+    final nearFloor = instRms < noiseFloor * 1.8 + 0.01;
+    final lowFlux = fluxHold < 0.12;
+    final noOnset = onsetEnv < 0.15;
+    if (nearFloor && lowFlux && noOnset && warmupUs >= warmupTargetUs) {
+      quietAccumUs += (dt * 1e6).round();
+      if (quietAccumUs > 400000) {
+        noiseFloor = _lerp(noiseFloor, instRms, 0.015);
+      }
+    } else {
+      quietAccumUs = 0;
+    }
+    noiseFloor = noiseFloor.clamp(0.004, 0.12);
+
+    // Multi-scale envelopes on gated energy
+    emaFast = _ar(emaFast, gated, 0.028, 0.14, dt);
+    emaSlow = _ar(emaSlow, gated, 0.18, 0.65, dt);
+
+    // Band proxies from multi-rate differentials + spectrum (below)
+    final dFast = (gated - prevGated).clamp(-1.0, 1.0);
+    prevGated = gated;
+
+    // Onset: rapid rise
+    final spike = dFast.clamp(0.0, 1.0);
+    if (spike > 0.08 && gated > noiseFloor * 3) {
+      onsetEnv = math.max(onsetEnv, (spike * 2.2).clamp(0.0, 1.0));
+    } else {
+      onsetEnv = _ar(onsetEnv, 0, 0.05, 0.28, dt);
+    }
+
+    // ZCR of AC component (noisiness / fricatives)
+    var crossings = 0;
+    final zWin = math.min(ringCount, 32);
+    for (var i = 1; i < zWin; i++) {
+      final a = ring[(ringWrite - i + _ringSize) % _ringSize] - dcMean;
+      final b = ring[(ringWrite - i - 1 + _ringSize) % _ringSize] - dcMean;
+      if ((a >= 0 && b < 0) || (a < 0 && b >= 0)) crossings++;
+    }
+    final zcr = (crossings / math.max(1, zWin - 1)).clamp(0.0, 1.0);
+    zcrE = _ar(zcrE, zcr, 0.05, 0.12, dt);
+
+    final emitInterval = 1e6 / _emitHz;
+    if (now - lastEmitUs < emitInterval) return;
+    lastEmitUs = now;
+
+    computeSpectrum();
+
+    // Spectral flux
+    var flux = 0.0;
+    for (var i = 0; i < _specBins; i++) {
+      final d = workSpec[i] - prevSpec[i];
+      if (d > 0) flux += d;
+      prevSpec[i] = workSpec[i];
+    }
+    flux = (flux / _specBins * 3.5).clamp(0.0, 1.0);
+    fluxHold = math.max(fluxHold * 0.82, flux);
+    fluxHold = _ar(fluxHold, flux, 0.04, 0.22, dt);
+
+    // Map spectrum thirds + envelope diffs → named bands
+    double bandAvg(int a, int b) {
+      var s = 0.0;
+      final n = math.max(1, b - a);
+      for (var i = a; i < b; i++) {
+        s += workSpec[i.clamp(0, _specBins - 1)];
+      }
+      return s / n;
+    }
+
+    final sBass = bandAvg(0, 16);
+    final sLowMid = bandAvg(16, 36);
+    final sMid = bandAvg(36, 64);
+    final sHighMid = bandAvg(64, 96);
+    final sTreble = bandAvg(96, _specBins);
+
+    // Blend spectrum shape with envelope dynamics (speech still drives mid)
+    final bassT =
+        (0.55 * sBass + 0.35 * emaSlow + 0.15 * (1 - zcrE)).clamp(0.0, 1.0);
+    final lowMidT =
+        (0.50 * sLowMid + 0.35 * emaSlow + 0.20 * emaFast).clamp(0.0, 1.0);
+    final midT =
+        (0.45 * sMid + 0.40 * emaFast + 0.20 * fluxHold).clamp(0.0, 1.0);
+    final highMidT =
+        (0.50 * sHighMid + 0.30 * emaFast + 0.25 * zcrE).clamp(0.0, 1.0);
+    final trebleT =
+        (0.45 * sTreble + 0.35 * zcrE + 0.25 * spike.abs()).clamp(0.0, 1.0);
+
+    bassE = _ar(bassE, bassT * gated, 0.04, 0.22, dt);
+    lowMidE = _ar(lowMidE, lowMidT * gated, 0.035, 0.16, dt);
+    midE = _ar(midE, midT * gated, 0.028, 0.12, dt);
+    highMidE = _ar(highMidE, highMidT * gated, 0.025, 0.10, dt);
+    trebleE = _ar(trebleE, trebleT * gated, 0.022, 0.09, dt);
+
+    // Centroid from band weights
+    final wSum = bassE + lowMidE + midE + highMidE + trebleE + 1e-4;
+    final centroid = (0.08 * bassE +
+            0.25 * lowMidE +
+            0.45 * midE +
+            0.70 * highMidE +
+            0.92 * trebleE) /
+        wSum;
+
+    // Perceptual lift of gated for quiet speech (after AGC already helped)
+    final perceptual = math
+        .pow(gated.clamp(0.0, 1.0), 0.62)
+        .toDouble()
+        .clamp(0.0, 1.0);
+
+    final yinWin = hasPcm && pcmRing.count >= 64
+        ? pcmRing.latestWindow(_yinWin)
+        : Float64List(0);
+    final pcmRms = hasPcm
+        ? pcmRing.rmsWindow(math.min(_yinWin, pcmRing.count))
+        : instRms;
+    final pitchPair = pitchTracker.process(
+      pcm: yinWin,
+      rms: pcmRms,
+      noiseGate: noiseFloor * 2.2,
+      spectralCentroid01: centroid,
+      dtSec: dt,
+    );
+
+    emit(AudioFeatures(
+      rms: instRms.clamp(0.0, 1.0),
+      gatedRms: perceptual,
+      fastEnvelope: emaFast.clamp(0.0, 1.0),
+      slowEnvelope: emaSlow.clamp(0.0, 1.0),
+      bass: bassE.clamp(0.0, 1.0),
+      lowMid: lowMidE.clamp(0.0, 1.0),
+      mid: midE.clamp(0.0, 1.0),
+      highMid: highMidE.clamp(0.0, 1.0),
+      treble: trebleE.clamp(0.0, 1.0),
+      spectralCentroid: centroid.clamp(0.0, 1.0),
+      spectralFlux: fluxHold.clamp(0.0, 1.0),
+      onset: onsetEnv.clamp(0.0, 1.0),
+      zeroCrossingRate: zcrE.clamp(0.0, 1.0),
+      pitch: pitchPair.$1,
+      confidence: pitchPair.$2,
+      agcGain: agcGain,
+      noiseFloor: noiseFloor,
+      trackedPeak: trackedPeak,
+      spectrum: List<double>.generate(_specBins, (i) => workSpec[i]),
+    ));
+  }
+
   inbox.listen((msg) {
     if (msg is! Map) return;
     switch (msg['cmd']) {
@@ -263,183 +479,20 @@ void _analyzerMain(SendPort ready) {
         inbox.close();
       case 'amp':
         if (!active || out == null) return;
-        final now = msg['t'] as int? ?? DateTime.now().microsecondsSinceEpoch;
-        final dt = lastAmpUs == 0
-            ? 1 / 50
-            : ((now - lastAmpUs) / 1e6).clamp(0.008, 0.08);
-        lastAmpUs = now;
-
-        final raw = _normAmp((msg['v'] as num).toDouble());
-
-        // Running DC estimate + ring
-        dcMean = _lerp(dcMean, raw, 0.04);
-        final sample = raw;
-        ring[ringWrite] = sample;
-        ringWrite = (ringWrite + 1) % _ringSize;
-        if (ringCount < _ringSize) ringCount++;
-
-        // Instantaneous RMS over short window
-        final win = math.min(ringCount, 24);
-        var e2 = 0.0;
-        for (var i = 0; i < win; i++) {
-          final v = ring[(ringWrite - 1 - i + _ringSize) % _ringSize];
-          e2 += v * v;
-        }
-        final instRms = math.sqrt(e2 / win);
-
-        // Warmup: seed noise floor from quiet start
-        if (warmupUs < warmupTargetUs) {
-          warmupUs += (dt * 1e6).round();
-          noiseFloor = _lerp(noiseFloor, instRms, 0.08);
-        }
-
-        // Fast-attack / slow-release peak tracker (PixMusic SPHERE AGC)
-        if (instRms > trackedPeak) {
-          trackedPeak = trackedPeak * 0.5 + instRms * 0.5;
-        } else {
-          trackedPeak = trackedPeak * 0.995 + instRms * 0.005;
-        }
-        final denom = math.max(noiseFloor * 1.5, trackedPeak);
-        // Map PixMusic-style gain (≈230/peak) into our 0–1 feature space.
-        final targetGain =
-            ((230.0 / math.max(denom * 255.0, 1.0)) * 0.55)
-                .clamp(_minGain, _maxGain);
-        agcGain = _lerp(agcGain, targetGain, 0.18);
-
-        final boosted = (instRms * agcGain).clamp(0.0, 1.5);
-
-        // Soft gate — never hard-zero light speech
-        final gate = _smoothstep(noiseFloor, noiseFloor * 2.5, boosted);
-        final gated = (boosted * gate).clamp(0.0, 1.0);
-
-        // Adaptive noise floor only when truly quiet
-        final nearFloor = instRms < noiseFloor * 1.8 + 0.01;
-        final lowFlux = fluxHold < 0.12;
-        final noOnset = onsetEnv < 0.15;
-        if (nearFloor && lowFlux && noOnset && warmupUs >= warmupTargetUs) {
-          quietAccumUs += (dt * 1e6).round();
-          if (quietAccumUs > 400000) {
-            noiseFloor = _lerp(noiseFloor, instRms, 0.015);
-          }
-        } else {
-          quietAccumUs = 0;
-        }
-        noiseFloor = noiseFloor.clamp(0.004, 0.12);
-
-        // Multi-scale envelopes on gated energy
-        emaFast = _ar(emaFast, gated, 0.028, 0.14, dt);
-        emaSlow = _ar(emaSlow, gated, 0.18, 0.65, dt);
-
-        // Band proxies from multi-rate differentials + spectrum (below)
-        final dFast = (gated - prevGated).clamp(-1.0, 1.0);
-        prevGated = gated;
-
-        // Onset: rapid rise
-        final spike = dFast.clamp(0.0, 1.0);
-        if (spike > 0.08 && gated > noiseFloor * 3) {
-          onsetEnv = math.max(onsetEnv, (spike * 2.2).clamp(0.0, 1.0));
-        } else {
-          onsetEnv = _ar(onsetEnv, 0, 0.05, 0.28, dt);
-        }
-
-        // ZCR of AC component (noisiness / fricatives)
-        var crossings = 0;
-        final zWin = math.min(ringCount, 32);
-        for (var i = 1; i < zWin; i++) {
-          final a = ring[(ringWrite - i + _ringSize) % _ringSize] - dcMean;
-          final b = ring[(ringWrite - i - 1 + _ringSize) % _ringSize] - dcMean;
-          if ((a >= 0 && b < 0) || (a < 0 && b >= 0)) crossings++;
-        }
-        final zcr = (crossings / math.max(1, zWin - 1)).clamp(0.0, 1.0);
-        zcrE = _ar(zcrE, zcr, 0.05, 0.12, dt);
-
-        final emitInterval = 1e6 / _emitHz;
-        if (now - lastEmitUs < emitInterval) return;
-        lastEmitUs = now;
-
-        computeSpectrum();
-
-        // Spectral flux
-        var flux = 0.0;
-        for (var i = 0; i < _specBins; i++) {
-          final d = workSpec[i] - prevSpec[i];
-          if (d > 0) flux += d;
-          prevSpec[i] = workSpec[i];
-        }
-        flux = (flux / _specBins * 3.5).clamp(0.0, 1.0);
-        fluxHold = math.max(fluxHold * 0.82, flux);
-        fluxHold = _ar(fluxHold, flux, 0.04, 0.22, dt);
-
-        // Map spectrum thirds + envelope diffs → named bands
-        double bandAvg(int a, int b) {
-          var s = 0.0;
-          final n = math.max(1, b - a);
-          for (var i = a; i < b; i++) {
-            s += workSpec[i.clamp(0, _specBins - 1)];
-          }
-          return s / n;
-        }
-
-        final sBass = bandAvg(0, 16);
-        final sLowMid = bandAvg(16, 36);
-        final sMid = bandAvg(36, 64);
-        final sHighMid = bandAvg(64, 96);
-        final sTreble = bandAvg(96, _specBins);
-
-        // Blend spectrum shape with envelope dynamics (speech still drives mid)
-        final bassT =
-            (0.55 * sBass + 0.35 * emaSlow + 0.15 * (1 - zcrE)).clamp(0.0, 1.0);
-        final lowMidT =
-            (0.50 * sLowMid + 0.35 * emaSlow + 0.20 * emaFast).clamp(0.0, 1.0);
-        final midT =
-            (0.45 * sMid + 0.40 * emaFast + 0.20 * fluxHold).clamp(0.0, 1.0);
-        final highMidT =
-            (0.50 * sHighMid + 0.30 * emaFast + 0.25 * zcrE).clamp(0.0, 1.0);
-        final trebleT =
-            (0.45 * sTreble + 0.35 * zcrE + 0.25 * spike.abs()).clamp(0.0, 1.0);
-
-        bassE = _ar(bassE, bassT * gated, 0.04, 0.22, dt);
-        lowMidE = _ar(lowMidE, lowMidT * gated, 0.035, 0.16, dt);
-        midE = _ar(midE, midT * gated, 0.028, 0.12, dt);
-        highMidE = _ar(highMidE, highMidT * gated, 0.025, 0.10, dt);
-        trebleE = _ar(trebleE, trebleT * gated, 0.022, 0.09, dt);
-
-        // Centroid from band weights
-        final wSum = bassE + lowMidE + midE + highMidE + trebleE + 1e-4;
-        final centroid = (0.08 * bassE +
-                0.25 * lowMidE +
-                0.45 * midE +
-                0.70 * highMidE +
-                0.92 * trebleE) /
-            wSum;
-
-        // Perceptual lift of gated for quiet speech (after AGC already helped)
-        final perceptual = math
-            .pow(gated.clamp(0.0, 1.0), 0.62)
-            .toDouble()
-            .clamp(0.0, 1.0);
-
-        emit(AudioFeatures(
-          rms: instRms.clamp(0.0, 1.0),
-          gatedRms: perceptual,
-          fastEnvelope: emaFast.clamp(0.0, 1.0),
-          slowEnvelope: emaSlow.clamp(0.0, 1.0),
-          bass: bassE.clamp(0.0, 1.0),
-          lowMid: lowMidE.clamp(0.0, 1.0),
-          mid: midE.clamp(0.0, 1.0),
-          highMid: highMidE.clamp(0.0, 1.0),
-          treble: trebleE.clamp(0.0, 1.0),
-          spectralCentroid: centroid.clamp(0.0, 1.0),
-          spectralFlux: fluxHold.clamp(0.0, 1.0),
-          onset: onsetEnv.clamp(0.0, 1.0),
-          zeroCrossingRate: zcrE.clamp(0.0, 1.0),
-          pitch: centroid.clamp(0.0, 1.0),
-          confidence: gate.clamp(0.0, 1.0),
-          agcGain: agcGain,
-          noiseFloor: noiseFloor,
-          trackedPeak: trackedPeak,
-          spectrum: List<double>.generate(_specBins, (i) => workSpec[i]),
-        ));
+        processAmp(
+          (msg['v'] as num).toDouble(),
+          msg['t'] as int? ?? DateTime.now().microsecondsSinceEpoch,
+        );
+      case 'pcm':
+        if (!active || out == null) return;
+        final bytes = msg['bytes'];
+        if (bytes is! Uint8List) return;
+        hasPcm = true;
+        lastPcmUs = msg['t'] as int? ?? DateTime.now().microsecondsSinceEpoch;
+        pcmRing.pushInt16Bytes(bytes);
+        // Drive amplitude path from PCM RMS so energy stays in sync with YIN.
+        final pcmLevel = pcmRing.rmsWindow(math.min(256, pcmRing.count));
+        processAmp(pcmLevel.clamp(0.0, 1.0), lastPcmUs);
     }
   });
 }

@@ -7,8 +7,8 @@ import 'beat_ai_api_config.dart';
 import 'beat_models.dart';
 import 'beat_planner.dart';
 
-/// 节拍轮播 API：只收 FeatureSummary（含 sourceCount），只回 BeatPlan。
-/// events 描述「何时切换到哪一段已选声音」，不返回音频文件。
+/// 阿卡贝拉编排 API：只收 FeatureSummary（含 HotClip / sourceRoles），只回 BeatPlan。
+/// events 描述何时触发哪一段声部；不返回音频文件。
 abstract class BeatGenerationApi {
   Future<BeatPlan> generate({
     required FeatureSummary summary,
@@ -16,7 +16,7 @@ abstract class BeatGenerationApi {
   });
 }
 
-/// 本地：根据所选内容特征做随机轮播计划。
+/// 本地：AcapellaPlanner 随机编排。
 class LocalBeatGenerationApi implements BeatGenerationApi {
   const LocalBeatGenerationApi();
 
@@ -67,10 +67,10 @@ class AiBeatGenerationApi implements BeatGenerationApi {
       final body = <String, dynamic>{
         ...summary.toJson(),
         'seed': seed,
-        'mode': 'beat_rotate',
+        'mode': 'acapella',
       };
 
-      // ★ AI API 实际请求点：POST FeatureSummary → BeatPlan
+      // ★ AI API：POST FeatureSummary → 阿卡贝拉 BeatPlan
       debugPrint('[BeatAI] POST $uri');
       final res = await _http
           .post(uri, headers: headers, body: jsonEncode(body))
@@ -81,12 +81,29 @@ class AiBeatGenerationApi implements BeatGenerationApi {
         return fallback.generate(summary: summary, seed: seed);
       }
 
-      return BeatPlanCodec.parseAndValidate(
+      final plan = BeatPlanCodec.parseAndValidate(
         res.body,
         durationMs: mathMaxDuration(summary),
         sourceSoundId: summary.sourceSoundId,
         sourceCount: summary.sourceCount,
       );
+
+      // AI 给了随机节拍型但 events 过少：用该节拍本地铺事件
+      if (plan.events.length < 4 && plan.rhythmHits.length >= 3) {
+        final rhythm = RhythmPattern.tryParse(
+          hits: plan.rhythmHits,
+          label: plan.rhythmLabel,
+        );
+        if (rhythm != null) {
+          debugPrint('[BeatAI] 使用 AI 节拍「${rhythm.label}」本地铺轨');
+          return AcapellaPlanner.generate(
+            summary: summary,
+            seed: seed,
+            aiRhythm: rhythm,
+          );
+        }
+      }
+      return plan;
     } catch (e, st) {
       debugPrint('[BeatAI] failed: $e\n$st → 本地回退');
       return fallback.generate(summary: summary, seed: seed);
@@ -102,10 +119,9 @@ class AiBeatGenerationApi implements BeatGenerationApi {
   }
 }
 
-/// 全局入口：默认走 AI 配置；未启用时自动本地随机。
+/// 全局入口：当前强制本地程序随机节拍；日后接 AI 改回 `AiBeatGenerationApi()`。
 class BeatGenerationApiGateway {
   BeatGenerationApiGateway._();
 
-  /// 接 AI 时只需改 [BeatAiApiConfig.endpointUrl] + [BeatAiApiConfig.enabled]。
-  static BeatGenerationApi instance = AiBeatGenerationApi();
+  static BeatGenerationApi instance = const LocalBeatGenerationApi();
 }

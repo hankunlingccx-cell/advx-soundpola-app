@@ -91,8 +91,9 @@ class AudioFeatureTimeline {
   }
 
   /// SPAF binary: magic + version + bins + count + samples.
+  /// v1: 13 floats (+ spectrum). v2: + pitchControl + confidence.
   Uint8List encode() {
-    const floatsPer = 13;
+    const floatsPer = 15;
     final bins = AudioFeatures.spectrumBinCount;
     final count = samples.length;
     final bytes = ByteData(
@@ -103,7 +104,7 @@ class AudioFeatureTimeline {
     bytes.setUint8(o++, 0x50); // P
     bytes.setUint8(o++, 0x41); // A
     bytes.setUint8(o++, 0x46); // F
-    bytes.setUint16(o, 1, Endian.little);
+    bytes.setUint16(o, 2, Endian.little);
     o += 2;
     bytes.setUint16(o, bins, Endian.little);
     o += 2;
@@ -131,6 +132,8 @@ class AudioFeatureTimeline {
       put(f.spectralFlux);
       put(f.onset);
       put(f.zeroCrossingRate);
+      put(f.pitch);
+      put(f.confidence);
       for (var i = 0; i < bins; i++) {
         put(i < f.spectrum.length ? f.spectrum[i] : 0);
       }
@@ -150,7 +153,7 @@ class AudioFeatureTimeline {
     var o = 4;
     final version = bytes.getUint16(o, Endian.little);
     o += 2;
-    if (version != 1) {
+    if (version != 1 && version != 2) {
       throw FormatException('Unsupported features version $version');
     }
     final bins = bytes.getUint16(o, Endian.little);
@@ -180,6 +183,8 @@ class AudioFeatureTimeline {
       final flux = take();
       final onset = take();
       final zcr = take();
+      final pitch = version >= 2 ? take() : 0.45;
+      final confidence = version >= 2 ? take() : 0.0;
       final spec = List<double>.generate(bins, (_) => take());
       out.samples.add(
         AudioFeatureSample(
@@ -198,6 +203,8 @@ class AudioFeatureTimeline {
             spectralFlux: flux,
             onset: onset,
             zeroCrossingRate: zcr,
+            pitch: pitch,
+            confidence: confidence,
             spectrum: spec,
           ),
         ),

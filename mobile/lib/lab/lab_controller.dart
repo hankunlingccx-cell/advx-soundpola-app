@@ -139,8 +139,8 @@ class LabController extends ChangeNotifier {
       }
       beatPlan = null;
       featureSummary = null;
-      statusMessage = canvas.isEmpty
-          ? '点选 1–4 段声音即可'
+          statusMessage = canvas.isEmpty
+          ? '点选 1–4 段声音，生成阿卡贝拉'
           : '已选择 ${canvas.length} 段';
       notifyListeners();
       return;
@@ -177,7 +177,7 @@ class LabController extends ChangeNotifier {
     }
   }
 
-  /// 一键：分析主声音 BPM → 生成轮播节拍计划 → 按拍轮播试听。
+  /// 一键：截 HotClip → 阿卡贝拉编排 → 可叠混音试听。
   Future<void> generateAndPlay() async {
     if (canvas.isEmpty) {
       statusMessage = '请先选择声音';
@@ -187,7 +187,7 @@ class LabController extends ChangeNotifier {
     if (busy) return;
 
     busy = true;
-    statusMessage = '分析节拍…';
+    statusMessage = '准备生成阿卡贝拉…';
     notifyListeners();
 
     try {
@@ -197,7 +197,7 @@ class LabController extends ChangeNotifier {
           ? RecordingSession.featureTimeline
           : null;
 
-      statusMessage = '截取各段最高音量片段…';
+      statusMessage = '截取各段有效声段（最高音量）…';
       notifyListeners();
 
       final hotClips = <HotClip>[];
@@ -214,7 +214,7 @@ class LabController extends ChangeNotifier {
         hotClips.add(clip);
       }
 
-      statusMessage = '分析节拍…';
+      statusMessage = '分析节拍与声部…';
       notifyListeners();
 
       final base = await BeatAnalyzer.analyze(
@@ -226,6 +226,8 @@ class LabController extends ChangeNotifier {
         style: BeatStyle.minimal,
         density: BeatDensity.balanced,
       );
+
+      final roles = AcapellaRole.assignDefaults(canvas.length);
 
       featureSummary = FeatureSummary(
         durationMs: base.durationMs,
@@ -242,12 +244,12 @@ class LabController extends ChangeNotifier {
         sourceDurationsMs:
             canvas.map((n) => n.source.durationMs).toList(growable: false),
         sourceHotClips: hotClips,
+        sourceRoles: roles,
       );
 
-      statusMessage = '随机生成轮播计划…';
+      statusMessage = '编排阿卡贝拉声部…';
       notifyListeners();
 
-      // 每次试听：内容指纹 + 时间熵 → 不同随机节拍
       final contentKey = canvas.map((n) => n.source.id).join('|');
       final seed = Object.hash(
             contentKey,
@@ -262,13 +264,19 @@ class LabController extends ChangeNotifier {
 
       final dur = events.isEmpty
           ? mixDurationMs
-          : events.last.timeMs + events.last.playDurationMs;
+          : events
+              .map((e) => e.timeMs + e.playDurationMs)
+              .reduce(math.max);
 
-      statusMessage =
-          '按 ${featureSummary!.estimatedBpm.toStringAsFixed(0)} BPM 轮播 ${canvas.length} 段 · ${events.length} 拍';
+      final roleLabels = roles.map((r) => r.label).join(' · ');
+      final rhythm = beatPlan?.rhythmLabel;
+      statusMessage = rhythm != null && rhythm.isNotEmpty
+          ? '节拍 $rhythm · ${featureSummary!.estimatedBpm.toStringAsFixed(0)} BPM · $roleLabels'
+          : '阿卡贝拉 · ${featureSummary!.estimatedBpm.toStringAsFixed(0)} BPM · '
+              '$roleLabels · ${events.length} 句';
       notifyListeners();
 
-      await mixer.playRotate(
+      await mixer.playAcapella(
         nodes: canvas,
         beats: events,
         durationMs: dur,
@@ -306,8 +314,8 @@ class LabController extends ChangeNotifier {
     await folder.create(recursive: true);
 
     final session = {
-      'title': 'Sound Lab 轮播 $stamp',
-      'mode': 'beat_rotate',
+      'title': 'Sound Lab 阿卡贝拉 $stamp',
+      'mode': 'acapella',
       'createdAt': DateTime.now().toIso8601String(),
       'sources': canvas
           .map((n) => {
@@ -322,7 +330,7 @@ class LabController extends ChangeNotifier {
           .toList(),
       'featureSummary': featureSummary?.toJson(),
       'beatPlan': beatPlan?.toJson(),
-      'note': '按节拍规律轮播所选音频；不叠加鼓点素材。',
+      'note': '自动化声音阿卡贝拉：HotClip 有效声段 + 声部编排；最多 2 层叠唱。',
     };
     final jsonFile = File('${folder.path}/session.json');
     await jsonFile.writeAsString(

@@ -7,7 +7,7 @@ import 'audio_feature_timeline.dart';
 /// On-disk layout for one sound memory package:
 /// ```
 /// sounds/{id}/
-///   audio.m4a
+///   audio.wav | audio.m4a   (new recordings are PCM16 WAV)
 ///   visual.mjpg
 ///   visual.idx
 ///   visual_manifest.json
@@ -35,8 +35,13 @@ class SoundPackageStore {
   String _join(Directory dir, String name) =>
       '${dir.path}${Platform.pathSeparator}$name';
 
-  Future<File> audioFile(String soundId) async =>
-      File(_join(await packageDir(soundId), 'audio.m4a'));
+  /// Prefer WAV (PCM analysis pipeline); fall back to legacy AAC.
+  Future<File> audioFile(String soundId) async {
+    final dir = await packageDir(soundId);
+    final wav = File(_join(dir, 'audio.wav'));
+    if (await wav.exists()) return wav;
+    return File(_join(dir, 'audio.m4a'));
+  }
 
   Future<File> featuresFile(String soundId) async =>
       File(_join(await packageDir(soundId), 'audio_features.bin'));
@@ -56,16 +61,31 @@ class SoundPackageStore {
   Future<String> packagePath(String soundId) async =>
       (await packageDir(soundId)).path;
 
-  /// Move/copy [sourceAudio] into package as audio.m4a; write features.
+  static String _audioPackageName(String sourcePath) {
+    final lower = sourcePath.toLowerCase();
+    if (lower.endsWith('.wav')) return 'audio.wav';
+    return 'audio.m4a';
+  }
+
+  /// Move/copy [sourceAudio] into package as audio.wav / audio.m4a; write features.
   Future<SoundPackagePaths> materialize({
     required String soundId,
     required String sourceAudioPath,
     required AudioFeatureTimeline timeline,
   }) async {
     final dir = await packageDir(soundId);
-    final audio = File(_join(dir, 'audio.m4a'));
+    final audio = File(_join(dir, _audioPackageName(sourceAudioPath)));
     final src = File(sourceAudioPath);
     if (src.path != audio.path) {
+      // Drop sibling legacy/new audio so only one canonical file remains.
+      for (final name in ['audio.wav', 'audio.m4a']) {
+        final sibling = File(_join(dir, name));
+        if (sibling.path != audio.path && await sibling.exists()) {
+          try {
+            await sibling.delete();
+          } catch (_) {}
+        }
+      }
       if (await audio.exists()) await audio.delete();
       try {
         await src.rename(audio.path);

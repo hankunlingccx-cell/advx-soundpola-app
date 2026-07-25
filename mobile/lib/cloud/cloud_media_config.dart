@@ -2,24 +2,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Cloud Media Service base URL.
 ///
-/// Compile-time default via:
-/// `flutter run --dart-define=CLOUD_MEDIA_BASE=http://8.129.229.10:9000`
-///
-/// May be overridden at runtime from the in-app server settings screen; the
-/// override is persisted with [SharedPreferences] and takes precedence.
+/// 预设固定为 `http://soundpola.babelbeast.com`。
+/// 可在登录页「服务器设置」中运行时覆盖，并经 [SharedPreferences] 持久化。
 class CloudMediaConfig {
   CloudMediaConfig._();
 
   static const _overrideKey = 'sp_cloud_base_url_override';
 
-  static const defaultBaseUrl = String.fromEnvironment(
-    'CLOUD_MEDIA_BASE',
-    defaultValue: 'http://8.129.229.10:9000',
-  );
+  static const String defaultBaseUrl = 'http://soundpola.babelbeast.com:9000';
 
   static String? _override;
 
-  /// Effective base URL: runtime override when set, otherwise compile default.
+  /// Effective base URL: runtime override when set, otherwise preset default.
   static String get baseUrl =>
       (_override != null && _override!.isNotEmpty) ? _override! : defaultBaseUrl;
 
@@ -35,7 +29,7 @@ class CloudMediaConfig {
     }
   }
 
-  /// Persist and activate a new base URL (e.g. `http://192.168.1.10:9000`).
+  /// Persist and activate a new base URL.
   static Future<void> save(String url) async {
     final normalized = _stripTrailingSlash(url.trim());
     _override = normalized;

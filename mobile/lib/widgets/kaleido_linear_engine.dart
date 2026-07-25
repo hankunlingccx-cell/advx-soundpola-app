@@ -66,6 +66,9 @@ class KaleidoLinearEngine {
   double flux = 0;
   double onset = 0;
   double zcr = 0.2;
+  /// Continuous pitchControl 0–1 (low→high). Never discrete pattern switch.
+  double pitch = 0.45;
+  double pitchConf = 0;
   List<double> spectrum = const [];
 
   double userPhase = 0;
@@ -80,6 +83,33 @@ class KaleidoLinearEngine {
   static const _deep = Color(0xFF1A6B5E);
   static const _cyan = Color(0xFF4DB8E8);
   static const _violet = Color(0xFF8B7AD6);
+  static const _pink = Color(0xFFD4A0C8);
+
+  /// Low / mid / high visual states — paint always lerps between neighbors.
+  static const _lookA = _PitchLook(
+    sharpness: 0.18,
+    density: 0.72,
+    beadScale: 1.18,
+    flowMul: 0.65,
+    foldMul: 0.85,
+    tint: _deep,
+  );
+  static const _lookB = _PitchLook(
+    sharpness: 0.55,
+    density: 1.0,
+    beadScale: 1.0,
+    flowMul: 1.0,
+    foldMul: 1.0,
+    tint: _accent,
+  );
+  static const _lookC = _PitchLook(
+    sharpness: 1.0,
+    density: 1.38,
+    beadScale: 0.72,
+    flowMul: 1.55,
+    foldMul: 1.18,
+    tint: _pink,
+  );
 
   void configureQuality(VisualQualityProfile q) {
     final budget = q.particleCount >= 600
@@ -199,6 +229,9 @@ class KaleidoLinearEngine {
     final onsetT = f.onset > 0.22 ? f.onset : 0.0;
     onset = onsetT > onset ? onsetT : _ar(onset, 0, 0.05, 0.28, dt);
     zcr = _ar(zcr, f.zeroCrossingRate, 0.04, 0.14, dt);
+    // Tracker already smooths; light blend keeps paint/analysis clocks aligned.
+    pitch = _ar(pitch, f.pitchControl.clamp(0.0, 1.0), 0.06, 0.14, dt);
+    pitchConf = _ar(pitchConf, f.confidence.clamp(0.0, 1.0), 0.08, 0.18, dt);
   }
 
   void tick(double dt) {
@@ -208,8 +241,27 @@ class KaleidoLinearEngine {
         math.sin(time * 0.55) * 0.008 +
         math.sin(time * 0.19) * 0.006;
     final drive = math.max(energy, idle);
-    final flowSpeed = 0.055 * (1.0 + drive * 1.1 + flux * 0.6);
+    final look = _pitchLook(pitch);
+    final flowSpeed = 0.055 *
+        (1.0 + drive * 1.1 + flux * 0.6) *
+        look.flowMul;
     flowPhase = (flowPhase + dt * flowSpeed) % 1.0;
+  }
+
+  /// Adjacent A↔B / B↔C morph from continuous pitchControl.
+  static _PitchLook _pitchLook(double pitch01) {
+    final p = pitch01.clamp(0.0, 1.0);
+    if (p <= 0.5) {
+      final t = _smoothstep(0.0, 0.5, p);
+      return _PitchLook.lerp(_lookA, _lookB, t);
+    }
+    final t = _smoothstep(0.5, 1.0, p);
+    return _PitchLook.lerp(_lookB, _lookC, t);
+  }
+
+  static double _smoothstep(double a, double b, double x) {
+    final t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    return t * t * (3 - 2 * t);
   }
 
   void paint(
@@ -225,11 +277,16 @@ class KaleidoLinearEngine {
 
     final idle = 0.035 + math.sin(time * 0.55) * 0.008;
     final drive = math.max(energy, idle);
-    // Geometry stays almost fixed; audio mainly drives brightness / flow.
+    final look = _pitchLook(pitch);
+    final shapeT = _smoothstep(0.2, 0.8, pitch);
+    // Geometry stays almost fixed; pitch morphs sharpness / density / size.
     final geo = _soft(drive) * 0.35;
-    final fold = (0.28 + mid * 0.22 + userFold * 0.5).clamp(0.12, 0.55);
-    final outerBoost = 0.98 + bass * 0.04 + onset * 0.02;
-    final tipSharp = 0.35 + treble * 0.25 + zcr * 0.1;
+    final fold = (0.28 + mid * 0.22 + userFold * 0.5).clamp(0.12, 0.55) *
+        look.foldMul;
+    final outerBoost =
+        0.98 + bass * 0.04 + onset * 0.02 + shapeT * 0.035 + onset * 0.03;
+    final tipSharp =
+        0.22 + look.sharpness * 0.55 + treble * 0.12 + zcr * 0.06;
 
     // Build Q1 once (pure circles). Coordinates: +x right, +y up from origin.
     // Cull rect keeps mirrored Picture draws finite (avoids unbounded glitches).
@@ -257,15 +314,24 @@ class KaleidoLinearEngine {
 
       for (var p = 0; p < rib.parallel; p++) {
         // Keep parallel gaps stable so rows don't smear into a sheet.
-        final offNorm =
-            (p - half) * rib.spacing * (0.92 + geo * 0.12 + localSoft * 0.08);
+        // Higher pitch → denser parallel rows (tighter spacing).
+        final offNorm = (p - half) *
+            rib.spacing *
+            (0.92 + geo * 0.12 + localSoft * 0.08) /
+            look.density.clamp(0.55, 1.6);
 
         for (var i = 0; i < rib.particles; i++) {
           final u = rib.particles <= 1 ? 0.5 : i / (rib.particles - 1);
+          // Pitch wobble shifts flow along the ribbon (latitudinal feel).
+          final pitchDrift =
+              math.sin(time * (0.35 + look.flowMul * 0.55) + rib.phase) *
+                  (0.02 + shapeT * 0.05);
           final flowU = (u +
-                  flowPhase * rib.flowDir * (0.35 + flux * 0.4) +
+                  flowPhase * rib.flowDir * (0.35 + flux * 0.4) *
+                      look.flowMul +
                   rib.phase * 0.02 +
-                  userPhase * 0.15)
+                  userPhase * 0.15 +
+                  pitchDrift)
               .remainder(1.0);
           final fu = flowU < 0 ? flowU + 1.0 : flowU;
 
@@ -282,18 +348,19 @@ class KaleidoLinearEngine {
           final px = xy.$1 * scale;
           final py = xy.$2 * scale;
 
-          // Tiny beads; audio ±~18% only — never blob into neighbors.
+          // Higher pitch → finer beads (thinner line feel).
           final bead = (0.55 +
                   localSoft * 0.18 +
                   geo * 0.12 +
                   (1.0 - (p - half).abs() / (half + 0.01)) * 0.08) *
               (0.85 + rib.sizeBias * 0.15) *
+              look.beadScale *
               (size.shortestSide / 420.0);
           final a = (0.14 + bright * 0.48).clamp(0.08, 0.58) *
               (0.6 + (1 - (p - half).abs() / (half + 1)) * 0.4);
           _fill.color = color.withValues(alpha: a);
           // Flutter y-down: store Q1 as (+px, -py) so +y math is screen-up.
-          q1.drawCircle(Offset(px, -py), bead.clamp(0.3, 1.35), _fill);
+          q1.drawCircle(Offset(px, -py), bead.clamp(0.25, 1.35), _fill);
         }
       }
     }
@@ -439,15 +506,18 @@ class KaleidoLinearEngine {
   }
 
   Color _color(double bright, int layer) {
-    final t = centroid;
+    final look = _pitchLook(pitch);
+    // Centroid still nudges brightness family; pitch drives cyan→violet/pink.
+    final t = (centroid * 0.35 + pitch * 0.65).clamp(0.0, 1.0);
     Color base;
     if (t < 0.33) {
-      base = Color.lerp(_deep, _accent, t / 0.33)!;
+      base = Color.lerp(_deep, _cyan, t / 0.33)!;
     } else if (t < 0.66) {
-      base = Color.lerp(_accent, Colors.white, (t - 0.33) / 0.33 * 0.5)!;
+      base = Color.lerp(_accent, _violet, (t - 0.33) / 0.33)!;
     } else {
-      base = Color.lerp(_cyan, _violet, (t - 0.66) / 0.34 * 0.35)!;
+      base = Color.lerp(_violet, _pink, (t - 0.66) / 0.34)!;
     }
+    base = Color.lerp(base, look.tint, 0.28 + pitchConf * 0.22)!;
     if (onset > 0.5 && bright > 0.55 && layer >= 2) {
       base = Color.lerp(base, Colors.white, ((onset - 0.5) / 0.5) * 0.7)!;
     }
@@ -480,6 +550,37 @@ class KaleidoLinearEngine {
     final tau = target > cur ? attack : release;
     final k = 1.0 - math.exp(-dt / tau.clamp(0.001, 2.0));
     return cur + (target - cur) * k;
+  }
+}
+
+/// Continuous visual state for pitch morph (A/B/C anchors).
+class _PitchLook {
+  const _PitchLook({
+    required this.sharpness,
+    required this.density,
+    required this.beadScale,
+    required this.flowMul,
+    required this.foldMul,
+    required this.tint,
+  });
+
+  final double sharpness;
+  final double density;
+  final double beadScale;
+  final double flowMul;
+  final double foldMul;
+  final Color tint;
+
+  static _PitchLook lerp(_PitchLook a, _PitchLook b, double t) {
+    final k = t.clamp(0.0, 1.0);
+    return _PitchLook(
+      sharpness: ui.lerpDouble(a.sharpness, b.sharpness, k)!,
+      density: ui.lerpDouble(a.density, b.density, k)!,
+      beadScale: ui.lerpDouble(a.beadScale, b.beadScale, k)!,
+      flowMul: ui.lerpDouble(a.flowMul, b.flowMul, k)!,
+      foldMul: ui.lerpDouble(a.foldMul, b.foldMul, k)!,
+      tint: Color.lerp(a.tint, b.tint, k)!,
+    );
   }
 }
 

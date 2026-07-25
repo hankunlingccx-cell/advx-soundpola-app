@@ -2,19 +2,13 @@
 
 契约文件：[`openapi-cloud-media.yaml`](./openapi-cloud-media.yaml)
 
-默认基址：`http://8.129.229.10:9000`
+预设基址：`http://soundpola.babelbeast.com:9000`（可在登录页「服务器设置」改写）
 
 ## 运行
 
 ```powershell
 cd mobile
 flutter run -d 53740dd4
-```
-
-如需临时改基址：
-
-```powershell
-flutter run -d 53740dd4 --dart-define=CLOUD_MEDIA_BASE=http://8.129.229.10:9000
 ```
 
 ## 联调流程
@@ -42,5 +36,5 @@ curl -i \
   -X POST \
   -H "Authorization: Bearer $USER_TOKEN" \
   -F "audio=@recording.m4a" \
-  http://8.129.229.10:9000/api/v1/contents
+  http://soundpola.babelbeast.com:9000/api/v1/contents
 ```

@@ -444,6 +444,8 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 实时声音可视化：参考 visuallization Axis Field 线性声场，Flutter 端为四象限严格镜像。几何只在第一象限计算并绘制一次（纯 `drawCircle` 圆形粒子：径向／弧向／弦向平行珠串），其余三象限用 Canvas `scale(±1,±1)` 镜像，不重复生成粒子。Isolate 输出 `AudioFeatures`；CustomPainter 只读快照。声音主要驱动亮度、流速与轻弯曲；粒子半径仅轻微变化、整体外轮廓几乎固定，禁止随音量胀糊。待机持续慢漂移。禁止球体点阵、线段／非圆粒子、整图 scale、每帧随机闪烁。
 
+音高视觉目标：不追求调音器级绝对音名，而保持听感高低与形态之间稳定、单调、可感知的对应。管线为 PCM16 → YIN 候选基频 → 置信度 → 倍频／半频修正 → 对数 `pitchControl`（0＝低／1＝高）→ 中值滤波＋非对称 EMA＋速率限制 → 图样参数连续插值。禁止按阈值硬切离散图案（如低＝圆／中＝方／高＝三角）。低／中／高定义视觉状态 A／B／C（圆润厚重缓转 ↔ 混合展开 ↔ 尖锐细密快转），画面始终在相邻状态间插值，同时驱动尖锐度、密度、线宽（珠径）、局部流速、球面／经纬向位移感与青→蓝紫／粉着色。短暂失检保持上一可靠状态；持续无可靠基频时平滑融合频谱重心／噪声度／onset，禁止随机跳回默认图样。
+
 录音计时。
 
 录音中 / 已暂停状态。
@@ -456,7 +458,7 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 音量过低、过高或正常提示。
 
-录音文件写入应用文档目录 `recordings/`；`stop` 若未返回路径则回退至启动时路径并确认文件已落盘。
+录音文件写入应用文档目录 `recordings/*.m4a`（AAC）；`stop` 若未返回路径则回退至启动时路径并确认文件已落盘。实时特征由幅度流驱动 Isolate；`pitchControl` 在无 PCM 时平滑融合频谱重心（避免卡死于部分机型的 `startStream`）。存量包可读 `audio.wav`／`audio.m4a`。
 
 06 录音结果
 
@@ -828,7 +830,7 @@ NFT 资产总数。
 
 已连接的 Press 硬件设备。
 
-硬件扫码配对（Account → 配对 NFC 设备）：
+硬件扫码配对（Account → WiFi 扫码连接设备）：
 
 设备 LCD 显示二维码 `SNDPOLA1|<ipv4>|<port>|<nonce>|<devid>`；App 摄像头扫描并校验魔数／IPv4／端口／nonce。
 
@@ -837,6 +839,8 @@ App 经局域网原始 TCP Socket 向设备 `POST /pair`（不用 package:http�
 状态码：200 成功；401 二维码过期／已用；403 设备未开配对；400 参数无效；超时／无响应视为不在同一网络。
 
 界面状态：loading →（权限）→ scanning → sending → success；失败可重扫。nonce 一次性且约 3 分钟 TTL；仅配对界面受理；局域网明文 HTTP 为 MVP 可接受，后续可加 TLS。
+
+入口：Account 主按钮「WiFi 扫码连接设备」；「我的设备」空态／列表「连接新设备」；Press「硬件设备写入」未绑定时直接进入扫码页。
 
 硬件端 Memory Terminal HMI（权威：`hadwareui.md` + `docs/hardware-ui-preview/index.html`）：
 
@@ -1022,7 +1026,7 @@ error：权限、网络、写入、上链或账号异常。
 
 安全存储：登录令牌、账号凭证与敏感标识。
 
-云端接口：AdventureX Cloud Media（UserToken、上传/轮询/列表）；契约 `docs/openapi-cloud-media.yaml`；默认基址 `http://8.129.229.10:9000`，可用 `--dart-define=CLOUD_MEDIA_BASE=` 覆盖，或在 App 服务器设置中运行时改写。
+云端接口：AdventureX Cloud Media（UserToken、上传/轮询/列表）；契约 `docs/openapi-cloud-media.yaml`；预设基址 `http://soundpola.babelbeast.com:9000`，可在登录页「服务器设置」运行时改写。
 
 原生能力桥接：麦克风、NFC、蓝牙、定位与触觉。
 
@@ -1074,7 +1078,7 @@ App
 │       └── 分享与编辑展示信息
 └── Account
     ├── 个人中心
-    ├── Sound Lab 声音实验室（测试页，旁路路由 `/lab/sound`，不进底栏）
+    ├── Sound Lab 声音实验室（自动化阿卡贝拉测试页，`/lab/sound`，不进底栏）
     ├── 我的数字资产
     ├── 声片与设备
     ├── 账号与安全
@@ -1082,19 +1086,15 @@ App
 
 9.1 Sound Lab 声音实验室（测试页）
 
-定位：开发与验收用旁路页面，不进入底部三 Tab；入口在 Account「Sound Lab 声音实验室」。
+定位：自动化声音阿卡贝拉测试页；旁路路由 `/lab/sound`，不进底部三 Tab；入口在 Account。
 
-**用户流程**：点选 1–4 段声音 →「随机节拍轮播试听」→ 按所选内容特征随机生成轮播计划并试听。每次试听 seed 不同。
+**用户流程**：点选 1–4 段声音 →「生成阿卡贝拉并试听」→ 截取各段最高音量有效声段（`HotClip`）→ **随机发明节拍型**（如「咚咚打咚咚-」）→ 把声段填进拍点并偶发叠唱试听。
 
-**「生成节拍」**：按节拍网格轮播所选音频（非鼓点 one-shot）。生成前先对每段声音截取**音量最高的有效片段**（`HotClip`，滑窗 RMS / gatedRms），轮播切片落在该片段内。本地算法再根据 onset / 能量 / 时长等随机决定疏密、风格与切源顺序。
+**节拍**：暂不走 AI；由程序 `RhythmPattern.invent` 按 seed 随机发明（咚≈重击、打≈轻击、-=休止）。每次生成不同。AI 接入点仍保留在 `beat_ai_api_config.dart`，网关当前为 `LocalBeatGenerationApi`。
 
-**接 AI API（改这一处）**：`mobile/lib/lab/beat_ai_api_config.dart`
-- 填 `endpointUrl`（完整 URL）
-- 设 `enabled = true`
-- 可选 `apiKey`
-也可 `--dart-define=BEAT_AI_API_URL=…` / `BEAT_AI_API_ENABLED=true`。未启用或失败时回退本地随机。
+**声部默认**：0→lead，1→response，2→pad，3→percussion；切片落在各自 HotClip 内；同时最多 2 层。
 
-契约：POST FeatureSummary（含 sourceCount）→ BeatPlan（timeMs / sourceIndex / playDurationMs / sliceOffsetMs）。
+**AI（暂关）**：日后将 `BeatGenerationApiGateway.instance` 改回 `AiBeatGenerationApi()`，并配置 `beat_ai_api_config.dart`。
 
 实现：`mobile/lib/lab/`、`mobile/lib/screens/lab/sound_lab_screen.dart`。
 
@@ -1136,6 +1136,8 @@ Account 首页。
 
 Press：multipart 上传源音频 → 轮询至 READY（FAILED 可 retry）→ NFC 写入 `contentId` + `nfc_url`（兼容 Trigger）→ 本地仍模拟 NFT 上链；可选经已配对 Memory Terminal 硬件完成物理写入／出卡（HMI 见 `hadwareui.md`）。
 
+NFC 深链打开：声片 URI 记录（`https://{host}/c/{contentId}` 或自定义 scheme `soundpola://c/{contentId}`）冷／热启动均进入 `/c/:contentId` 内容解析页（本机已有则进分类播放；未登录先登录再恢复；可 claim 云端记忆）。`go_router` 忽略平台原始 URI 作为初始 location，由 DeepLinkService 归一化后导航，避免 `soundpola://…` 被当成未知路由。
+
 Drafts 保持本地优先且按账户隔离；Collection 登录后同步当前账号 READY 内容；列表按分类胶囊双列瀑布流；点击跑道进入 `/collection/category/:categoryId` 分类声片播放页（贴图环形进度 + 横向堆叠 + 完整记忆／声片／NFT）；取消独立 Memory 路由；长按声卡可拖入其他分类调整展示分类。
 
 稀有度分级全息箔片（`RarityHoloStyle` / `RarityHoloOverlay`）：虹彩底膜＋衍射光栅＋RGB 色散高光＋微闪＋边缘焦散；N 银灰冷箔、R 薄荷青箔、SR 青蓝紫棱镜、SSR 全光谱＋密集微闪／强焦散／独占微粒视差；已接入 Collection 胶囊、分类堆叠、NFT 卡与鉴定揭晓。
@@ -1144,7 +1146,7 @@ Drafts 保持本地优先且按账户隔离；Collection 登录后同步当前�
 
 真实麦克风录音、本地播放、NFC 读写（设备支持时）；云媒体契约见 `docs/openapi-cloud-media.yaml`。
 
-Account 首页：昵称、收藏/声片数量、数字资产账户缩写、退出登录（Drafts／Collection 按账号隔离；换号清空视图）；测试入口 **Sound Lab**（`/lab/sound`）：点选音源 → 按节拍轮播试听；计划经 `BeatGenerationApiGateway`。
+Account 首页：昵称、收藏/声片数量、数字资产账户缩写、退出登录（Drafts／Collection 按账号隔离；换号清空视图）；测试入口 **Sound Lab**（`/lab/sound`）：点选音源 → 程序随机节拍阿卡贝拉（HotClip + 声部编排）；AI 网关暂关。
 
 Drafts 本地优先且按登录账户隔离；Collection 登录后仅同步当前账号 READY 内容（不同账号互不串数据）。
 

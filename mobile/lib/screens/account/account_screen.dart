@@ -237,6 +237,11 @@ class AccountScreen extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: AppSpacing.block),
+                  PrimaryButton(
+                    text: 'WiFi 扫码连接设备',
+                    onPressed: () => context.push(AppRoutes.pairDevice),
+                  ),
+                  const SizedBox(height: AppSpacing.item),
                   SecondaryButton(
                     text: '我的设备',
                     onPressed: () => context.push(AppRoutes.myDevices),

@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
 /// Normalized audio descriptors for the visual layer (UI thread).
-/// Produced off-thread ~40 Hz with AGC, soft gate, multi-band envelopes,
-/// and a compact modulation spectrum (from amplitude stream when PCM
-/// is unavailable; still drives local structure, not a single average).
+///
+/// [pitch] is a continuous **pitchControl** in 0–1 (log-Hz mapped), not a
+/// note name. Prefer stable low↔high correspondence over tuner accuracy.
 class AudioFeatures {
   const AudioFeatures({
     this.rms = 0,
@@ -19,8 +19,8 @@ class AudioFeatures {
     this.spectralFlux = 0,
     this.onset = 0,
     this.zeroCrossingRate = 0.2,
-    this.pitch = 0.4,
-    this.confidence = 0.4,
+    this.pitch = 0.45,
+    this.confidence = 0,
     this.agcGain = 1,
     this.noiseFloor = 0.02,
     this.trackedPeak = 0.1,
@@ -42,7 +42,12 @@ class AudioFeatures {
   final double spectralFlux;
   final double onset;
   final double zeroCrossingRate;
+
+  /// Continuous pitch control 0–1 (low→high). Alias: pitchControl.
   final double pitch;
+  double get pitchControl => pitch;
+
+  /// Smoothed YIN / F0 confidence 0–1.
   final double confidence;
   final double agcGain;
   final double noiseFloor;
@@ -147,14 +152,12 @@ class AudioFeatures {
       mid: (m['mid'] as num?)?.toDouble() ?? 0.2,
       highMid: (m['highMid'] as num?)?.toDouble() ?? 0.12,
       treble: (m['treble'] as num?)?.toDouble() ?? 0.1,
-      spectralCentroid: (m['spectralCentroid'] as num?)?.toDouble() ??
-          (m['pitch'] as num?)?.toDouble() ??
-          0.35,
+      spectralCentroid: (m['spectralCentroid'] as num?)?.toDouble() ?? 0.35,
       spectralFlux: (m['spectralFlux'] as num?)?.toDouble() ?? 0,
       onset: (m['onset'] as num?)?.toDouble() ?? 0,
       zeroCrossingRate: (m['zeroCrossingRate'] as num?)?.toDouble() ?? 0.2,
-      pitch: (m['pitch'] as num?)?.toDouble() ?? 0.4,
-      confidence: (m['confidence'] as num?)?.toDouble() ?? 0.4,
+      pitch: (m['pitch'] as num?)?.toDouble() ?? 0.45,
+      confidence: (m['confidence'] as num?)?.toDouble() ?? 0,
       agcGain: (m['agcGain'] as num?)?.toDouble() ?? 1,
       noiseFloor: (m['noiseFloor'] as num?)?.toDouble() ?? 0.02,
       trackedPeak: (m['trackedPeak'] as num?)?.toDouble() ?? 0.1,
