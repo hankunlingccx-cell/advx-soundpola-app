@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'dart:math';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../cloud/cloud_media_models.dart';
 import 'disc_rarity.dart';
 
@@ -137,15 +138,8 @@ class SoundMemory {
   }
 }
 
-const soundCategories = [
-  '自然',
-  '城市',
-  '人声',
-  '日常',
-  '旅行',
-  '特别时刻',
-  '其他',
-];
+/// 分类名称最长字数（用户自建）。
+const int kCategoryNameMaxLength = 12;
 
 /// Collection 按分类聚合的一组收藏（瀑布流胶囊单元）。
 class CollectionGroup {
@@ -176,16 +170,27 @@ String formatRecordedAt(DateTime dt) {
 }
 
 class SoundRepository extends ChangeNotifier {
-  SoundRepository._();
+  SoundRepository._() {
+    _seedCategoriesFromSounds();
+    _loadPersistedCategories();
+  }
   static final SoundRepository instance = SoundRepository._();
+
+  static const _prefsCategoriesKey = 'user_categories';
 
   /// 本会话内草稿清空原因（用于「清空 / 全部封存」文案；展示一次后消费）。
   DraftsEmptyKind? draftsEmptyKind;
   bool _everHadDrafts = true; // 演示数据含草稿；真实空账号可改为 false
 
+  /// 用户已创建／已使用的分类名（顺序：声音出现顺序，再追加持久化自建名）。
+  final List<String> _categories = [];
+
   bool get everHadDrafts => _everHadDrafts;
   bool get hasCollectionAssets => collection.isNotEmpty;
   int get draftCount => drafts.length;
+
+  /// 可供选择的分类列表（用户自定义）。
+  List<String> get categories => List.unmodifiable(_categories);
 
   final List<SoundMemory> _sounds = [
     SoundMemory(
@@ -371,7 +376,7 @@ class SoundRepository extends ChangeNotifier {
   List<SoundMemory> get collection =>
       _sounds.where((s) => s.status == SoundStatus.collected).toList();
 
-  /// 按分类分组；顺序跟随 [soundCategories]，未知分类靠后。
+  /// 按分类分组；顺序跟随 [categories]，未知分类靠后。
   List<CollectionGroup> get collectionGroups {
     final items = collection;
     final byCategory = <String, List<SoundMemory>>{};
@@ -383,7 +388,7 @@ class SoundRepository extends ChangeNotifier {
     }
 
     final groups = <CollectionGroup>[];
-    for (final name in soundCategories) {
+    for (final name in _categories) {
       final list = byCategory.remove(name);
       if (list != null && list.isNotEmpty) {
         groups.add(CollectionGroup(category: name, items: list));
@@ -397,6 +402,53 @@ class SoundRepository extends ChangeNotifier {
     return groups;
   }
 
+  void _seedCategoriesFromSounds() {
+    final seen = <String>{};
+    for (final s in _sounds) {
+      final name = s.category.trim();
+      if (name.isEmpty || !seen.add(name)) continue;
+      _categories.add(name);
+    }
+  }
+
+  Future<void> _loadPersistedCategories() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getStringList(_prefsCategoriesKey) ?? const [];
+    var changed = false;
+    for (final raw in stored) {
+      final name = raw.trim();
+      if (name.isEmpty || _categories.contains(name)) continue;
+      _categories.add(name);
+      changed = true;
+    }
+    await _persistCategories();
+    if (changed) notifyListeners();
+  }
+
+  Future<void> _persistCategories() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_prefsCategoriesKey, _categories);
+  }
+
+  /// 规范化并加入分类表；已存在则原样返回。失败返回 null。
+  Future<String?> addCategory(String raw) async {
+    final name = raw.trim();
+    if (name.isEmpty || name.length > kCategoryNameMaxLength) return null;
+    if (_categories.contains(name)) return name;
+    _categories.add(name);
+    await _persistCategories();
+    notifyListeners();
+    return name;
+  }
+
+  void _ensureCategoryPresent(String raw) {
+    final name = raw.trim();
+    if (name.isEmpty || _categories.contains(name)) return;
+    if (name.length > kCategoryNameMaxLength) return;
+    _categories.add(name);
+    _persistCategories();
+  }
+
   SoundMemory? get(String id) {
     try {
       return _sounds.firstWhere((s) => s.id == id);
@@ -408,6 +460,7 @@ class SoundRepository extends ChangeNotifier {
   void addDraft(SoundMemory memory) {
     draftsEmptyKind = null;
     _everHadDrafts = true;
+    _ensureCategoryPresent(memory.category);
     _sounds.insert(0, memory.copyWith(status: SoundStatus.drafted));
     notifyListeners();
   }
@@ -416,16 +469,18 @@ class SoundRepository extends ChangeNotifier {
     final index = _sounds.indexWhere((s) => s.id == id);
     if (index >= 0) {
       _sounds[index] = transform(_sounds[index]);
+      _ensureCategoryPresent(_sounds[index].category);
       notifyListeners();
     }
   }
 
   /// 调整收藏展示分类（不改变链上资产）。
   void updateCategory(String id, String category) {
-    if (!soundCategories.contains(category)) return;
+    final name = category.trim();
+    if (name.isEmpty || !_categories.contains(name)) return;
     update(id, (s) {
-      if (s.category == category) return s;
-      return s.copyWith(category: category);
+      if (s.category == name) return s;
+      return s.copyWith(category: name);
     });
   }
 
@@ -553,6 +608,7 @@ class SoundRepository extends ChangeNotifier {
             networkLabel: 'Cloud Media',
           ),
         );
+        _ensureCategoryPresent('其他');
       }
     }
     notifyListeners();

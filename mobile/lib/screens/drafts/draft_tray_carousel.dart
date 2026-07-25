@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,7 +9,7 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/sound_visual.dart';
 
-/// 横向 Carousel：中央完整，左右各露出约 18%–24%。
+/// 横向 Carousel：中央完整，左右约 18%–24% 露出。
 class DraftTrayCarousel extends StatefulWidget {
   const DraftTrayCarousel({
     super.key,
@@ -44,7 +43,6 @@ class DraftTrayCarousel extends StatefulWidget {
 }
 
 class _DraftTrayCarouselState extends State<DraftTrayCarousel> {
-  /// 约 20% 左右露出。
   static const _viewportFraction = 0.60;
   late final PageController _controller;
   double _page = 0;
@@ -103,7 +101,7 @@ class _DraftTrayCarouselState extends State<DraftTrayCarousel> {
 
     return AnimatedOpacity(
       duration: AppMotion.fast,
-      opacity: widget.dimmed ? 0.38 : 1,
+      opacity: widget.dimmed ? 0.4 : 1,
       child: PageView.builder(
         controller: _controller,
         itemCount: widget.items.length,
@@ -119,7 +117,7 @@ class _DraftTrayCarouselState extends State<DraftTrayCarousel> {
           final delta = index - _page;
           final abs = delta.abs().clamp(0.0, 1.5);
           final scale = uiLerp(1.0, 0.90, (abs / 1.0).clamp(0.0, 1.0));
-          final brightness = uiLerp(1.0, 0.48, (abs / 1.0).clamp(0.0, 1.0));
+          final brightness = uiLerp(1.0, 0.62, (abs / 1.0).clamp(0.0, 1.0));
           final isCenter = index == widget.selectedIndex;
           final isPlaceholder = widget.placeholderIndex == index;
 
@@ -137,6 +135,7 @@ class _DraftTrayCarouselState extends State<DraftTrayCarousel> {
                       child: DraftTrayCard(
                         key: isCenter ? widget.centerCardKey : null,
                         item: item,
+                        tintIndex: index,
                         elevated: isCenter && !widget.dimmed,
                         onTap: () => widget.onOpenDetail(item.id),
                         onLongPressStart: isCenter && !widget.locked
@@ -166,17 +165,30 @@ class _DraftCardPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(
-      size: const Size(188, 248),
-      painter: _SampleFramePainter(
-        elevated: false,
-        placeholder: true,
+    return Container(
+      width: 188,
+      height: 248,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        color: AppColors.ceramic.withValues(alpha: 0.18),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.2),
+        ),
       ),
     );
   }
 }
 
-/// 未封存声音样本卡：石墨底 + 四角定位 + 断线刻度，非 Material 圆角卡。
+Color _cardTint(int index) {
+  const tints = [
+    AppColors.cardIvory,
+    AppColors.cardCool,
+    AppColors.cardSilver,
+  ];
+  return tints[index % tints.length];
+}
+
+/// 明亮实体声卡：象牙白 / 冷白 / 浅银，黑底圆形贴图。
 class DraftTrayCard extends StatelessWidget {
   const DraftTrayCard({
     super.key,
@@ -187,6 +199,7 @@ class DraftTrayCard extends StatelessWidget {
     this.onLongPressEnd,
     this.elevated = false,
     this.scale = 1,
+    this.tintIndex = 0,
     this.playingOverride,
     this.progressOverride,
   });
@@ -198,16 +211,16 @@ class DraftTrayCard extends StatelessWidget {
   final GestureLongPressEndCallback? onLongPressEnd;
   final bool elevated;
   final double scale;
+  final int tintIndex;
   final bool? playingOverride;
   final double? progressOverride;
 
   String get _statusLine {
     return switch (item.status) {
-      SoundStatus.drafted => 'READY TO PRESS',
-      SoundStatus.writeFailed => 'READY TO PRESS',
-      SoundStatus.chainFailed => 'READY TO PRESS',
-      SoundStatus.writing || SoundStatus.chainPending => 'PRESSING',
-      SoundStatus.collected => 'PRESSED',
+      SoundStatus.drafted => 'Ready to Press',
+      SoundStatus.writeFailed || SoundStatus.chainFailed => 'Ready to Press',
+      SoundStatus.writing || SoundStatus.chainPending => 'Pressing',
+      SoundStatus.collected => 'Sealed',
     };
   }
 
@@ -220,8 +233,7 @@ class DraftTrayCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const w = 188.0;
-    const h = 248.0;
+    final base = _cardTint(tintIndex);
 
     return Transform.scale(
       scale: scale,
@@ -230,76 +242,82 @@ class DraftTrayCard extends StatelessWidget {
         onLongPressStart: onLongPressStart,
         onLongPressMoveUpdate: onLongPressMoveUpdate,
         onLongPressEnd: onLongPressEnd,
-        child: SizedBox(
-          width: w,
-          height: h,
-          child: Stack(
-            children: [
-              CustomPaint(
-                size: const Size(w, h),
-                painter: _SampleFramePainter(elevated: elevated),
+        child: AnimatedContainer(
+          duration: AppMotion.fast,
+          width: 188,
+          height: 248,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: LinearGradient(
+              begin: const Alignment(-0.6, -1),
+              end: const Alignment(0.5, 1),
+              colors: [
+                Colors.white,
+                base,
+                Color.lerp(base, const Color(0xFFDDE2E0), 0.35)!,
+              ],
+            ),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: elevated ? 0.95 : 0.55),
+              width: 0.8,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: elevated ? 0.38 : 0.22),
+                blurRadius: elevated ? 26 : 14,
+                offset: Offset(0, elevated ? 12 : 6),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: _CircularPlayVisual(
-                        item: item,
-                        size: 118,
-                        playingOverride: playingOverride,
-                        progressOverride: progressOverride,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.w500,
-                        fontSize: 18,
-                        height: 1.15,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${item.category}  ·  ${formatDuration(item.durationSec)}  ·  $_dateLabel',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textTertiary,
-                        fontSize: 12,
-                        height: 1.2,
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      _statusLine,
-                      style: TextStyle(
-                        fontFamily: 'Courier',
-                        color: elevated
-                            ? AppColors.accent.withValues(alpha: 0.88)
-                            : AppColors.textTertiary,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.6,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    const Text(
-                      'RARITY UNKNOWN',
-                      style: TextStyle(
-                        fontFamily: 'Courier',
-                        color: AppColors.textTertiary,
-                        fontSize: 10,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ],
+              BoxShadow(
+                color: Colors.white.withValues(alpha: 0.35),
+                blurRadius: 0.5,
+                offset: const Offset(0, -0.5),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: _CircularPlayVisual(
+                  item: item,
+                  size: 118,
+                  playingOverride: playingOverride,
+                  progressOverride: progressOverride,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                item.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.ink,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 18,
+                  height: 1.15,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                '${item.category}  ·  ${formatDuration(item.durationSec)}  ·  $_dateLabel',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.inkMuted,
+                  fontSize: 12,
+                  height: 1.2,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                _statusLine,
+                style: TextStyle(
+                  color: elevated ? AppColors.accent : AppColors.inkMuted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0.1,
                 ),
               ),
             ],
@@ -308,148 +326,6 @@ class DraftTrayCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class _SampleFramePainter extends CustomPainter {
-  _SampleFramePainter({required this.elevated, this.placeholder = false});
-
-  final bool elevated;
-  final bool placeholder;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final r = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      const Radius.circular(10),
-    );
-
-    if (placeholder) {
-      canvas.drawRRect(
-        r,
-        Paint()..color = AppColors.graphite.withValues(alpha: 0.35),
-      );
-      _drawCorners(canvas, size, AppColors.structure.withValues(alpha: 0.55));
-      return;
-    }
-
-    canvas.drawRRect(
-      r,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          Offset(size.width * 0.5, 0),
-          Offset(size.width * 0.5, size.height),
-          [
-            elevated ? const Color(0xFF151B19) : AppColors.graphite,
-            const Color(0xFF0A0E0D),
-          ],
-        ),
-    );
-
-    // 结构灰细边，非完整青色描边
-    canvas.drawRRect(
-      r,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..color = elevated
-            ? AppColors.structure.withValues(alpha: 0.95)
-            : AppColors.structure.withValues(alpha: 0.55),
-    );
-
-    _drawCorners(
-      canvas,
-      size,
-      elevated
-          ? AppColors.accent.withValues(alpha: 0.55)
-          : AppColors.structure,
-    );
-
-    // 顶部断线刻度
-    final y = 10.0;
-    final paint = Paint()
-      ..color = AppColors.structure.withValues(alpha: 0.7)
-      ..strokeWidth = 1;
-    canvas.drawLine(Offset(22, y), Offset(size.width * 0.28, y), paint);
-    canvas.drawLine(
-      Offset(size.width * 0.72, y),
-      Offset(size.width - 22, y),
-      paint,
-    );
-
-    // 底部微型编号轨
-    final by = size.height - 10;
-    for (var i = 0; i < 9; i++) {
-      final t = i / 8;
-      final x = ui.lerpDouble(20, size.width - 20, t)!;
-      canvas.drawLine(
-        Offset(x, by - (i % 3 == 0 ? 3.5 : 2)),
-        Offset(x, by + (i % 3 == 0 ? 3.5 : 2)),
-        Paint()
-          ..color = AppColors.structure.withValues(alpha: 0.55)
-          ..strokeWidth = 0.9,
-      );
-    }
-
-    if (elevated) {
-      canvas.drawRRect(
-        r,
-        Paint()
-          ..color = Colors.black.withValues(alpha: 0.01)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
-      );
-    }
-  }
-
-  void _drawCorners(Canvas canvas, Size size, Color color) {
-    const len = 10.0;
-    const m = 6.0;
-    final p = Paint()
-      ..color = color
-      ..strokeWidth = 1.2
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.square;
-
-    // TL
-    canvas.drawLine(const Offset(m, m + len), const Offset(m, m), p);
-    canvas.drawLine(const Offset(m, m), const Offset(m + len, m), p);
-    // TR
-    canvas.drawLine(
-      Offset(size.width - m - len, m),
-      Offset(size.width - m, m),
-      p,
-    );
-    canvas.drawLine(
-      Offset(size.width - m, m),
-      Offset(size.width - m, m + len),
-      p,
-    );
-    // BL
-    canvas.drawLine(
-      Offset(m, size.height - m - len),
-      Offset(m, size.height - m),
-      p,
-    );
-    canvas.drawLine(
-      Offset(m, size.height - m),
-      Offset(m + len, size.height - m),
-      p,
-    );
-    // BR
-    canvas.drawLine(
-      Offset(size.width - m - len, size.height - m),
-      Offset(size.width - m, size.height - m),
-      p,
-    );
-    canvas.drawLine(
-      Offset(size.width - m, size.height - m - len),
-      Offset(size.width - m, size.height - m),
-      p,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _SampleFramePainter old) =>
-      old.elevated != elevated || old.placeholder != placeholder;
 }
 
 class _CircularPlayVisual extends StatelessWidget {
@@ -503,7 +379,7 @@ class _CircularPlayVisual extends StatelessWidget {
                     width: inner,
                     height: inner,
                     child: ColoredBox(
-                      color: AppColors.device,
+                      color: AppColors.glassDark,
                       child: SoundVisualCanvas(
                         seed: item.visualSeed,
                         mode: playing
@@ -537,8 +413,8 @@ class _RingPainter extends CustomPainter {
       r,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6
-        ..color = AppColors.structure,
+        ..strokeWidth = 1.5
+        ..color = AppColors.silver.withValues(alpha: 0.8),
     );
 
     if (progress <= 0) return;
@@ -549,9 +425,9 @@ class _RingPainter extends CustomPainter {
       false,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
+        ..strokeWidth = 2.2
         ..strokeCap = StrokeCap.round
-        ..color = AppColors.accent.withValues(alpha: active ? 0.95 : 0.55),
+        ..color = AppColors.accent.withValues(alpha: active ? 0.95 : 0.6),
     );
   }
 

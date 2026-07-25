@@ -5,51 +5,70 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
 
-/// 拟物化声音写入机器状态（屏幕文案随业务阶段变化，不伪造百分比）。
+/// 拟物化声音写入机器状态。
 enum PressMachineMode {
   idle,
   receiving,
   readyToRelease,
-  reading,
-  verifying,
-  binding,
+  inserting,
+  loaded,
+  found,
+  pressing,
+  complete,
+  interrupted,
+  alreadyBound,
+  empty,
 }
 
 extension PressMachineModeX on PressMachineMode {
   (String, String) get screenLines => switch (this) {
-        PressMachineMode.idle => ('SOUND PRESS', 'READY'),
-        PressMachineMode.receiving => ('INSERT DRAFT', 'DRAG UP'),
-        PressMachineMode.readyToRelease => ('RELEASE TO PRESS', 'CONFIRM'),
-        PressMachineMode.reading => ('READING CHIP', 'NFC'),
-        PressMachineMode.verifying => ('VERIFYING', 'AUTH'),
-        PressMachineMode.binding => ('BINDING SOUND', 'WRITE'),
+        PressMachineMode.idle => (
+            'Ready to Press',
+            'Drag a sound card into the slot',
+          ),
+        PressMachineMode.receiving => ('Insert Sound', 'Move card up'),
+        PressMachineMode.readyToRelease => (
+            'Release to Insert',
+            'Align with the slot',
+          ),
+        PressMachineMode.inserting => ('Loading…', 'Inserting card'),
+        PressMachineMode.loaded => ('Sound Loaded', 'Waiting for piece'),
+        PressMachineMode.found => ('Piece Found', 'Hold steady'),
+        PressMachineMode.pressing => ('Pressing Sound', 'Do not move'),
+        PressMachineMode.complete => ('Press Complete', 'Sound sealed'),
+        PressMachineMode.interrupted => ('Interrupted', 'Try again'),
+        PressMachineMode.alreadyBound => ('Already Bound', 'Use another piece'),
+        PressMachineMode.empty => ('Queue Empty', 'Waiting for sound'),
       };
 
-  bool get isActive => this != PressMachineMode.idle;
+  bool get isActive =>
+      this != PressMachineMode.idle && this != PressMachineMode.empty;
 
   double get slotGlow => switch (this) {
-        PressMachineMode.idle => 0.28,
-        PressMachineMode.receiving => 0.62,
-        PressMachineMode.readyToRelease => 1.0,
-        PressMachineMode.reading ||
-        PressMachineMode.verifying ||
-        PressMachineMode.binding =>
-          0.78,
+        PressMachineMode.idle || PressMachineMode.empty => 0.18,
+        PressMachineMode.receiving => 0.55,
+        PressMachineMode.readyToRelease => 0.95,
+        PressMachineMode.inserting => 0.8,
+        PressMachineMode.loaded => 0.4,
+        PressMachineMode.found => 0.65,
+        PressMachineMode.pressing => 0.75,
+        PressMachineMode.complete => 0.85,
+        PressMachineMode.interrupted || PressMachineMode.alreadyBound => 0.3,
       };
 
   double get slotExtend => switch (this) {
-        PressMachineMode.idle => 0,
+        PressMachineMode.idle || PressMachineMode.empty => 2,
         PressMachineMode.receiving => 8,
         PressMachineMode.readyToRelease => 14,
-        PressMachineMode.reading ||
-        PressMachineMode.verifying ||
-        PressMachineMode.binding =>
-          4,
+        PressMachineMode.inserting => 10,
+        PressMachineMode.loaded => 4,
+        PressMachineMode.found || PressMachineMode.pressing => 6,
+        PressMachineMode.complete => 8,
+        PressMachineMode.interrupted || PressMachineMode.alreadyBound => 4,
       };
 }
 
-/// 嵌入黑色工作台的精密声音写入机。
-/// 体积靠受光边与内凹层级表现；品牌青仅用于插槽 / 状态灯 / 反馈。
+/// 白色陶瓷 × 浅银金属的 iOS 式精密写入机。
 class PressMachine extends StatelessWidget {
   const PressMachine({
     super.key,
@@ -57,20 +76,28 @@ class PressMachine extends StatelessWidget {
     required this.breath,
     this.guideFlash = 0,
     this.slotKey,
+    this.loadedTitle,
   });
 
   final PressMachineMode mode;
   final Animation<double> breath;
   final double guideFlash;
   final GlobalKey? slotKey;
+  final String? loadedTitle;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: breath,
       builder: (context, _) {
-        final (line1, line2) = mode.screenLines;
-        final breathPulse = 0.72 + 0.28 * breath.value;
+        var (line1, line2) = mode.screenLines;
+        if ((mode == PressMachineMode.loaded ||
+                mode == PressMachineMode.pressing) &&
+            loadedTitle != null &&
+            loadedTitle!.isNotEmpty) {
+          line2 = loadedTitle!;
+        }
+        final breathPulse = 0.75 + 0.25 * breath.value;
         final slotGlow = mode == PressMachineMode.idle
             ? mode.slotGlow * breathPulse
             : mode.slotGlow;
@@ -79,23 +106,43 @@ class PressMachine extends StatelessWidget {
           builder: (context, constraints) {
             final w = constraints.maxWidth;
             final h = constraints.maxHeight;
-            final bodyW = math.min(w * 0.86, 320.0);
-            final bodyH = math.min(h * 0.94, 168.0);
+            final bodyW = math.min(w * 0.88, 328.0);
+            final bodyH = math.min(h * 0.92, 168.0);
 
             return Center(
               child: SizedBox(
                 width: bodyW,
-                height: bodyH + mode.slotExtend,
+                height: bodyH + mode.slotExtend + 8,
                 child: Stack(
                   clipBehavior: Clip.none,
                   alignment: Alignment.topCenter,
                   children: [
+                    // 悬浮阴影
+                    Positioned(
+                      left: 18,
+                      right: 18,
+                      bottom: 2,
+                      height: 18,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(40),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.45),
+                              blurRadius: 28,
+                              spreadRadius: -4,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                     Positioned(
                       top: 0,
                       width: bodyW,
                       height: bodyH,
                       child: CustomPaint(
-                        painter: _MachineBodyPainter(
+                        painter: _CeramicBodyPainter(
                           mode: mode,
                           slotGlow: slotGlow,
                           breath: breath.value,
@@ -104,24 +151,24 @@ class PressMachine extends StatelessWidget {
                         child: Stack(
                           children: [
                             Positioned(
-                              left: bodyW * 0.2,
-                              right: bodyW * 0.2,
+                              left: bodyW * 0.18,
+                              right: bodyW * 0.18,
                               top: bodyH * 0.16,
-                              height: bodyH * 0.36,
-                              child: _PixelScreen(line1: line1, line2: line2),
+                              height: bodyH * 0.38,
+                              child: _GlassScreen(line1: line1, line2: line2),
                             ),
                             Positioned(
-                              left: bodyW * 0.1,
-                              top: bodyH * 0.2,
-                              child: _StatusLamps(
+                              left: bodyW * 0.09,
+                              top: bodyH * 0.22,
+                              child: _BezelLamps(
                                 mode: mode,
                                 breath: breath.value,
                               ),
                             ),
                             Positioned(
-                              right: bodyW * 0.1,
-                              top: bodyH * 0.2,
-                              child: _StatusLamps(
+                              right: bodyW * 0.09,
+                              top: bodyH * 0.22,
+                              child: _BezelLamps(
                                 mode: mode,
                                 breath: breath.value,
                               ),
@@ -131,16 +178,16 @@ class PressMachine extends StatelessWidget {
                       ),
                     ),
                     Positioned(
-                      left: bodyW * 0.16,
-                      right: bodyW * 0.16,
-                      top: bodyH - 14,
+                      left: bodyW * 0.2,
+                      right: bodyW * 0.2,
+                      top: bodyH - 12,
                       child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
+                        duration: const Duration(milliseconds: 200),
                         curve: Curves.easeOutCubic,
                         key: slotKey,
-                        height: 20 + mode.slotExtend,
+                        height: 18 + mode.slotExtend,
                         child: CustomPaint(
-                          painter: _SlotPainter(
+                          painter: _SilverSlotPainter(
                             glow: slotGlow,
                             breath: breath.value,
                           ),
@@ -158,8 +205,8 @@ class PressMachine extends StatelessWidget {
   }
 }
 
-class _PixelScreen extends StatelessWidget {
-  const _PixelScreen({required this.line1, required this.line2});
+class _GlassScreen extends StatelessWidget {
+  const _GlassScreen({required this.line1, required this.line2});
 
   final String line1;
   final String line2;
@@ -168,11 +215,18 @@ class _PixelScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF030605),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: AppColors.structure.withValues(alpha: 0.9)),
+        color: AppColors.glassDark,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF2A3230), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -180,27 +234,28 @@ class _PixelScreen extends StatelessWidget {
             line1,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
+            textAlign: TextAlign.center,
+            style: const TextStyle(
               fontFamily: 'Courier',
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
-              letterSpacing: 1.0,
-              color: AppColors.accent.withValues(alpha: 0.92),
-              height: 1.1,
+              letterSpacing: 0.2,
+              color: AppColors.highlight,
+              height: 1.15,
             ),
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 4),
           Text(
             line2,
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: 'Courier',
-              fontSize: 9,
-              letterSpacing: 0.8,
-              color: AppColors.textTertiary,
-              height: 1.1,
+              fontSize: 9.5,
+              letterSpacing: 0.15,
+              color: AppColors.accent.withValues(alpha: 0.92),
+              height: 1.2,
             ),
           ),
         ],
@@ -209,8 +264,8 @@ class _PixelScreen extends StatelessWidget {
   }
 }
 
-class _StatusLamps extends StatelessWidget {
-  const _StatusLamps({required this.mode, required this.breath});
+class _BezelLamps extends StatelessWidget {
+  const _BezelLamps({required this.mode, required this.breath});
 
   final PressMachineMode mode;
   final double breath;
@@ -218,12 +273,13 @@ class _StatusLamps extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lit = switch (mode) {
-      PressMachineMode.idle => 1,
+      PressMachineMode.idle || PressMachineMode.empty => 1,
       PressMachineMode.receiving => 2,
-      PressMachineMode.readyToRelease => 3,
-      PressMachineMode.reading => 2,
-      PressMachineMode.verifying => 3,
-      PressMachineMode.binding => 4,
+      PressMachineMode.readyToRelease || PressMachineMode.inserting => 3,
+      PressMachineMode.loaded => 2,
+      PressMachineMode.found => 3,
+      PressMachineMode.pressing || PressMachineMode.complete => 4,
+      PressMachineMode.interrupted || PressMachineMode.alreadyBound => 2,
     };
 
     return Column(
@@ -238,20 +294,26 @@ class _StatusLamps extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: on
-                  ? AppColors.accent.withValues(alpha: 0.7 * pulse)
-                  : AppColors.structure,
+                  ? AppColors.accent.withValues(alpha: 0.85 * pulse)
+                  : const Color(0xFFD6DAD7),
+              border: Border.all(
+                color: AppColors.silverDeep.withValues(alpha: 0.7),
+                width: 0.8,
+              ),
               boxShadow: on
                   ? [
                       BoxShadow(
-                        color: AppColors.accent.withValues(alpha: 0.28 * pulse),
-                        blurRadius: 4,
+                        color: AppColors.accent.withValues(alpha: 0.35 * pulse),
+                        blurRadius: 5,
                       ),
                     ]
-                  : null,
-              border: Border.all(
-                color: const Color(0xFF3A4441),
-                width: 0.8,
-              ),
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 1,
+                        offset: const Offset(0, 0.5),
+                      ),
+                    ],
             ),
           ),
         );
@@ -260,8 +322,8 @@ class _StatusLamps extends StatelessWidget {
   }
 }
 
-class _MachineBodyPainter extends CustomPainter {
-  _MachineBodyPainter({
+class _CeramicBodyPainter extends CustomPainter {
+  _CeramicBodyPainter({
     required this.mode,
     required this.slotGlow,
     required this.breath,
@@ -277,42 +339,64 @@ class _MachineBodyPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final r = RRect.fromRectAndRadius(
       Offset.zero & size,
-      const Radius.circular(18),
+      const Radius.circular(26),
     );
 
-    // 外壳：深石墨 + 顶部受光
+    // 陶瓷白主壳：左上受光
     canvas.drawRRect(
       r,
       Paint()
         ..shader = ui.Gradient.linear(
-          Offset(size.width * 0.5, 0),
-          Offset(size.width * 0.5, size.height),
+          Offset(size.width * 0.15, 0),
+          Offset(size.width * 0.85, size.height),
           const [
-            Color(0xFF1C2422),
-            Color(0xFF0E1312),
-            Color(0xFF080C0B),
+            Color(0xFFFFFFFF),
+            Color(0xFFF2F3F1),
+            Color(0xFFE4E7E4),
           ],
           const [0.0, 0.45, 1.0],
         ),
     );
 
-    // 顶部高光边（非青色）
+    // 银色中框环
     canvas.drawRRect(
-      r,
+      r.deflate(1.2),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2
+        ..strokeWidth = 2.2
         ..shader = ui.Gradient.linear(
           Offset.zero,
-          Offset(0, size.height * 0.35),
+          Offset(0, size.height),
           [
-            const Color(0xFF4A5552).withValues(alpha: 0.85),
-            AppColors.structure.withValues(alpha: 0.35),
+            AppColors.highlight,
+            AppColors.silver,
+            AppColors.silverDeep,
           ],
         ),
     );
 
-    // 内嵌操作面板（更深凹）
+    // 顶部窄高光
+    final highlightPath = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(10, 3, size.width - 20, size.height * 0.22),
+          const Radius.circular(18),
+        ),
+      );
+    canvas.drawPath(
+      highlightPath,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          const Offset(0, 0),
+          Offset(0, size.height * 0.22),
+          [
+            Colors.white.withValues(alpha: 0.55),
+            Colors.white.withValues(alpha: 0),
+          ],
+        ),
+    );
+
+    // 内嵌浅灰白玻璃面板
     final panel = RRect.fromRectAndRadius(
       Rect.fromLTWH(
         size.width * 0.07,
@@ -320,166 +404,167 @@ class _MachineBodyPainter extends CustomPainter {
         size.width * 0.86,
         size.height * 0.55,
       ),
-      const Radius.circular(10),
+      const Radius.circular(14),
     );
-    canvas.drawRRect(panel, Paint()..color = const Color(0xFF040706));
+    canvas.drawRRect(
+      panel,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(size.width * 0.5, size.height * 0.09),
+          Offset(size.width * 0.5, size.height * 0.64),
+          [
+            const Color(0xFFF7F8F7).withValues(alpha: 0.95),
+            const Color(0xFFE8EBE9).withValues(alpha: 0.9),
+          ],
+        ),
+    );
+    // 内凹浅阴影
     canvas.drawRRect(
       panel,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..color = const Color(0xFF1A2220),
+        ..strokeWidth = 1.2
+        ..color = const Color(0xFFC5CBC8),
     );
-    // 面板内缘暗影
     canvas.drawRRect(
       panel.deflate(2),
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1
-        ..color = Colors.black.withValues(alpha: 0.55),
+        ..color = Colors.white.withValues(alpha: 0.65),
     );
 
-    // 微型机械刻度（8-bit 克制）
-    final tickY = size.height * 0.74;
-    final tickLeft = size.width * 0.14;
-    final tickRight = size.width * 0.86;
-    for (var i = 0; i < 15; i++) {
-      final t = i / 14;
-      final x = ui.lerpDouble(tickLeft, tickRight, t)!;
-      final tall = i % 5 == 0;
-      canvas.drawLine(
-        Offset(x, tickY - (tall ? 5 : 3)),
-        Offset(x, tickY + (tall ? 5 : 3)),
-        Paint()
-          ..color = tall
-              ? AppColors.structure
-              : const Color(0xFF1A2220)
-          ..strokeWidth = 1,
-      );
-    }
+    // 插槽上方细小对位标记
+    final markY = size.height * 0.72;
+    final cx = size.width * 0.5;
+    final markPaint = Paint()
+      ..color = AppColors.silverDeep.withValues(alpha: 0.7)
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(cx - 18, markY), Offset(cx - 8, markY), markPaint);
+    canvas.drawLine(Offset(cx + 8, markY), Offset(cx + 18, markY), markPaint);
+    canvas.drawLine(
+      Offset(cx, markY - 4),
+      Offset(cx, markY + 4),
+      markPaint,
+    );
 
-    _drawScrew(canvas, Offset(size.width * 0.09, size.height * 0.11));
-    _drawScrew(canvas, Offset(size.width * 0.91, size.height * 0.11));
-    _drawScrew(canvas, Offset(size.width * 0.09, size.height * 0.86));
-    _drawScrew(canvas, Offset(size.width * 0.91, size.height * 0.86));
+    // 极少螺丝（银灰）
+    _drawScrew(canvas, Offset(size.width * 0.1, size.height * 0.12));
+    _drawScrew(canvas, Offset(size.width * 0.9, size.height * 0.12));
 
-    // 引导扫描线：仅引导 / 拖动时短暂出现
     if (guideFlash > 0.02 || mode.isActive) {
       final alpha = guideFlash > 0.02
-          ? guideFlash * 0.55
-          : (0.08 + 0.18 * slotGlow);
-      final cx = size.width * 0.5;
+          ? guideFlash * 0.4
+          : (0.06 + 0.16 * slotGlow);
       canvas.drawLine(
-        Offset(cx, size.height * 0.7),
-        Offset(cx, size.height + 6),
+        Offset(cx, size.height * 0.68),
+        Offset(cx, size.height + 4),
         Paint()
           ..color = AppColors.accent.withValues(alpha: alpha)
           ..strokeWidth = 1
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5),
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.2),
       );
     }
   }
 
   void _drawScrew(Canvas canvas, Offset c) {
-    canvas.drawCircle(c, 3.8, Paint()..color = const Color(0xFF161C1A));
     canvas.drawCircle(
       c,
-      3.8,
+      3.2,
+      Paint()
+        ..shader = ui.Gradient.radial(
+          c,
+          3.2,
+          [AppColors.highlight, AppColors.silver],
+        ),
+    );
+    canvas.drawCircle(
+      c,
+      3.2,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.9
-        ..color = const Color(0xFF3A4441),
-    );
-    canvas.drawLine(
-      c.translate(-1.8, 0),
-      c.translate(1.8, 0),
-      Paint()
-        ..color = const Color(0xFF2A3532)
-        ..strokeWidth = 0.8,
+        ..strokeWidth = 0.7
+        ..color = AppColors.silverDeep,
     );
   }
 
   @override
-  bool shouldRepaint(covariant _MachineBodyPainter old) =>
+  bool shouldRepaint(covariant _CeramicBodyPainter old) =>
       old.mode != mode ||
       old.slotGlow != slotGlow ||
       old.breath != breath ||
       old.guideFlash != guideFlash;
 }
 
-class _SlotPainter extends CustomPainter {
-  _SlotPainter({required this.glow, required this.breath});
+class _SilverSlotPainter extends CustomPainter {
+  _SilverSlotPainter({required this.glow, required this.breath});
 
   final double glow;
   final double breath;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final mouth = RRect.fromRectAndRadius(
+    final outer = RRect.fromRectAndRadius(
       Offset.zero & size,
-      const Radius.circular(6),
+      const Radius.circular(7),
     );
 
-    // 深凹腔
+    // 银色金属包边
     canvas.drawRRect(
-      mouth,
+      outer,
       Paint()
         ..shader = ui.Gradient.linear(
           Offset.zero,
           Offset(0, size.height),
           [
-            const Color(0xFF010202),
+            AppColors.highlight,
+            AppColors.silver,
+            AppColors.silverDeep,
+          ],
+        ),
+    );
+
+    final inner = outer.deflate(2.2);
+    canvas.drawRRect(
+      inner,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset.zero,
+          Offset(0, size.height),
+          [
+            const Color(0xFF1A1E1C),
             Color.lerp(
-              const Color(0xFF0A100E),
-              AppColors.accent.withValues(alpha: 0.14),
-              glow * 0.45,
+              AppColors.slotInterior,
+              AppColors.accent.withValues(alpha: 0.2),
+              glow * 0.5,
             )!,
           ],
         ),
     );
 
-    // 结构边（灰），吸附时才带青
     canvas.drawRRect(
-      mouth,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.3
-        ..color = Color.lerp(
-          AppColors.structure,
-          AppColors.accent,
-          glow * 0.55,
-        )!,
-    );
-
-    // 内口阴影
-    canvas.drawRRect(
-      mouth.deflate(2.5),
+      inner,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1
-        ..color = Colors.black.withValues(alpha: 0.65),
+        ..color = Color.lerp(
+          const Color(0xFF3A4240),
+          AppColors.accent,
+          glow * 0.45,
+        )!,
     );
 
-    // 低亮度扫描带
-    final bandY = size.height * (0.38 + 0.2 * breath);
+    final bandY = size.height * (0.4 + 0.15 * breath);
     canvas.drawRect(
-      Rect.fromLTWH(size.width * 0.1, bandY - 1, size.width * 0.8, 2),
+      Rect.fromLTWH(size.width * 0.12, bandY - 1, size.width * 0.76, 2),
       Paint()
-        ..color = AppColors.accent.withValues(alpha: 0.18 + 0.42 * glow)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
-    );
-
-    // 下缘开口提示
-    canvas.drawLine(
-      Offset(size.width * 0.15, size.height - 1),
-      Offset(size.width * 0.85, size.height - 1),
-      Paint()
-        ..color = AppColors.accent.withValues(alpha: 0.12 + 0.38 * glow)
-        ..strokeWidth = 1.2,
+        ..color = AppColors.accent.withValues(alpha: 0.15 + 0.4 * glow)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5),
     );
   }
 
   @override
-  bool shouldRepaint(covariant _SlotPainter old) =>
+  bool shouldRepaint(covariant _SilverSlotPainter old) =>
       old.glow != glow || old.breath != breath;
 }

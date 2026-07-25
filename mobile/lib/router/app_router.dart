@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../data/press_resume.dart';
 import '../data/session.dart';
-import '../data/sound_repository.dart';
 import '../screens/account/account_screen.dart';
 import '../screens/auth/auth_screens.dart';
 import '../screens/collection/category_play_screen.dart';
@@ -127,14 +126,6 @@ GoRouter createRouter() {
               return DraftDetailScreen(
                 id: id,
                 onBack: () => context.pop(),
-                onPress: () {
-                  final item = SoundRepository.instance.get(id);
-                  openPressFlow(
-                    context,
-                    id,
-                    chainOnly: item?.status == SoundStatus.chainFailed,
-                  );
-                },
                 onDeleted: () => context.pop(),
               );
             },
@@ -281,14 +272,6 @@ class _MainShellState extends State<MainShell> {
           RecordHomeScreen(onStartRecord: () => context.push(AppRoutes.recording)),
           DraftsScreen(
             onOpenDetail: (id) => context.push(AppRoutes.draftPath(id)),
-            onPress: (id) {
-              final item = SoundRepository.instance.get(id);
-              openPressFlow(
-                context,
-                id,
-                chainOnly: item?.status == SoundStatus.chainFailed,
-              );
-            },
             onStartRecord: () {
               setState(() => _tab = 0);
               context.push(AppRoutes.recording);

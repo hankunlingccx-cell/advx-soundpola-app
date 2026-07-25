@@ -478,11 +478,11 @@ Record
 
 Drafts
 
-黑色数字声音工作台（机器在上、样本托盘在下）
+黑色数字声音工作台（设备 → NFC 指引 → 样本轮播）
 
-精密写入机 + 未封存声音样本卡
+页内连续插卡 + NFC 封存（不跳转独立 Press 页）
 
-由下向上拖入插槽发起 Press
+分段像素写入进度 · 可取回
 
 圆形贴图环形进度 · RARITY UNKNOWN
 
@@ -671,7 +671,7 @@ SpTextField
 
 SpCategoryPicker
 
-单选分类
+单选分类；列表为用户已创建名称，可新建
 
 StatusChip
 

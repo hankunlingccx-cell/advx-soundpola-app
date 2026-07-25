@@ -13,6 +13,7 @@ import '../../widgets/design_components.dart';
 import '../../widgets/empty_state_panel.dart';
 import '../../widgets/sound_nft_card.dart';
 import '../../widgets/sound_visual.dart';
+import '../../widgets/sp_category_picker.dart';
 import 'disc_stack_carousel.dart';
 
 /// 声片分类播放页：浏览 + 播放可视化主体 + 贴图堆叠 + 完整记忆。
@@ -263,9 +264,9 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
   }
 
   Future<void> _editCategory(SoundMemory item) async {
-    final result = await showDialog<String>(
-      context: context,
-      builder: (_) => _CategoryPickerDialog(current: item.category),
+    final result = await SpCategoryPicker.show(
+      context,
+      current: item.category,
     );
     if (result == null || result == item.category) return;
     SoundRepository.instance.updateCategory(item.id, result);
@@ -909,64 +910,6 @@ class _EditDialog extends StatelessWidget {
   }
 }
 
-class _CategoryPickerDialog extends StatelessWidget {
-  const _CategoryPickerDialog({required this.current});
-
-  final String current;
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: AppColors.surface1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadii.card),
-      ),
-      title: const Text(
-        '选择分类',
-        style: TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      contentPadding: const EdgeInsets.symmetric(vertical: 8),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            for (final c in soundCategories)
-              ListTile(
-                title: Text(
-                  c,
-                  style: TextStyle(
-                    color: c == current
-                        ? AppColors.accent
-                        : AppColors.textPrimary,
-                  ),
-                ),
-                trailing: c == current
-                    ? const Icon(Icons.check, color: AppColors.accent, size: 18)
-                    : null,
-                onTap: () => Navigator.of(context).pop(c),
-              ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text(
-            '取消',
-            style: TextStyle(color: AppColors.textSecondary),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// 分享卡预览：与 NFT 卡视觉语言一致，突出地点／日期与 SoundPola 水印。
 class _ShareSheet extends StatelessWidget {
   const _ShareSheet({required this.item});
 

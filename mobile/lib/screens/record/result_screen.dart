@@ -7,6 +7,7 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
 import '../../widgets/sound_visual.dart';
+import '../../widgets/sp_category_picker.dart';
 
 class ResultScreen extends StatefulWidget {
   const ResultScreen({
@@ -70,25 +71,9 @@ class _ResultScreenState extends State<ResultScreen> {
   }
 
   Future<void> _pickCategory() async {
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.surface2,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.sheet)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: soundCategories
-              .map(
-                (c) => ListTile(
-                  title: Text(c, style: const TextStyle(color: AppColors.textPrimary)),
-                  onTap: () => Navigator.pop(ctx, c),
-                ),
-              )
-              .toList(),
-        ),
-      ),
+    final picked = await SpCategoryPicker.show(
+      context,
+      current: _category,
     );
     if (picked != null) setState(() => _category = picked);
   }

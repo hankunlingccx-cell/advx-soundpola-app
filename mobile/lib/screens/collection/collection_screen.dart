@@ -189,7 +189,7 @@ List<CollectionGroup> _groupsForLayout(
 }) {
   if (!dragging) return groups;
   final present = {for (final g in groups) g.category};
-  final extras = soundCategories
+  final extras = SoundRepository.instance.categories
       .where((c) => !present.contains(c))
       .map((c) => CollectionGroup(category: c, items: const []));
   return [...groups, ...extras];
