@@ -3,22 +3,18 @@ class PressResume {
   PressResume._();
 
   static String? draftId;
-  static bool chainOnly = false;
-  static String entry = 'press'; // press | account
+  static String entry = 'press'; // press | mint | account
 
   static void set({
     required String id,
-    bool chainOnlyMode = false,
     String entryPoint = 'press',
   }) {
     draftId = id;
-    chainOnly = chainOnlyMode;
     entry = entryPoint;
   }
 
   static void clear() {
     draftId = null;
-    chainOnly = false;
     entry = 'press';
   }
 

@@ -10,6 +10,20 @@ class PermissionService {
     return status.isGranted;
   }
 
+  static Future<bool> ensureLocation() async {
+    var status = await Permission.location.status;
+    if (status.isGranted) return true;
+    status = await Permission.location.request();
+    return status.isGranted;
+  }
+
+  static Future<bool> ensureCamera() async {
+    var status = await Permission.camera.status;
+    if (status.isGranted) return true;
+    status = await Permission.camera.request();
+    return status.isGranted;
+  }
+
   static Future<bool> isMicrophoneGranted() async {
     return Permission.microphone.isGranted;
   }

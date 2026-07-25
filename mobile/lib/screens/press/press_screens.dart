@@ -1,13 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
-import '../../cloud/cloud_media_client.dart';
-import '../../cloud/cloud_media_models.dart';
 import '../../data/session.dart';
 import '../../data/sound_repository.dart';
-import '../../services/auth_service.dart';
-import '../../services/chain_service.dart';
 import '../../services/nfc_service.dart';
+import '../../services/visual_shape_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
@@ -19,13 +15,11 @@ class PressMethodScreen extends StatefulWidget {
     required this.id,
     required this.onBack,
     required this.onNfc,
-    this.chainOnly = false,
   });
 
   final String id;
   final VoidCallback onBack;
   final VoidCallback onNfc;
-  final bool chainOnly;
 
   @override
   State<PressMethodScreen> createState() => _PressMethodScreenState();
@@ -39,10 +33,6 @@ class _PressMethodScreenState extends State<PressMethodScreen> {
   void initState() {
     super.initState();
     PressSession.clear();
-    if (widget.chainOnly) {
-      _loading = false;
-      return;
-    }
     _loadNfc();
   }
 
@@ -59,24 +49,6 @@ class _PressMethodScreenState extends State<PressMethodScreen> {
   @override
   Widget build(BuildContext context) {
     final item = SoundRepository.instance.get(widget.id);
-    if (widget.chainOnly) {
-      return _buildScaffold(
-        item: item,
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('上链重试', style: TextStyle(color: AppColors.ink400, fontSize: 13)),
-            const SizedBox(height: AppSpacing.item),
-            const Text(
-              '声片已写入，仅需重新提交上链，不会再次写入 NFC。',
-              style: TextStyle(color: AppColors.ink600, height: 1.5),
-            ),
-            const Spacer(),
-            PrimaryButton(text: '重试上链', onPressed: widget.onNfc),
-          ],
-        ),
-      );
-    }
 
     final statusText = switch (_nfcStatus) {
       NfcDeviceStatus.available => 'NFC 已就绪',
@@ -98,7 +70,7 @@ class _PressMethodScreenState extends State<PressMethodScreen> {
           )),
           const SizedBox(height: AppSpacing.section),
           const Text(
-            '选择写入方式，将声音永久绑定到 NFC 声片并创建数字资产。',
+            '选择写入方式，让这段声音与 NFC 声片相伴。',
             style: TextStyle(color: AppColors.ink600, height: 1.5),
           ),
           const SizedBox(height: AppSpacing.section),
@@ -157,7 +129,12 @@ class _PressMethodScreenState extends State<PressMethodScreen> {
                         height: 64,
                         child: ColoredBox(
                           color: AppColors.primary50,
-                          child: SoundVisualCanvas(seed: item.visualSeed, active: false),
+                          child: SoundVisualCanvas(
+                            seed: item.visualSeed,
+                            active: false,
+                            shape: VisualShapeService.instance
+                                .peek(item.visualPath),
+                          ),
                         ),
                       ),
                     ),
@@ -308,7 +285,8 @@ class _PressDetectScreenState extends State<PressDetectScreen> {
               return;
             }
             _handled = true;
-            final discId = NfcService.instance.generateDiscId(tagId);
+            final discId = SoundRepository.instance.get(widget.id)?.discId ??
+                NfcService.instance.generateDiscId(tagId);
             PressSession.set(tagId: tagId, disc: discId);
             await NfcService.instance.stopSession(message: '声片已识别');
             if (mounted) {
@@ -409,7 +387,7 @@ class _PressConfirmScreenState extends State<PressConfirmScreen> {
         backgroundColor: AppColors.canvasBg,
         elevation: 0,
         leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: widget.onBack),
-        title: const Text('永久绑定确认'),
+        title: const Text('写入声片确认'),
       ),
       body: SafeArea(
         child: Padding(
@@ -417,42 +395,55 @@ class _PressConfirmScreenState extends State<PressConfirmScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (item != null)
-                SizedBox(
-                  height: 160,
-                  child: SoundVisualCanvas(seed: item.visualSeed, active: false),
-                ),
-              const SizedBox(height: AppSpacing.item),
-              if (item != null) ...[
-                Text(item.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
-                Text('#${item.category}', style: const TextStyle(color: AppColors.ink600)),
-              ],
-              const SizedBox(height: AppSpacing.item),
-              MetaRow(label: '声片编号', value: discId),
-              MetaRow(label: '写入方式', value: '手机 NFC'),
-              const SizedBox(height: AppSpacing.item),
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.tight),
-                decoration: BoxDecoration(
-                  color: AppColors.primary50,
-                  borderRadius: BorderRadius.circular(AppRadii.card),
-                ),
-                child: const Text(
-                  '每张声片只能写入一个声音。写入完成后，声音和声片将永久绑定，无法替换或覆盖。',
-                  style: TextStyle(color: AppColors.ink800, height: 1.5, fontSize: 14),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (item != null)
+                        SizedBox(
+                          height: 160,
+                          child: SoundVisualCanvas(
+                            seed: item.visualSeed,
+                            active: false,
+                            shape: VisualShapeService.instance
+                                .peek(item.visualPath),
+                          ),
+                        ),
+                      const SizedBox(height: AppSpacing.item),
+                      if (item != null) ...[
+                        Text(item.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+                        Text('#${item.category}', style: const TextStyle(color: AppColors.ink600)),
+                      ],
+                      const SizedBox(height: AppSpacing.item),
+                      MetaRow(label: '声片编号', value: discId),
+                      MetaRow(label: '写入方式', value: '手机 NFC'),
+                      const SizedBox(height: AppSpacing.item),
+                      Container(
+                        padding: const EdgeInsets.all(AppSpacing.tight),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary50,
+                          borderRadius: BorderRadius.circular(AppRadii.card),
+                        ),
+                        child: const Text(
+                          '写入完成后，这段声音将与手中的声片相伴，随时贴近即可再次听见。',
+                          style: TextStyle(color: AppColors.ink800, height: 1.5, fontSize: 14),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.item),
+                      InkWell(
+                        onTap: () => setState(() => _checked = !_checked),
+                        child: Row(
+                          children: [
+                            Checkbox(value: _checked, onChanged: (v) => setState(() => _checked = v ?? false)),
+                            const Expanded(child: Text('我已确认当前声音和声片')),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: AppSpacing.item),
-              InkWell(
-                onTap: () => setState(() => _checked = !_checked),
-                child: Row(
-                  children: [
-                    Checkbox(value: _checked, onChanged: (v) => setState(() => _checked = v ?? false)),
-                    const Expanded(child: Text('我已确认当前声音和声片')),
-                  ],
-                ),
-              ),
-              const Spacer(),
               PrimaryButton(
                 text: '确认并写入',
                 enabled: _checked,
@@ -474,44 +465,47 @@ class PressProgressScreen extends StatefulWidget {
     super.key,
     required this.id,
     required this.onDone,
-    this.chainOnly = false,
   });
 
   final String id;
   final VoidCallback onDone;
-  final bool chainOnly;
 
   @override
   State<PressProgressScreen> createState() => _PressProgressScreenState();
 }
 
-class _PressProgressScreenState extends State<PressProgressScreen> {
-  double _progress = 0;
-  String _phase = '准备中…';
-  String? _error;
-  bool _nfcWritten = false;
-  final _cloud = CloudMediaClient();
+enum _PressPhase { idle, waitingContact, writing, finalizing, done, error }
 
-  static const _phases = [
-    '上传音频至云端',
-    '云端渲染可视化',
-    '写入声片',
-    '创建数字资产',
-    '加入 Collection',
-  ];
+class _PressProgressScreenState extends State<PressProgressScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _progressAnim;
+  _PressPhase _phase = _PressPhase.idle;
+  String _statusText = '准备中…';
+  String? _error;
+  bool _timedOut = false;
+  bool _nfcWritten = false;
+  Timer? _contactTimeoutTimer;
+
+  static const _contactTimeout = Duration(seconds: 30);
 
   @override
   void initState() {
     super.initState();
+    _progressAnim = AnimationController(
+      vsync: this,
+      value: 0,
+      duration: const Duration(milliseconds: 300),
+    );
     _run();
   }
 
   @override
   void dispose() {
-    if (!_nfcWritten && !widget.chainOnly) {
+    _contactTimeoutTimer?.cancel();
+    _progressAnim.dispose();
+    if (!_nfcWritten) {
       NfcService.instance.stopSession();
     }
-    _cloud.close();
     super.dispose();
   }
 
@@ -519,176 +513,75 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
     final item = SoundRepository.instance.get(widget.id);
     if (item == null) return;
 
-    SoundRepository.instance.update(
-      widget.id,
-      (s) => s.copyWith(status: SoundStatus.writing),
-    );
+    final contentId = item.contentId;
+    final discId = PressSession.discId ?? item.discId;
+    if (contentId == null || contentId.isEmpty || discId == null) {
+      _setError('请先完成上链');
+      return;
+    }
+
+    setState(() {
+      _phase = _PressPhase.waitingContact;
+      _statusText = '等待贴合声片…';
+      _timedOut = false;
+      _error = null;
+    });
+    _progressAnim.value = 0.05;
+    _progressAnim.animateTo(0.15, duration: const Duration(milliseconds: 900));
 
     try {
+      final written = await _writeNfc(
+        item,
+        discId,
+        contentId: contentId,
+        nfcUrl: item.nfcUrl,
+      );
+      if (!written) return;
+      _nfcWritten = true;
+
       setState(() {
-        _phase = _phases[0];
-        _progress = 0.08;
+        _phase = _PressPhase.finalizing;
+        _statusText = '加入 Collection…';
       });
-
-      final token = await AuthService.instance.requireCloudToken();
-      final ready = await _ensureCloudReady(item, token);
-
-      SoundRepository.instance.update(
-        widget.id,
-        (s) => s.copyWith(
-          contentId: ready.contentId,
-          nfcUrl: ready.nfcUrl,
-          cloudState: ready.state.wire,
-        ),
+      await _progressAnim.animateTo(
+        0.95,
+        duration: const Duration(milliseconds: 350),
       );
 
-      if (!widget.chainOnly) {
-        setState(() {
-          _phase = _phases[2];
-          _progress = 0.55;
-        });
-        final discId = PressSession.discId!;
-        final written = await _writeNfc(
-          item,
-          discId,
-          contentId: ready.contentId,
-          nfcUrl: ready.nfcUrl,
-        );
-        if (!written) return;
-        _nfcWritten = true;
-        SoundRepository.instance.update(
-          widget.id,
-          (s) => s.copyWith(discId: discId, nfcTagId: PressSession.tagIdHex),
-        );
-        setState(() => _progress = 0.7);
-        await Future.delayed(const Duration(milliseconds: 400));
-      } else {
-        setState(() {
-          _progress = 0.7;
-          _phase = _phases[3];
-        });
-      }
-
-      setState(() {
-        _progress = 0.85;
-        _phase = _phases[3];
-      });
-
-      final discId =
-          PressSession.discId ?? item.discId ?? NfcService.instance.generateDiscId('RETRY');
-      final assetId = await ChainService.instance.submitAsset(
-        soundId: widget.id,
-        discId: discId,
-      );
-
-      setState(() {
-        _progress = 1;
-        _phase = _phases[4];
-      });
       SoundRepository.instance.markCollected(
         widget.id,
         discId,
-        assetId,
+        item.assetId ?? discId,
         nfcTagId: PressSession.tagIdHex ?? item.nfcTagId,
-        contentId: ready.contentId,
-        nfcUrl: ready.nfcUrl,
-        cloudState: ready.state.wire,
+        contentId: contentId,
+        nfcUrl: item.nfcUrl,
+        cloudState: item.cloudState ?? 'READY',
       );
       PressSession.clear();
-      await Future.delayed(const Duration(milliseconds: 400));
+      await _progressAnim.animateTo(
+        1.0,
+        duration: const Duration(milliseconds: 250),
+      );
+      setState(() {
+        _phase = _PressPhase.done;
+        _statusText = '完成';
+      });
+      await Future.delayed(const Duration(milliseconds: 300));
       if (mounted) widget.onDone();
     } catch (e) {
-      final discId = PressSession.discId ?? item.discId;
-      if (_nfcWritten || widget.chainOnly) {
-        SoundRepository.instance.markChainFailed(
-          widget.id,
-          discId ?? 'SP-UNKNOWN',
-          nfcTagId: PressSession.tagIdHex ?? item.nfcTagId,
-        );
-      } else {
-        SoundRepository.instance.markWriteFailed(widget.id);
-      }
-      if (mounted) {
-        setState(() {
-          _error = e.toString();
-          _phase = '失败';
-        });
-      }
+      if (!mounted) return;
+      _setError(e.toString());
     }
   }
 
-  Future<ContentSummary> _ensureCloudReady(SoundMemory item, String token) async {
-    var contentId = item.contentId;
-
-    if (contentId != null && contentId.isNotEmpty) {
-      var summary = await _cloud.getContent(token: token, contentId: contentId);
-      if (summary.state == CloudContentState.ready) {
-        setState(() {
-          _phase = _phases[1];
-          _progress = 0.5;
-        });
-        return summary;
-      }
-      if (summary.state == CloudContentState.failed) {
-        setState(() {
-          _phase = '重试云端处理…';
-          _progress = 0.2;
-        });
-        summary = await _cloud.retryContent(token: token, contentId: contentId);
-      }
-      if (summary.state == CloudContentState.ready) return summary;
-      setState(() {
-        _phase = _phases[1];
-        _progress = 0.25;
-      });
-      return _cloud.waitUntilReady(
-        token: token,
-        contentId: contentId,
-        onUpdate: (s) {
-          if (!mounted) return;
-          setState(() {
-            _phase = '云端处理：${s.state.wire}';
-            _progress = s.state == CloudContentState.processing ? 0.4 : 0.3;
-          });
-        },
-      );
-    }
-
-    final path = item.audioPath;
-    if (path == null || path.isEmpty || !File(path).existsSync()) {
-      throw StateError('缺少本地录音文件，无法上传云端');
-    }
-
+  void _setError(String message) {
+    _contactTimeoutTimer?.cancel();
     setState(() {
-      _phase = _phases[0];
-      _progress = 0.15;
+      _error = message;
+      _phase = _PressPhase.error;
+      _statusText = '失败';
     });
-    final created = await _cloud.uploadAudio(
-      token: token,
-      file: File(path),
-      filename: path.split(Platform.pathSeparator).last,
-    );
-    contentId = created.contentId;
-    SoundRepository.instance.update(
-      widget.id,
-      (s) => s.copyWith(contentId: contentId, cloudState: created.state.wire),
-    );
-
-    setState(() {
-      _phase = _phases[1];
-      _progress = 0.28;
-    });
-    return _cloud.waitUntilReady(
-      token: token,
-      contentId: contentId,
-      onUpdate: (s) {
-        if (!mounted) return;
-        setState(() {
-          _phase = '云端处理：${s.state.wire}';
-          _progress = s.state == CloudContentState.processing ? 0.42 : 0.32;
-        });
-      },
-    );
+    _progressAnim.stop();
   }
 
   Future<bool> _writeNfc(
@@ -698,10 +591,33 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
     String? nfcUrl,
   }) async {
     final completer = Completer<bool>();
+    _contactTimeoutTimer?.cancel();
+    _contactTimeoutTimer = Timer(_contactTimeout, () async {
+      if (completer.isCompleted) return;
+      _timedOut = true;
+      await NfcService.instance.stopSession();
+      if (!completer.isCompleted) {
+        completer.completeError(
+          StateError('未检测到声片，请把手机背面贴合声片后重试'),
+        );
+      }
+    });
     await NfcService.instance.startSession(
       alertMessage: '保持手机贴近声片，正在写入…',
       invalidateAfterFirstRead: false,
       onDiscovered: (tag) async {
+        _contactTimeoutTimer?.cancel();
+        if (mounted && _phase == _PressPhase.waitingContact) {
+          setState(() {
+            _phase = _PressPhase.writing;
+            _statusText = '写入声片中…';
+          });
+          _progressAnim.animateTo(
+            0.85,
+            duration: const Duration(milliseconds: 2200),
+            curve: Curves.easeOut,
+          );
+        }
         try {
           await NfcService.instance.writeBinding(
             tag: tag,
@@ -715,23 +631,34 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
           if (!completer.isCompleted) completer.complete(true);
         } catch (e) {
           await NfcService.instance.stopSession(error: '写入失败');
-          if (!completer.isCompleted) completer.completeError(e);
+          if (!completer.isCompleted) {
+            completer.completeError(
+              StateError('声片写入失败：${e.toString()}'),
+            );
+          }
         }
       },
     );
-    try {
-      return await completer.future.timeout(const Duration(seconds: 45));
-    } on TimeoutException {
-      await NfcService.instance.stopSession();
-      throw StateError('写入超时，请保持手机贴近声片后重试');
-    }
+    return completer.future;
+  }
+
+  void _retry() {
+    setState(() {
+      _error = null;
+      _timedOut = false;
+      _phase = _PressPhase.idle;
+      _statusText = '准备中…';
+    });
+    _progressAnim.value = 0;
+    _run();
   }
 
   @override
   Widget build(BuildContext context) {
     final item = SoundRepository.instance.get(widget.id);
+    final waiting = _phase == _PressPhase.waitingContact;
     return PopScope(
-      canPop: _error != null,
+      canPop: _error != null || _phase == _PressPhase.done,
       child: Scaffold(
         backgroundColor: AppColors.darkCanvas,
         body: SafeArea(
@@ -742,36 +669,90 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   SizedBox(
-                    width: 220,
-                    height: 220,
-                    child: SoundVisualCanvas(
-                      seed: item?.visualSeed ?? 0,
-                      active: _error == null,
-                      dark: true,
-                      showProgressRing: true,
-                      progress: _progress,
+                    width: 240,
+                    height: 240,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        if (waiting)
+                          const Positioned.fill(
+                            child: NfcRippleVisual(active: true),
+                          ),
+                        AnimatedBuilder(
+                          animation: _progressAnim,
+                          builder: (_, _) => SizedBox(
+                            width: 220,
+                            height: 220,
+                            child: SoundVisualCanvas(
+                              seed: item?.visualSeed ?? 0,
+                              active: _error == null,
+                              dark: true,
+                              showProgressRing: !waiting,
+                              progress: _progressAnim.value,
+                              shape: VisualShapeService.instance
+                                  .peek(item?.visualPath),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: AppSpacing.section),
                   Text(
-                    _error ?? _phase,
+                    _error ?? _statusText,
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: _error != null ? AppColors.error : AppColors.darkText),
+                    style: TextStyle(
+                      color: _error != null
+                          ? AppColors.error
+                          : AppColors.darkText,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                   if (_error == null) ...[
                     const SizedBox(height: 8),
-                    Text(
-                      '${(_progress * 100).round()}%',
-                      style: const TextStyle(color: AppColors.primary500, fontSize: 24),
-                    ),
+                    if (!waiting)
+                      AnimatedBuilder(
+                        animation: _progressAnim,
+                        builder: (_, _) => Text(
+                          '${(_progressAnim.value * 100).round()}%',
+                          style: const TextStyle(
+                            color: AppColors.primary500,
+                            fontSize: 24,
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: AppSpacing.item),
-                    const Text(
-                      '请保持手机靠近声片，不要关闭 App',
-                      style: TextStyle(color: AppColors.darkSecondary, fontSize: 13),
+                    Text(
+                      waiting
+                          ? '请将手机背面贴合空白声片\n感应到后会自动开始写入'
+                          : '请保持手机靠近声片，不要关闭 App',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.darkSecondary,
+                        fontSize: 13,
+                        height: 1.5,
+                      ),
                     ),
                   ] else ...[
+                    if (_timedOut) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        '感应超时。请贴紧手机背面 NFC 感应区。',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.darkSecondary,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: AppSpacing.section),
                     PrimaryButton(
+                      text: '重试',
+                      onPressed: _retry,
+                    ),
+                    const SizedBox(height: AppSpacing.tight),
+                    SecondaryButton(
                       text: '返回',
                       onPressed: () => Navigator.of(context).pop(),
                     ),
@@ -814,6 +795,8 @@ class PressDoneScreen extends StatelessWidget {
                 child: SoundVisualCanvas(
                   seed: item?.visualSeed ?? 999,
                   mode: SoundVisualMode.complete,
+                  shape: VisualShapeService.instance
+                      .peek(item?.visualPath),
                 ),
               ),
               const SizedBox(height: AppSpacing.section),

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../../cloud/cloud_media_client.dart';
 import '../../data/sound_repository.dart';
 import '../../services/audio_playback_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/mint_pipeline.dart';
+import '../../services/visual_shape_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
@@ -13,10 +16,12 @@ class CollectionScreen extends StatefulWidget {
     super.key,
     required this.onOpenMemory,
     required this.onLogin,
+    required this.onWriteNfc,
   });
 
   final ValueChanged<String> onOpenMemory;
   final VoidCallback onLogin;
+  final ValueChanged<String> onWriteNfc;
 
   @override
   State<CollectionScreen> createState() => _CollectionScreenState();
@@ -62,6 +67,91 @@ class _CollectionScreenState extends State<CollectionScreen> {
       }
     } finally {
       if (mounted) setState(() => _syncing = false);
+    }
+  }
+
+  Future<void> _showItemMenu(BuildContext context, SoundMemory item) async {
+    final canWriteNfc = item.contentId != null &&
+        item.discId != null &&
+        item.nfcUrl != null;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.surface1,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.borderSubtle,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.info_outline, color: AppColors.accent),
+              title: const Text('查看详情', style: TextStyle(color: AppColors.textPrimary)),
+              onTap: () => Navigator.pop(ctx, 'detail'),
+            ),
+            if (canWriteNfc)
+              ListTile(
+                leading: const Icon(Icons.nfc, color: AppColors.accent),
+                title: Text(
+                  item.nfcTagId == null ? '写入声片' : '重写声片',
+                  style: const TextStyle(color: AppColors.textPrimary),
+                ),
+                onTap: () => Navigator.pop(ctx, 'write'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: AppColors.error),
+              title: const Text('删除', style: TextStyle(color: AppColors.error)),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'detail':
+        widget.onOpenMemory(item.id);
+        break;
+      case 'write':
+        widget.onWriteNfc(item.id);
+        break;
+      case 'delete':
+        await _confirmDelete(item);
+        break;
+    }
+  }
+
+  Future<void> _confirmDelete(SoundMemory item) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除这段声音？'),
+        content: const Text('本地引用会移除，链上与云端记录不受影响。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      SoundRepository.instance.delete(item.id);
     }
   }
 
@@ -146,7 +236,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                                   crossAxisCount: 2,
                                   crossAxisSpacing: AppSpacing.tight,
                                   mainAxisSpacing: AppSpacing.tight,
-                                  childAspectRatio: 0.72,
+                                  childAspectRatio: 0.66,
                                 ),
                                 itemCount: items.length,
                                 itemBuilder: (context, index) {
@@ -154,6 +244,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
                                   return _CollectionCard(
                                     item: item,
                                     onTap: () => widget.onOpenMemory(item.id),
+                                    onLongPress: () =>
+                                        _showItemMenu(context, item),
                                   );
                                 },
                               ),
@@ -209,10 +301,21 @@ class _LoginGate extends StatelessWidget {
   }
 }
 
+bool _isOnChain(SoundMemory item) {
+  if (item.tokenId == null || item.txHash == null) return false;
+  final hash = item.txHash!;
+  return hash.startsWith('0x') && hash.length > 20;
+}
+
 class _CollectionCard extends StatelessWidget {
-  const _CollectionCard({required this.item, required this.onTap});
+  const _CollectionCard({
+    required this.item,
+    required this.onTap,
+    required this.onLongPress,
+  });
   final SoundMemory item;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -222,6 +325,7 @@ class _CollectionCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -234,8 +338,10 @@ class _CollectionCard extends StatelessWidget {
                     SoundVisualCanvas(
                       seed: item.visualSeed,
                       mode: SoundVisualMode.complete,
+                      shape: VisualShapeService.instance
+                          .peek(item.visualPath),
                     ),
-                    if (item.discId != null)
+                    if (item.nfcTagId != null)
                       Positioned(
                         right: 8,
                         top: 8,
@@ -260,6 +366,58 @@ class _CollectionCard extends StatelessWidget {
                             ),
                           ),
                         ),
+                      )
+                    else if (_isOnChain(item))
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.bgPrimary.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: const Color(0xFFF5C542).withValues(alpha: 0.55),
+                            ),
+                          ),
+                          child: const Text(
+                            '已上链',
+                            style: TextStyle(
+                              color: Color(0xFFF5C542),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      )
+                    else if (item.contentId != null)
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.bgPrimary.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: AppColors.textTertiary.withValues(alpha: 0.35),
+                            ),
+                          ),
+                          child: const Text(
+                            '云端',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
                       ),
                   ],
                 ),
@@ -271,7 +429,7 @@ class _CollectionCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    item.title,
+                    item.title.isNotEmpty ? item.title : '未命名声音',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -289,6 +447,16 @@ class _CollectionCard extends StatelessWidget {
                       fontSize: 12,
                     ),
                   ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${formatRecordedAt(item.recordedAt)}  ·  ${formatDuration(item.durationSec)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AppColors.textTertiary.withValues(alpha: 0.75),
+                      fontSize: 11,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -300,10 +468,18 @@ class _CollectionCard extends StatelessWidget {
 }
 
 class MemoryScreen extends StatefulWidget {
-  const MemoryScreen({super.key, required this.id, required this.onBack});
+  const MemoryScreen({
+    super.key,
+    required this.id,
+    required this.onBack,
+    required this.onWriteNfc,
+    required this.onChain,
+  });
 
   final String id;
   final VoidCallback onBack;
+  final ValueChanged<String> onWriteNfc;
+  final ValueChanged<String> onChain;
 
   @override
   State<MemoryScreen> createState() => _MemoryScreenState();
@@ -313,9 +489,41 @@ class _MemoryScreenState extends State<MemoryScreen> {
   bool _playing = false;
   bool _assetExpanded = false;
   final _player = AudioPlaybackService.instance;
+  StreamSubscription<void>? _completeSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // Auto-flip _playing on audio completion (fixes "stuck in playback").
+    _completeSub = _player.completionStream.listen((_) {
+      if (mounted) setState(() => _playing = false);
+    });
+    // Visual fallback: open-time lazy fetch if still missing the local file.
+    final item = SoundRepository.instance.get(widget.id);
+    if (item != null) {
+      if (item.visualPath == null &&
+          item.visualUrl != null &&
+          item.contentId != null) {
+        unawaited(VisualShapeService.instance
+            .cacheFromUrl(
+              contentId: item.contentId!,
+              url: item.visualUrl!,
+            )
+            .then((p) {
+          if (p != null) {
+            SoundRepository.instance
+                .update(item.id, (c) => c.copyWith(visualPath: p));
+            if (mounted) setState(() {});
+          }
+        }));
+      }
+      unawaited(VisualShapeService.instance.load(item.visualPath));
+    }
+  }
 
   @override
   void dispose() {
+    _completeSub?.cancel();
     _player.stop();
     super.dispose();
   }
@@ -334,10 +542,54 @@ class _MemoryScreenState extends State<MemoryScreen> {
     }
   }
 
+  Future<void> _confirmDelete(SoundMemory item) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除这段声音？'),
+        content: const Text('本地引用会移除，链上与云端记录不受影响。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      SoundRepository.instance.delete(item.id);
+      await _player.stop();
+      if (mounted) widget.onBack();
+    }
+  }
+
+  bool _showChainAction(SoundMemory item) {
+    return item.contentId != null &&
+        item.contentId!.isNotEmpty &&
+        !_isOnChain(item);
+  }
+
+  Widget _chainButton(SoundMemory item) {
+    final running = MintPipeline.instance.isRunning(item.id);
+    final failed = item.status == SoundStatus.chainFailed;
+    return PrimaryButton(
+      text: running ? '上链中' : (failed ? '重试上链' : '上链'),
+      enabled: !running,
+      onPressed: running ? null : () => widget.onChain(item.id),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: SoundRepository.instance,
+      animation: Listenable.merge([
+        SoundRepository.instance,
+        MintPipeline.instance,
+      ]),
       builder: (context, _) {
         final item = SoundRepository.instance.get(widget.id);
         if (item == null) {
@@ -376,12 +628,14 @@ class _MemoryScreenState extends State<MemoryScreen> {
                         color: AppColors.textPrimary,
                       ),
                     ),
-                    Text(
-                      '分享',
-                      style: TextStyle(
-                        color: AppColors.textTertiary.withValues(alpha: 0.6),
-                        fontSize: 13,
+                    IconButton(
+                      onPressed: () => _confirmDelete(item),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: AppColors.error,
+                        size: 22,
                       ),
+                      tooltip: '删除',
                     ),
                   ],
                 ),
@@ -417,6 +671,8 @@ class _MemoryScreenState extends State<MemoryScreen> {
                             mode: _playing
                                 ? SoundVisualMode.playback
                                 : SoundVisualMode.complete,
+                            shape: VisualShapeService.instance
+                                .peek(item.visualPath),
                           ),
                         ),
                       ),
@@ -448,6 +704,32 @@ class _MemoryScreenState extends State<MemoryScreen> {
                       height: 1.5,
                     ),
                   ),
+                ],
+                const SizedBox(height: AppSpacing.section),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SecondaryButton(
+                        text: _playing ? '暂停播放' : '播放声音',
+                        onPressed: () => _togglePlay(item.audioPath),
+                      ),
+                    ),
+                    if (item.contentId != null &&
+                        item.discId != null &&
+                        item.nfcUrl != null) ...[
+                      const SizedBox(width: AppSpacing.tight),
+                      Expanded(
+                        child: PrimaryButton(
+                          text: item.nfcTagId == null ? '写入声片' : '重写声片',
+                          onPressed: () => widget.onWriteNfc(item.id),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                if (_showChainAction(item)) ...[
+                  const SizedBox(height: AppSpacing.tight),
+                  _chainButton(item),
                 ],
                 const SizedBox(height: AppSpacing.section),
                 InkWell(
@@ -486,18 +768,18 @@ class _MemoryScreenState extends State<MemoryScreen> {
                         ? formatRecordedAt(item.pressedAt!)
                         : '—',
                   ),
-                  MetaRow(label: '数字资产编号', value: item.assetId ?? '—'),
+                  MetaRow(label: '数字资产编号', value: item.assetId ?? '—', copyable: true),
                   MetaRow(
                     label: '上链时间',
                     value: item.chainedAt != null
                         ? formatRecordedAt(item.chainedAt!)
                         : '—',
                   ),
-                  const MetaRow(label: '绑定状态', value: '永久绑定'),
+                  const MetaRow(label: '绑定状态', value: '已绑定'),
                   MetaRow(label: '网络', value: item.networkLabel),
-                  MetaRow(label: '合约', value: item.contractLabel ?? '—'),
-                  MetaRow(label: 'Token ID', value: item.tokenId ?? '—'),
-                  MetaRow(label: '交易凭证', value: item.txHash ?? '—'),
+                  MetaRow(label: '合约', value: item.contractLabel ?? '—', copyable: true),
+                  MetaRow(label: 'Token ID', value: item.tokenId ?? '—', copyable: true),
+                  MetaRow(label: '交易凭证', value: item.txHash ?? '—', copyable: true),
                 ],
                 const SizedBox(height: AppSpacing.section),
               ],

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../../data/session.dart';
 import '../../data/sound_repository.dart';
 import '../../services/audio_playback_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
+import '../../widgets/location_picker_sheet.dart';
 import '../../widgets/sound_visual.dart';
 
 class ResultScreen extends StatefulWidget {
@@ -29,12 +31,23 @@ class _ResultScreenState extends State<ResultScreen> {
   final _nameCtrl = TextEditingController(text: '未命名声音');
   final _descCtrl = TextEditingController();
   String? _category;
+  String? _locationLabel;
   final _seed = DateTime.now().millisecondsSinceEpoch % 10000;
   bool _playing = false;
   final _player = AudioPlaybackService.instance;
+  StreamSubscription<void>? _completeSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _completeSub = _player.completionStream.listen((_) {
+      if (mounted) setState(() => _playing = false);
+    });
+  }
 
   @override
   void dispose() {
+    _completeSub?.cancel();
     _player.stop();
     _nameCtrl.dispose();
     _descCtrl.dispose();
@@ -75,6 +88,21 @@ class _ResultScreenState extends State<ResultScreen> {
     if (picked != null) setState(() => _category = picked);
   }
 
+  Future<void> _pickLocation() async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface2,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.sheet)),
+      ),
+      builder: (ctx) => const LocationPickerSheet(),
+    );
+    if (picked != null && picked.isNotEmpty) {
+      setState(() => _locationLabel = picked);
+    }
+  }
+
   void _save() {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
@@ -97,6 +125,7 @@ class _ResultScreenState extends State<ResultScreen> {
         durationSec: widget.durationSec,
         visualSeed: _seed,
         audioPath: widget.audioPath,
+        locationLabel: _locationLabel ?? '地点未记录',
       ),
     );
     RecordingSession.clear();
@@ -153,7 +182,7 @@ class _ResultScreenState extends State<ResultScreen> {
             ),
             const SizedBox(height: AppSpacing.item),
             Text(
-              '${formatRecordedAt(now)}  ·  ${formatDuration(widget.durationSec)} · 地点未记录',
+              '${formatRecordedAt(now)}  ·  ${formatDuration(widget.durationSec)} · ${_locationLabel ?? '地点未记录'}',
               style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
             ),
             const SizedBox(height: AppSpacing.section),
@@ -182,6 +211,45 @@ class _ResultScreenState extends State<ResultScreen> {
                         ? AppColors.textTertiary
                         : AppColors.textPrimary,
                   ),
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.item),
+            const SectionLabel('地点'),
+            GestureDetector(
+              onTap: _pickLocation,
+              child: Container(
+                height: AppSizes.inputHeight,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                alignment: Alignment.centerLeft,
+                decoration: BoxDecoration(
+                  color: AppColors.surface1,
+                  borderRadius: BorderRadius.circular(AppRadii.input),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _locationLabel ?? '选择地点',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _locationLabel == null
+                              ? AppColors.textTertiary
+                              : AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(
+                      Icons.location_on_outlined,
+                      size: 20,
+                      color: _locationLabel == null
+                          ? AppColors.textTertiary
+                          : AppColors.accent,
+                    ),
+                  ],
                 ),
               ),
             ),

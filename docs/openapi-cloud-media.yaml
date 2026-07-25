@@ -817,6 +817,11 @@ components:
             - type: string
             - type: "null"
           title: Nfc Url
+        visual_url:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Visual Url
         source:
           $ref: "#/components/schemas/ContentSource"
       type: object

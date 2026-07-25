@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../../data/sound_repository.dart';
 import '../../services/audio_playback_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/mint_pipeline.dart';
+import '../../services/visual_shape_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
@@ -13,12 +16,16 @@ class DraftsScreen extends StatefulWidget {
   const DraftsScreen({
     super.key,
     required this.onOpenDetail,
+    required this.onMint,
+    required this.onChain,
     required this.onPress,
     required this.onStartRecord,
     required this.onLogin,
   });
 
   final ValueChanged<String> onOpenDetail;
+  final ValueChanged<String> onMint;
+  final ValueChanged<String> onChain;
   final ValueChanged<String> onPress;
   final VoidCallback onStartRecord;
   final VoidCallback onLogin;
@@ -53,6 +60,7 @@ class _DraftsScreenState extends State<DraftsScreen> {
       animation: Listenable.merge([
         SoundRepository.instance,
         AuthService.instance,
+        MintPipeline.instance,
       ]),
       builder: (context, _) {
         final items = _filtered(SoundRepository.instance.drafts);
@@ -93,6 +101,8 @@ class _DraftsScreenState extends State<DraftsScreen> {
                             return _DraftCard(
                               item: item,
                               onOpen: () => widget.onOpenDetail(item.id),
+                              onMint: () => widget.onMint(item.id),
+                              onChain: () => widget.onChain(item.id),
                               onPress: () => widget.onPress(item.id),
                             );
                           },
@@ -147,18 +157,20 @@ class _DraftCard extends StatelessWidget {
   const _DraftCard({
     required this.item,
     required this.onOpen,
+    required this.onMint,
+    required this.onChain,
     required this.onPress,
   });
 
   final SoundMemory item;
   final VoidCallback onOpen;
+  final VoidCallback onMint;
+  final VoidCallback onChain;
   final VoidCallback onPress;
 
   @override
   Widget build(BuildContext context) {
-    final canPress = item.status == SoundStatus.drafted ||
-        item.status == SoundStatus.writeFailed ||
-        item.status == SoundStatus.chainFailed;
+    final actions = _actionsFor(item.status);
 
     return Material(
       color: AppColors.surface1,
@@ -179,6 +191,8 @@ class _DraftCard extends StatelessWidget {
                     child: SoundVisualCanvas(
                       seed: item.visualSeed,
                       mode: SoundVisualMode.complete,
+                      shape: VisualShapeService.instance
+                          .peek(item.visualPath),
                     ),
                   ),
                 ),
@@ -215,14 +229,22 @@ class _DraftCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (canPress)
+                  for (final action in actions)
                     TextButton(
-                      onPressed: onPress,
+                      onPressed: action.enabled
+                          ? switch (action.type) {
+                              _ActionType.cloud => onMint,
+                              _ActionType.chain => onChain,
+                              _ActionType.press => onPress,
+                            }
+                          : null,
                       child: Text(
-                        item.status == SoundStatus.chainFailed
-                            ? '重试上链'
-                            : 'Press',
-                        style: const TextStyle(color: AppColors.accent),
+                        action.label,
+                        style: TextStyle(
+                          color: action.enabled
+                              ? AppColors.accent
+                              : AppColors.textTertiary,
+                        ),
                       ),
                     ),
                 ],
@@ -235,17 +257,60 @@ class _DraftCard extends StatelessWidget {
   }
 }
 
+enum _ActionType { cloud, chain, press }
+
+class _DraftAction {
+  const _DraftAction(this.label, this.type, {this.enabled = true});
+  final String label;
+  final _ActionType type;
+  final bool enabled;
+}
+
+List<_DraftAction> _actionsFor(SoundStatus status) {
+  switch (status) {
+    case SoundStatus.drafted:
+      return [const _DraftAction('上云', _ActionType.cloud)];
+    case SoundStatus.writing:
+      return [const _DraftAction('处理中', _ActionType.cloud, enabled: false)];
+    case SoundStatus.cloudReady:
+      return [
+        const _DraftAction('写入声片', _ActionType.press),
+        const _DraftAction('上链', _ActionType.chain),
+      ];
+    case SoundStatus.chainPending:
+      return [
+        const _DraftAction('写入声片', _ActionType.press),
+        const _DraftAction('上链中', _ActionType.chain, enabled: false),
+      ];
+    case SoundStatus.chainReady:
+      return [const _DraftAction('写入声片', _ActionType.press)];
+    case SoundStatus.writeFailed:
+      return [const _DraftAction('重试上云', _ActionType.cloud)];
+    case SoundStatus.chainFailed:
+      return [
+        const _DraftAction('写入声片', _ActionType.press),
+        const _DraftAction('重试上链', _ActionType.chain),
+      ];
+    case SoundStatus.collected:
+      return [];
+  }
+}
+
 class DraftDetailScreen extends StatefulWidget {
   const DraftDetailScreen({
     super.key,
     required this.id,
     required this.onBack,
+    required this.onMint,
+    required this.onChain,
     required this.onPress,
     required this.onDeleted,
   });
 
   final String id;
   final VoidCallback onBack;
+  final VoidCallback onMint;
+  final VoidCallback onChain;
   final VoidCallback onPress;
   final VoidCallback onDeleted;
 
@@ -260,18 +325,26 @@ class _DraftDetailScreenState extends State<DraftDetailScreen> {
   late final TextEditingController _titleCtrl;
   late final TextEditingController _descCtrl;
   String? _category;
+  StreamSubscription<void>? _completeSub;
 
   @override
   void initState() {
     super.initState();
+    _completeSub = _player.completionStream.listen((_) {
+      if (mounted) setState(() => _playing = false);
+    });
     final item = SoundRepository.instance.get(widget.id);
     _titleCtrl = TextEditingController(text: item?.title ?? '');
     _descCtrl = TextEditingController(text: item?.description ?? '');
     _category = item?.category;
+    if (item != null) {
+      unawaited(VisualShapeService.instance.load(item.visualPath));
+    }
   }
 
   @override
   void dispose() {
+    _completeSub?.cancel();
     _player.stop();
     _titleCtrl.dispose();
     _descCtrl.dispose();
@@ -343,7 +416,10 @@ class _DraftDetailScreenState extends State<DraftDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: SoundRepository.instance,
+      animation: Listenable.merge([
+        SoundRepository.instance,
+        MintPipeline.instance,
+      ]),
       builder: (context, _) {
         final item = SoundRepository.instance.get(widget.id);
         if (item == null) {
@@ -400,6 +476,8 @@ class _DraftDetailScreenState extends State<DraftDetailScreen> {
                               mode: _playing
                                   ? SoundVisualMode.playback
                                   : SoundVisualMode.complete,
+                              shape: VisualShapeService.instance
+                                  .peek(item.visualPath),
                             ),
                             Icon(
                               _playing
@@ -504,12 +582,21 @@ class _DraftDetailScreenState extends State<DraftDetailScreen> {
                   MetaRow(label: '设备', value: item.deviceLabel),
                 ],
                 const SizedBox(height: AppSpacing.block),
-                PrimaryButton(
-                  text: item.status == SoundStatus.chainFailed
-                      ? '重试上链'
-                      : '写入声片',
-                  onPressed: widget.onPress,
-                ),
+                for (final action in _actionsFor(item.status))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.tight),
+                    child: PrimaryButton(
+                      text: action.label,
+                      enabled: action.enabled,
+                      onPressed: action.enabled
+                          ? switch (action.type) {
+                              _ActionType.cloud => widget.onMint,
+                              _ActionType.chain => widget.onChain,
+                              _ActionType.press => widget.onPress,
+                            }
+                          : null,
+                    ),
+                  ),
                 const SizedBox(height: AppSpacing.tight),
                 SecondaryButton(
                   text: '删除声音',

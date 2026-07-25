@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../data/sound_repository.dart';
 import '../services/auth_service.dart';
@@ -93,10 +94,25 @@ class StatusChip extends StatelessWidget {
           AppColors.surface2,
           AppColors.textSecondary,
         ),
-      SoundStatus.writing || SoundStatus.chainPending => (
+      SoundStatus.writing => (
           '处理中',
           AppColors.info.withValues(alpha: 0.16),
           AppColors.info,
+        ),
+      SoundStatus.cloudReady => (
+          '云端就绪',
+          AppColors.accent.withValues(alpha: 0.16),
+          AppColors.accent,
+        ),
+      SoundStatus.chainPending => (
+          '上链中',
+          AppColors.info.withValues(alpha: 0.16),
+          AppColors.info,
+        ),
+      SoundStatus.chainReady => (
+          '待写入',
+          AppColors.accent.withValues(alpha: 0.16),
+          AppColors.accent,
         ),
       SoundStatus.writeFailed || SoundStatus.chainFailed => (
           '失败',
@@ -538,33 +554,52 @@ class SectionLabel extends StatelessWidget {
 }
 
 class MetaRow extends StatelessWidget {
-  const MetaRow({super.key, required this.label, required this.value});
+  const MetaRow({
+    super.key,
+    required this.label,
+    required this.value,
+    this.copyable = false,
+  });
   final String label;
   final String value;
+  final bool copyable;
+
+  void _copy(BuildContext context) {
+    if (value == '—') return;
+    Clipboard.setData(ClipboardData(text: value));
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        const SnackBar(content: Text('已复制'), duration: Duration(seconds: 2)),
+      );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
-          ),
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+    return GestureDetector(
+      onLongPress: copyable ? () => _copy(context) : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
+            ),
+            Flexible(
+              child: Text(
+                value,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

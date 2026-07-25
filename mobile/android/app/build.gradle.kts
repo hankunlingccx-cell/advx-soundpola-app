@@ -24,6 +24,11 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Host used by the NFC deep-link intent-filter (App Links). Override
+        // with -PnfcLinkHost=your.domain to match the deployed HTTPS server.
+        manifestPlaceholders["nfcLinkHost"] =
+            (project.findProperty("nfcLinkHost") as String?) ?: "api.soundpola.com"
     }
 
     buildTypes {

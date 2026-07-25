@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/permission_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
@@ -26,6 +27,10 @@ class _PermissionScreenState extends State<PermissionScreen> {
     final granted = await PermissionService.ensureMicrophone();
     if (!mounted) return;
     if (granted) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('sp_mic_consented', true);
+      } catch (_) {}
       widget.onContinue();
     } else {
       setState(() {

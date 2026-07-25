@@ -1,11 +1,16 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import '../../data/press_resume.dart';
 import '../../data/sound_repository.dart';
 import '../../router/app_routes.dart';
 import '../../services/auth_service.dart';
+import '../../services/deep_link_service.dart';
+import '../../services/mint_pipeline.dart';
+import '../../services/visual_shape_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
@@ -16,11 +21,22 @@ Future<void> resumeAfterAuth(BuildContext context, {bool isNewAccount = false}) 
     context.go(AppRoutes.accountReady);
     return;
   }
+  if (PendingDeepLink.hasPending) {
+    final contentId = PendingDeepLink.contentId!;
+    PendingDeepLink.clear();
+    context.go(AppRoutes.contentPath(contentId));
+    return;
+  }
   if (PressResume.hasPending) {
     final id = PressResume.draftId!;
-    final chainOnly = PressResume.chainOnly;
+    final isMint = PressResume.entry == 'mint';
     PressResume.clear();
-    context.go(AppRoutes.pressMethodPath(id, chainOnly: chainOnly));
+    if (isMint) {
+      MintPipeline.instance.startCloud(id);
+      context.go(AppRoutes.mainTab(1));
+    } else {
+      context.go(AppRoutes.pressMethodPath(id));
+    }
     return;
   }
   context.go(AppRoutes.main);
@@ -169,6 +185,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: SoundVisualCanvas(
                             seed: draft.visualSeed,
                             mode: SoundVisualMode.complete,
+                            shape: VisualShapeService.instance
+                                .peek(draft.visualPath),
                           ),
                         ),
                       ),
@@ -197,7 +215,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: AppSpacing.section),
                   _AuthPillField(
                     controller: _accountCtrl,
-                    hint: '手机号或邮箱',
+                    hint: '邮箱',
                     icon: Icons.person_rounded,
                     keyboardType: TextInputType.emailAddress,
                   ),
@@ -246,6 +264,27 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: AppSpacing.block),
                 ],
+              ),
+            ),
+            SafeArea(
+              child: Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 4, top: 4),
+                  child: IconButton(
+                    tooltip: '服务器设置',
+                    onPressed: () => context.push(AppRoutes.serverSettings),
+                    icon: SvgPicture.asset(
+                      'assets/icons/settings.svg',
+                      width: 22,
+                      height: 22,
+                      colorFilter: const ColorFilter.mode(
+                        AppColors.textSecondary,
+                        BlendMode.srcIn,
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
@@ -485,6 +524,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       setState(() => _error = '两次输入的密码不一致');
       return;
     }
+    final storeInCloud = await _askKeyStorage(context);
+    if (storeInCloud == null) return; // 用户取消
+    if (!mounted) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -493,9 +535,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
       await AuthService.instance.register(
         account: _accountCtrl.text,
         password: _passwordCtrl.text,
+        storePrivateKey: storeInCloud,
       );
       if (!mounted) return;
-      await resumeAfterAuth(context, isNewAccount: true);
+      if (storeInCloud) {
+        await resumeAfterAuth(context, isNewAccount: true);
+      } else {
+        context.go(AppRoutes.privateKeyBackup);
+      }
     } on AuthException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
@@ -503,6 +550,63 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Returns true = 云端托管, false = 本地保存, null = 取消。
+  Future<bool?> _askKeyStorage(BuildContext context) {
+    return showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: AppColors.surface1,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.card)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.cardPadding),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '如何保存你的私钥？',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '私钥用于掌控你的数字收藏。云端托管更省心，本地保存更自主。',
+                style: TextStyle(color: AppColors.textSecondary, height: 1.5, fontSize: 14),
+              ),
+              const SizedBox(height: AppSpacing.section),
+              _KeyStorageOption(
+                title: '云端托管（推荐）',
+                subtitle: '由系统安全托管，换机也不会丢失，直接进入即可使用。',
+                icon: Icons.cloud_done_rounded,
+                onTap: () => Navigator.pop(ctx, true),
+              ),
+              const SizedBox(height: AppSpacing.tight),
+              _KeyStorageOption(
+                title: '本地保存',
+                subtitle: '私钥仅显示一次并保存在本机。请务必自行备份，清除数据将丢失。',
+                icon: Icons.vpn_key_rounded,
+                onTap: () => Navigator.pop(ctx, false),
+              ),
+              const SizedBox(height: AppSpacing.item),
+              Align(
+                alignment: Alignment.center,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('取消', style: TextStyle(color: AppColors.textTertiary)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -528,15 +632,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: AppSpacing.section),
             SpTextField(
               controller: _accountCtrl,
-              label: '账号',
-              hint: '手机号或邮箱',
+              label: '邮箱',
+              hint: '请输入邮箱',
               keyboardType: TextInputType.emailAddress,
             ),
             const SizedBox(height: AppSpacing.item),
             SpTextField(
               controller: _passwordCtrl,
               label: '密码',
-              hint: '至少 6 位',
+              hint: '至少 8 位',
               obscure: true,
             ),
             const SizedBox(height: AppSpacing.item),
@@ -569,12 +673,30 @@ class AccountReadyScreen extends StatelessWidget {
   void _continue(BuildContext context) {
     if (PressResume.hasPending) {
       final id = PressResume.draftId!;
-      final chainOnly = PressResume.chainOnly;
+      final isMint = PressResume.entry == 'mint';
       PressResume.clear();
-      context.go(AppRoutes.pressMethodPath(id, chainOnly: chainOnly));
+      if (isMint) {
+        MintPipeline.instance.startCloud(id);
+        context.go(AppRoutes.mainTab(1));
+      } else {
+        context.go(AppRoutes.pressMethodPath(id));
+      }
     } else {
       context.go(AppRoutes.main);
     }
+  }
+
+  Future<void> _copyWallet(BuildContext context, String address) async {
+    await Clipboard.setData(ClipboardData(text: address));
+    if (!context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('钱包地址已复制'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -630,9 +752,33 @@ class AccountReadyScreen extends StatelessWidget {
                     const SizedBox(height: AppSpacing.item),
                     const Text('数字资产账户', style: TextStyle(color: AppColors.textTertiary, fontSize: 12)),
                     const SizedBox(height: 4),
-                    Text(
-                      user?.walletShort ?? '—',
-                      style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.w500),
+                    InkWell(
+                      onTap: user?.walletAddress == null
+                          ? null
+                          : () => _copyWallet(context, user!.walletAddress),
+                      borderRadius: BorderRadius.circular(AppRadii.button),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                user?.walletShort ?? '—',
+                                style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                            if (user?.walletAddress != null) ...[
+                              const SizedBox(width: 6),
+                              const Icon(
+                                Icons.copy_rounded,
+                                size: 15,
+                                color: AppColors.accent,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -642,6 +788,193 @@ class AccountReadyScreen extends StatelessWidget {
                 text: PressResume.hasPending ? '继续写入声片' : '开始使用',
                 onPressed: () => _continue(context),
               ),
+              const SizedBox(height: AppSpacing.section),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _KeyStorageOption extends StatelessWidget {
+  const _KeyStorageOption({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadii.card),
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.cardPadding),
+        decoration: BoxDecoration(
+          color: AppColors.surface2,
+          borderRadius: BorderRadius.circular(AppRadii.card),
+          border: Border.all(color: AppColors.borderSubtle),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: AppColors.accent, size: 24),
+            const SizedBox(width: AppSpacing.item),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right, color: AppColors.textTertiary),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class PrivateKeyBackupScreen extends StatefulWidget {
+  const PrivateKeyBackupScreen({super.key});
+
+  @override
+  State<PrivateKeyBackupScreen> createState() => _PrivateKeyBackupScreenState();
+}
+
+class _PrivateKeyBackupScreenState extends State<PrivateKeyBackupScreen> {
+  String? _privateKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _privateKey = AuthService.instance.consumePendingPrivateKey();
+  }
+
+  Future<void> _copy() async {
+    final pk = _privateKey;
+    if (pk == null) return;
+    await Clipboard.setData(ClipboardData(text: pk));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('私钥已复制到剪贴板')),
+    );
+  }
+
+  void _continue() {
+    if (PressResume.hasPending) {
+      final id = PressResume.draftId!;
+      final isMint = PressResume.entry == 'mint';
+      PressResume.clear();
+      if (isMint) {
+        MintPipeline.instance.startCloud(id);
+        context.go(AppRoutes.mainTab(1));
+      } else {
+        context.go(AppRoutes.pressMethodPath(id));
+      }
+    } else {
+      context.go(AppRoutes.main);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pk = _privateKey;
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        backgroundColor: AppColors.bgPrimary,
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageHorizontal),
+            children: [
+              const SizedBox(height: AppSpacing.block),
+              const Text(
+                '请备份你的私钥',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                '私钥已自动保存到本机安全存储。请再复制一份离线备份：\n'
+                '· 私钥仅显示这一次\n'
+                '· 更换设备或清除应用数据将导致丢失\n'
+                '· 拥有私钥即可掌控你的数字收藏，切勿泄露',
+                style: TextStyle(color: AppColors.textSecondary, height: 1.6, fontSize: 14),
+              ),
+              const SizedBox(height: AppSpacing.section),
+              if (pk != null) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(AppSpacing.cardPadding),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface1,
+                    borderRadius: BorderRadius.circular(AppRadii.card),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('私钥', style: TextStyle(color: AppColors.textTertiary, fontSize: 12)),
+                      const SizedBox(height: 8),
+                      SelectableText(
+                        pk,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                          height: 1.5,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.item),
+                SecondaryButton(text: '复制私钥', onPressed: _copy),
+              ] else ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(AppSpacing.cardPadding),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface1,
+                    borderRadius: BorderRadius.circular(AppRadii.card),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: const Text(
+                    '私钥仅显示一次，当前已不可再次读取。你可以稍后在「账户」页重新配置本地私钥。',
+                    style: TextStyle(color: AppColors.textSecondary, height: 1.5, fontSize: 14),
+                  ),
+                ),
+              ],
+              const SizedBox(height: AppSpacing.block),
+              PrimaryButton(text: '我已保存，继续', onPressed: _continue),
               const SizedBox(height: AppSpacing.section),
             ],
           ),

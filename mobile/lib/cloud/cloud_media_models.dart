@@ -25,6 +25,48 @@ class UserTokenIssued {
       );
 }
 
+class EmailRegistered {
+  const EmailRegistered({
+    required this.userId,
+    required this.email,
+    required this.walletAddress,
+    this.privateKey,
+    this.privateKeyStored = false,
+  });
+
+  final String userId;
+  final String email;
+  final String walletAddress;
+  final String? privateKey;
+  final bool privateKeyStored;
+
+  factory EmailRegistered.fromJson(Map<String, dynamic> json) => EmailRegistered(
+        userId: json['user_id'] as String,
+        email: json['email'] as String? ?? '',
+        walletAddress: json['wallet_address'] as String? ?? '',
+        privateKey: json['private_key'] as String?,
+        privateKeyStored: json['private_key_stored'] as bool? ?? false,
+      );
+}
+
+class UserProfile {
+  const UserProfile({
+    required this.userId,
+    this.walletAddress,
+    this.email,
+  });
+
+  final String userId;
+  final String? walletAddress;
+  final String? email;
+
+  factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
+        userId: json['user_id'] as String,
+        walletAddress: json['wallet_address'] as String?,
+        email: json['email'] as String?,
+      );
+}
+
 enum CloudContentState {
   uploaded,
   processing,
@@ -126,6 +168,7 @@ class ContentSummary {
     this.readyAt,
     this.deletedAt,
     this.nfcUrl,
+    this.visualUrl,
   });
 
   final String contentId;
@@ -142,6 +185,7 @@ class ContentSummary {
   final String? readyAt;
   final String? deletedAt;
   final String? nfcUrl;
+  final String? visualUrl;
 
   bool get isTerminal =>
       state == CloudContentState.ready ||
@@ -165,6 +209,7 @@ class ContentSummary {
         readyAt: json['ready_at'] as String?,
         deletedAt: json['deleted_at'] as String?,
         nfcUrl: json['nfc_url'] as String?,
+        visualUrl: json['visual_url'] as String?,
       );
 }
 
@@ -181,6 +226,186 @@ class ContentList {
           .map((e) => ContentSummary.fromJson((e as Map).cast<String, dynamic>()))
           .toList(),
       total: (json['total'] as num?)?.toInt() ?? raw.length,
+    );
+  }
+}
+
+// --- Chain models ---
+
+enum ChainState {
+  none,
+  minting,
+  minted,
+  failed,
+  unknown;
+
+  static ChainState parse(String? raw) {
+    switch (raw) {
+      case 'NONE':
+        return ChainState.none;
+      case 'MINTING':
+        return ChainState.minting;
+      case 'MINTED':
+        return ChainState.minted;
+      case 'FAILED':
+        return ChainState.failed;
+      default:
+        return ChainState.unknown;
+    }
+  }
+
+  String get wire {
+    switch (this) {
+      case ChainState.none:
+        return 'NONE';
+      case ChainState.minting:
+        return 'MINTING';
+      case ChainState.minted:
+        return 'MINTED';
+      case ChainState.failed:
+        return 'FAILED';
+      case ChainState.unknown:
+        return 'UNKNOWN';
+    }
+  }
+}
+
+class ChainStatus {
+  const ChainStatus({
+    required this.contentId,
+    required this.chainState,
+    this.tokenId,
+    this.txHash,
+    this.contractAddress,
+    this.tokenUri,
+    this.ownerWallet,
+    this.errorMessage,
+    this.mintedAt,
+  });
+
+  final String contentId;
+  final ChainState chainState;
+  final int? tokenId;
+  final String? txHash;
+  final String? contractAddress;
+  final String? tokenUri;
+  final String? ownerWallet;
+  final String? errorMessage;
+  final String? mintedAt;
+
+  factory ChainStatus.fromJson(Map<String, dynamic> json) => ChainStatus(
+        contentId: json['content_id'] as String? ?? '',
+        chainState: ChainState.parse(json['chain_state'] as String?),
+        tokenId: (json['token_id'] as num?)?.toInt(),
+        txHash: json['tx_hash'] as String?,
+        contractAddress: json['contract_address'] as String?,
+        tokenUri: json['token_uri'] as String?,
+        ownerWallet: json['owner_wallet'] as String?,
+        errorMessage: json['error_message'] as String?,
+        mintedAt: json['minted_at'] as String?,
+      );
+}
+
+class UnsignedTx {
+  const UnsignedTx({
+    required this.to,
+    required this.data,
+    required this.nonce,
+    required this.gas,
+    required this.gasPrice,
+    required this.chainId,
+    required this.value,
+    required this.tokenUri,
+  });
+
+  final String to;
+  final String data;
+  final int nonce;
+  final int gas;
+  final BigInt gasPrice;
+  final int chainId;
+  final BigInt value;
+  final String tokenUri;
+
+  factory UnsignedTx.fromJson(Map<String, dynamic> json) => UnsignedTx(
+        to: json['to'] as String? ?? '',
+        data: json['data'] as String? ?? '',
+        nonce: (json['nonce'] as num?)?.toInt() ?? 0,
+        gas: (json['gas'] as num?)?.toInt() ?? 0,
+        gasPrice: BigInt.tryParse(json['gas_price']?.toString() ?? '0') ?? BigInt.zero,
+        chainId: (json['chain_id'] as num?)?.toInt() ?? 1439,
+        value: BigInt.tryParse(json['value']?.toString() ?? '0') ?? BigInt.zero,
+        tokenUri: json['token_uri'] as String? ?? '',
+      );
+}
+
+class MintResult {
+  const MintResult({
+    required this.contentId,
+    required this.tokenId,
+    required this.txHash,
+    required this.contractAddress,
+  });
+
+  final String contentId;
+  final int tokenId;
+  final String txHash;
+  final String contractAddress;
+
+  factory MintResult.fromJson(Map<String, dynamic> json) => MintResult(
+        contentId: json['content_id'] as String? ?? '',
+        tokenId: (json['token_id'] as num?)?.toInt() ?? 0,
+        txHash: json['tx_hash'] as String? ?? '',
+        contractAddress: json['contract_address'] as String? ?? '',
+      );
+}
+
+class Edition {
+  const Edition({
+    required this.id,
+    required this.contentId,
+    required this.tokenId,
+    required this.txHash,
+    required this.ownerWallet,
+    required this.tokenUri,
+    required this.editionType,
+    required this.mintedAt,
+  });
+
+  final String id;
+  final String contentId;
+  final int tokenId;
+  final String txHash;
+  final String ownerWallet;
+  final String tokenUri;
+  final String editionType;
+  final String mintedAt;
+
+  factory Edition.fromJson(Map<String, dynamic> json) => Edition(
+        id: json['id'] as String? ?? '',
+        contentId: json['content_id'] as String? ?? '',
+        tokenId: (json['token_id'] as num?)?.toInt() ?? 0,
+        txHash: json['tx_hash'] as String? ?? '',
+        ownerWallet: json['owner_wallet'] as String? ?? '',
+        tokenUri: json['token_uri'] as String? ?? '',
+        editionType: json['edition_type'] as String? ?? 'CLAIM',
+        mintedAt: json['minted_at'] as String? ?? '',
+      );
+}
+
+class EditionsList {
+  const EditionsList({required this.contentId, required this.editions});
+
+  final String contentId;
+  final List<Edition> editions;
+
+  factory EditionsList.fromJson(Map<String, dynamic> json) {
+    final raw = json['editions'] as List<dynamic>? ?? const [];
+    return EditionsList(
+      contentId: json['content_id'] as String? ?? '',
+      editions: raw
+          .map((e) => Edition.fromJson((e as Map).cast<String, dynamic>()))
+          .toList(),
     );
   }
 }

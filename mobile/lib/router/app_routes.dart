@@ -13,19 +13,22 @@ abstract final class AppRoutes {
   static const login = '/auth/login';
   static const register = '/auth/register';
   static const accountReady = '/auth/account-ready';
+  static const privateKeyBackup = '/auth/private-key';
   static const account = '/account';
+  static const pairDevice = '/account/pair-device';
+  static const serverSettings = '/settings/server';
+  static const resolveContent = '/c/:contentId';
 
   static String mainTab(int tab) => '/?tab=$tab';
   static String resultPath(int duration) => '/result?duration=$duration';
   static String draftPath(String id) => '/draft/$id';
   static String loginPath({String? draftId}) =>
       draftId == null ? login : '$login?draftId=$draftId';
-  static String pressProgressPath(String id, {bool chainOnly = false}) =>
-      chainOnly ? '/press/progress/$id?chainOnly=1' : '/press/progress/$id';
-  static String pressMethodPath(String id, {bool chainOnly = false}) =>
-      chainOnly ? '/press/method/$id?chainOnly=1' : '/press/method/$id';
+  static String pressProgressPath(String id) => '/press/progress/$id';
+  static String pressMethodPath(String id) => '/press/method/$id';
   static String pressDetectPath(String id) => '/press/detect/$id';
   static String pressConfirmPath(String id) => '/press/confirm/$id';
   static String pressDonePath(String id) => '/press/done/$id';
   static String memoryPath(String id) => '/memory/$id';
+  static String contentPath(String contentId) => '/c/$contentId';
 }

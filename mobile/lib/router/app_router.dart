@@ -4,28 +4,63 @@ import '../data/press_resume.dart';
 import '../data/session.dart';
 import '../data/sound_repository.dart';
 import '../screens/account/account_screen.dart';
+import '../screens/account/pair_device_screen.dart';
 import '../screens/auth/auth_screens.dart';
 import '../screens/collection/collection_screen.dart';
+import '../screens/content/content_resolve_screen.dart';
 import '../screens/drafts/drafts_screen.dart';
 import '../screens/press/press_screens.dart';
 import '../screens/record/permission_screen.dart';
 import '../screens/record/record_home_screen.dart';
 import '../screens/record/recording_screen.dart';
 import '../screens/record/result_screen.dart';
+import '../screens/settings/server_settings_screen.dart';
 import '../services/auth_service.dart';
+import '../services/mint_pipeline.dart';
 import '../theme/app_colors.dart';
 import '../widgets/design_components.dart';
 import 'app_routes.dart';
 
 export 'app_routes.dart';
 
-void openPressFlow(BuildContext context, String id, {bool chainOnly = false}) {
+/// 手动触发云端上传管道。未登录先登录再恢复。
+void startMint(BuildContext context, String id) {
   if (!AuthService.instance.isLoggedIn) {
-    PressResume.set(id: id, chainOnlyMode: chainOnly);
+    PressResume.set(id: id, entryPoint: 'mint');
     context.push(AppRoutes.loginPath(draftId: id));
     return;
   }
-  context.push(AppRoutes.pressMethodPath(id, chainOnly: chainOnly));
+  MintPipeline.instance.startCloud(id);
+}
+
+/// 手动触发链上铸造（需要 cloudReady 状态）。
+void startChain(BuildContext context, String id) {
+  if (!AuthService.instance.isLoggedIn) {
+    PressResume.set(id: id, entryPoint: 'mint');
+    context.push(AppRoutes.loginPath(draftId: id));
+    return;
+  }
+  MintPipeline.instance.startChain(id);
+}
+
+/// 进入 NFC 写卡流程，云端 READY 即可写入（上链为可选）。
+void openPressFlow(BuildContext context, String id) {
+  final item = SoundRepository.instance.get(id);
+  if (item == null) return;
+  final canWrite = item.status == SoundStatus.cloudReady ||
+      item.status == SoundStatus.chainPending ||
+      item.status == SoundStatus.chainReady ||
+      item.status == SoundStatus.chainFailed ||
+      (item.status == SoundStatus.collected &&
+          item.contentId != null &&
+          item.discId != null);
+  if (!canWrite) return;
+  if (!AuthService.instance.isLoggedIn) {
+    PressResume.set(id: id);
+    context.push(AppRoutes.loginPath(draftId: id));
+    return;
+  }
+  context.push(AppRoutes.pressMethodPath(id));
 }
 
 GoRouter createRouter({required ValueNotifier<bool> consented}) {
@@ -37,11 +72,14 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
       final onPermission = loc == AppRoutes.permission;
       final onAuth = loc == AppRoutes.login ||
           loc == AppRoutes.register ||
-          loc == AppRoutes.accountReady;
+          loc == AppRoutes.accountReady ||
+          loc == AppRoutes.privateKeyBackup;
+      final onSettings = loc == AppRoutes.serverSettings;
+      final onResolve = state.uri.path.startsWith('/c/');
 
       // 1) 麦克风权限页优先
       if (!consented.value) {
-        return onPermission ? null : AppRoutes.permission;
+        return (onPermission || onResolve) ? null : AppRoutes.permission;
       }
       if (onPermission) {
         return AuthService.instance.isLoggedIn
@@ -51,7 +89,7 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
 
       // 2) 进入主流程前必须登录
       if (!AuthService.instance.isLoggedIn) {
-        return onAuth ? null : AppRoutes.login;
+        return (onAuth || onSettings || onResolve) ? null : AppRoutes.login;
       }
 
       // 3) 已登录时离开登录页
@@ -84,8 +122,26 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
         builder: (context, state) => const AccountReadyScreen(),
       ),
       GoRoute(
+        path: AppRoutes.privateKeyBackup,
+        builder: (context, state) => const PrivateKeyBackupScreen(),
+      ),
+      GoRoute(
         path: AppRoutes.account,
         builder: (context, state) => const AccountScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.pairDevice,
+        builder: (context, state) => const PairDeviceScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.serverSettings,
+        builder: (context, state) => const ServerSettingsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.resolveContent,
+        builder: (context, state) => ContentResolveScreen(
+          contentId: state.pathParameters['contentId']!,
+        ),
       ),
       ShellRoute(
         builder: (context, state, child) => child,
@@ -135,14 +191,9 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
               return DraftDetailScreen(
                 id: id,
                 onBack: () => context.pop(),
-                onPress: () {
-                  final item = SoundRepository.instance.get(id);
-                  openPressFlow(
-                    context,
-                    id,
-                    chainOnly: item?.status == SoundStatus.chainFailed,
-                  );
-                },
+                onMint: () => startMint(context, id),
+                onChain: () => startChain(context, id),
+                onPress: () => openPressFlow(context, id),
                 onDeleted: () => context.pop(),
               );
             },
@@ -151,21 +202,10 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
             path: AppRoutes.pressMethod,
             builder: (context, state) {
               final id = state.pathParameters['id']!;
-              final chainOnly =
-                  state.uri.queryParameters['chainOnly'] == '1';
               return PressMethodScreen(
                 id: id,
-                chainOnly: chainOnly,
                 onBack: () => context.pop(),
-                onNfc: () {
-                  if (chainOnly) {
-                    context.pushReplacement(
-                      AppRoutes.pressProgressPath(id, chainOnly: true),
-                    );
-                  } else {
-                    context.push(AppRoutes.pressDetectPath(id));
-                  }
-                },
+                onNfc: () => context.push(AppRoutes.pressDetectPath(id)),
               );
             },
           ),
@@ -197,11 +237,8 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
             path: AppRoutes.pressProgress,
             builder: (context, state) {
               final id = state.pathParameters['id']!;
-              final chainOnly =
-                  state.uri.queryParameters['chainOnly'] == '1';
               return PressProgressScreen(
                 id: id,
-                chainOnly: chainOnly,
                 onDone: () =>
                     context.pushReplacement(AppRoutes.pressDonePath(id)),
               );
@@ -225,6 +262,8 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
               return MemoryScreen(
                 id: id,
                 onBack: () => context.pop(),
+                onWriteNfc: (mid) => openPressFlow(context, mid),
+                onChain: (mid) => startChain(context, mid),
               );
             },
           ),
@@ -269,14 +308,9 @@ class _MainShellState extends State<MainShell> {
           RecordHomeScreen(onStartRecord: () => context.push(AppRoutes.recording)),
           DraftsScreen(
             onOpenDetail: (id) => context.push(AppRoutes.draftPath(id)),
-            onPress: (id) {
-              final item = SoundRepository.instance.get(id);
-              openPressFlow(
-                context,
-                id,
-                chainOnly: item?.status == SoundStatus.chainFailed,
-              );
-            },
+            onMint: (id) => startMint(context, id),
+            onChain: (id) => startChain(context, id),
+            onPress: (id) => openPressFlow(context, id),
             onStartRecord: () {
               setState(() => _tab = 0);
               context.push(AppRoutes.recording);
@@ -286,6 +320,7 @@ class _MainShellState extends State<MainShell> {
           CollectionScreen(
             onOpenMemory: (id) => context.push(AppRoutes.memoryPath(id)),
             onLogin: () => context.push(AppRoutes.login),
+            onWriteNfc: (id) => openPressFlow(context, id),
           ),
         ],
       ),

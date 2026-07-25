@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import '../audio/audio_features.dart';
 import '../theme/app_colors.dart';
+import 'visual_shape.dart';
 
 /// Organic ribbon kaleidoscope: analyze @25–30 Hz, render @60 with lerp.
 /// One Seed petal geometry → Canvas rotate ×6 (never six independent datasets).
@@ -124,6 +125,39 @@ Offset _spineAt({
   return Offset(r.clamp(voidFloor * 0.92, 1.05), th.clamp(0.04, 0.96));
 }
 
+/// Cloud-skeleton modulation: apply only the layers that don't distort the
+/// cloud-encoded curvature (rms radial scale, breath nudge, onset pulse,
+/// voidFloor). Skips the bend/fold oscillations from [_spineAt] since the
+/// cloud already provides the static shape.
+Offset _spineAtCloud({
+  required Offset base,
+  required double u,
+  required double bId,
+  required double time,
+  required double breath,
+  required double awake,
+  required AudioFeatures f,
+  required bool shapeLive,
+}) {
+  var r = base.dx;
+  var th = base.dy;
+  // rms radial scale (mirrors _spineAt line 119)
+  r *= 1.0 + (f.rms - 0.2).clamp(-0.5, 0.8) * 0.04 * awake;
+  // breath radial nudge (mirrors _spineAt line 120)
+  r += breath * 0.008 * math.sin(u * math.pi + bId);
+  // onset pulse (mirrors _spineAt lines 112-117; foldSign not available
+  // from cloud, use +1)
+  if (f.onset > 0.05 && shapeLive) {
+    final pulse =
+        math.exp(-math.pow((u - (time * 0.35 % 1.0)) * 6, 2).toDouble());
+    r += f.onset * 0.035 * pulse;
+    th += f.onset * 0.02 * pulse;
+  }
+  final voidFloor = 0.08 + 0.02 * _hash01(bId * 3.1);
+  if (u < 0.08) r = math.max(r, voidFloor + u * 0.04);
+  return Offset(r.clamp(voidFloor * 0.92, 1.05), th.clamp(0.04, 0.96));
+}
+
 Offset _polarToLocal(Offset polar, double mirrorSign) {
   final sectorHalf = (_tau / _sectorCount) * 0.5;
   final theta = mirrorSign * (polar.dy * sectorHalf);
@@ -182,6 +216,7 @@ class _CtrlBuffer {
 void _fillTargets({
   required _CtrlBuffer out,
   required List<_BundleSpec> bundles,
+  required SoundVisualShape? shape,
   required double time,
   required double breath,
   required double awake,
@@ -195,16 +230,27 @@ void _fillTargets({
       out.set(
         b,
         i,
-        _spineAt(
-          u: u,
-          b: bundles[b],
-          time: time,
-          breath: breath,
-          awake: awake,
-          curvatureScale: curvatureScale,
-          f: f,
-          shapeLive: shapeLive,
-        ),
+        shape != null
+            ? _spineAtCloud(
+                base: shape.bundles[b][i],
+                u: u,
+                bId: b + 0.001,
+                time: time,
+                breath: breath,
+                awake: awake,
+                f: f,
+                shapeLive: shapeLive,
+              )
+            : _spineAt(
+                u: u,
+                b: bundles[b],
+                time: time,
+                breath: breath,
+                awake: awake,
+                curvatureScale: curvatureScale,
+                f: f,
+                shapeLive: shapeLive,
+              ),
       );
     }
   }
@@ -436,6 +482,7 @@ class SoundVisualCanvas extends StatefulWidget {
     this.features,
     this.showProgressRing = false,
     this.progress = 0,
+    this.shape,
   });
 
   final int seed;
@@ -448,6 +495,10 @@ class SoundVisualCanvas extends StatefulWidget {
   final ValueListenable<AudioFeatures>? features;
   final bool showProgressRing;
   final double progress;
+  /// Cloud-produced polar skeleton (3 bundles × 24 points). When non-null,
+  /// overrides seed-based [_spineAt]; local breath/AudioFeatures modulation
+  /// still applies via [_spineAtCloud]. Null = seed fallback.
+  final SoundVisualShape? shape;
 
   @override
   State<SoundVisualCanvas> createState() => _SoundVisualCanvasState();
@@ -515,8 +566,16 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
       widget.features?.addListener(_onFeatures);
     }
     if (oldWidget.seed != widget.seed) {
-      // Seed change rare; rebuild bundle specs only.
+      _bundles = _fixedBundles(widget.seed);
     }
+    if (oldWidget.seed != widget.seed || oldWidget.shape != widget.shape) {
+      final t = _lastElapsed == Duration.zero
+          ? 0.0
+          : _lastElapsed.inMilliseconds / 1000.0;
+      _retarget(t, breath: 0.5);
+      if (!_ticker.isActive) _ticker.start();
+    }
+    if (_isLive && !_ticker.isActive) _ticker.start();
   }
 
   @override
@@ -547,6 +606,7 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
     _fillTargets(
       out: _ctrlTo,
       bundles: _bundles,
+      shape: widget.shape,
       time: time,
       breath: breath,
       awake: _awake,
@@ -636,6 +696,16 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
       final frame = (t * profile.targetFps).floor();
       if (frame == _paintEpoch) return;
       _paintEpoch = frame;
+    }
+
+    // Complete mode is a static still: once the shape has settled, paint the
+    // final frame and stop the ticker entirely, so a grid of cards does zero
+    // per-frame work (the 60fps repaints were overloading the GPU and causing
+    // badge ghosting). didUpdateWidget restarts the ticker on shape change.
+    if (_mode == SoundVisualMode.complete && _lerpT >= 1.0) {
+      if (mounted) setState(() {});
+      _ticker.stop();
+      return;
     }
 
     // Repaint only this boundary — parent page is not rebuilt.

@@ -15,12 +15,52 @@ class CloudMediaClient {
         'Accept': 'application/json',
       };
 
-  Future<UserTokenIssued> issueUserToken() async {
-    final res = await _http.post(CloudMediaConfig.uri('/api/v1/users/tokens'));
-    if (res.statusCode != 201) {
-      throw _error(res);
-    }
+  static const _jsonHeaders = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+
+  /// Register a new account. Backend: POST /api/v1/users.
+  Future<EmailRegistered> register({
+    required String email,
+    required String password,
+    bool storePrivateKey = false,
+  }) async {
+    final res = await _http.post(
+      CloudMediaConfig.uri('/api/v1/users'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'email': email,
+        'password': password,
+        'store_private_key': storePrivateKey,
+      }),
+    );
+    if (res.statusCode != 201) throw _error(res);
+    return EmailRegistered.fromJson(_jsonMap(res.body));
+  }
+
+  /// Log in with email + password. Backend: POST /api/v1/sessions.
+  Future<UserTokenIssued> login({
+    required String email,
+    required String password,
+  }) async {
+    final res = await _http.post(
+      CloudMediaConfig.uri('/api/v1/sessions'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'email': email, 'password': password}),
+    );
+    if (res.statusCode != 201) throw _error(res);
     return UserTokenIssued.fromJson(_jsonMap(res.body));
+  }
+
+  /// Fetch the current account profile. Backend: GET /api/v1/users/me.
+  Future<UserProfile> getMe(String token) async {
+    final res = await _http.get(
+      CloudMediaConfig.uri('/api/v1/users/me'),
+      headers: _authHeaders(token),
+    );
+    if (res.statusCode != 200) throw _error(res);
+    return UserProfile.fromJson(_jsonMap(res.body));
   }
 
   Future<ContentList> listContents(String token) async {
