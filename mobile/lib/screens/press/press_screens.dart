@@ -681,8 +681,8 @@ class _PressRevealScreenState extends State<PressRevealScreen>
                                   ClipOval(
                                     child: RarityHoloOverlay(
                                       rarity: _rarity,
-                                      intensityScale: 0.85 +
-                                          0.15 * (_rarity.index / 3),
+                                      intensityScale: 1.0 +
+                                          0.2 * (_rarity.index / 3),
                                     ),
                                   ),
                               ],

@@ -71,8 +71,12 @@ class SecondaryButton extends StatelessWidget {
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
           foregroundColor: color,
-          side: BorderSide(color: danger ? AppColors.error.withValues(alpha: 0.5) : AppColors.border),
-          backgroundColor: AppColors.surface1,
+          side: BorderSide(
+            color: danger
+                ? AppColors.error.withValues(alpha: 0.45)
+                : color.withValues(alpha: 0.28),
+          ),
+          backgroundColor: Colors.transparent,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadii.button),
           ),
@@ -507,12 +511,14 @@ class _RecordFabState extends State<RecordFab>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
+  static const _size = 60.0;
+
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1400),
+      duration: const Duration(milliseconds: 2200),
     )..repeat(reverse: true);
   }
 
@@ -528,109 +534,88 @@ class _RecordFabState extends State<RecordFab>
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
-        final ripple = 0.85 + 0.3 * _controller.value;
+        // 待机 2%–4% 呼吸；录音时声压层极淡脉动（非多层圆环）。
+        final breath = 1.0 + (_controller.value - 0.5) * 0.06;
+        final pressPulse = 0.9 + 0.2 * _controller.value;
         final fill = switch (fabState) {
-          RecordFabState.idle => AppColors.accent.withValues(alpha: 0.92),
+          RecordFabState.idle => AppColors.accent.withValues(alpha: 0.95),
           RecordFabState.recording => AppColors.accent,
           RecordFabState.paused => AppColors.accent.withValues(alpha: 0.55),
         };
+        final isRec = fabState == RecordFabState.recording;
+        final isIdle = fabState == RecordFabState.idle;
+        final scale = isIdle ? breath : 1.0;
+        final radius = isRec ? 14.0 : (_size / 2);
+
         return SizedBox(
-          width: AppSizes.recordButton + 28,
-          height: AppSizes.recordButton + 28,
+          width: _size + 24,
+          height: _size + 24,
           child: Stack(
             alignment: Alignment.center,
             children: [
-              // Soft mint halo ties FAB to visualization.
-              Container(
-                width: AppSizes.recordButton + 18,
-                height: AppSizes.recordButton + 18,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      AppColors.accent.withValues(
-                        alpha: fabState == RecordFabState.recording
-                            ? 0.18
-                            : (fabState == RecordFabState.paused ? 0.08 : 0.1),
-                      ),
-                      Colors.transparent,
-                    ],
+              // 极淡声压呼吸层 — 径向柔光，无描边环。
+              Opacity(
+                opacity: isRec ? 0.55 * pressPulse : (isIdle ? 0.7 : 0.35),
+                child: Container(
+                  width: _size + 16,
+                  height: _size + 16,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        AppColors.accent.withValues(
+                          alpha: isRec ? 0.14 : 0.08,
+                        ),
+                        Colors.transparent,
+                      ],
+                    ),
                   ),
                 ),
               ),
-              if (fabState == RecordFabState.recording)
-                Container(
-                  width: AppSizes.recordButton * ripple,
-                  height: AppSizes.recordButton * ripple,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: AppColors.accent.withValues(alpha: 0.28),
-                    ),
-                  ),
-                ),
-              if (fabState == RecordFabState.paused)
-                Container(
-                  width: AppSizes.recordButton + 8,
-                  height: AppSizes.recordButton + 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: AppColors.accent.withValues(alpha: 0.35),
-                      width: 1.2,
-                    ),
-                  ),
-                ),
               GestureDetector(
                 onTap: widget.onTap,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 280),
-                  width: AppSizes.recordButton,
-                  height: AppSizes.recordButton,
-                  decoration: BoxDecoration(
-                    color: fill,
-                    shape: BoxShape.circle,
-                    border: fabState == RecordFabState.paused
-                        ? Border.all(
-                            color: AppColors.accentHighlight.withValues(alpha: 0.5),
-                          )
-                        : null,
+                child: Transform.scale(
+                  scale: scale,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 280),
+                    curve: Curves.easeOutCubic,
+                    width: _size,
+                    height: _size,
+                    decoration: BoxDecoration(
+                      color: fill,
+                      borderRadius: BorderRadius.circular(radius),
+                    ),
+                    alignment: Alignment.center,
+                    child: switch (fabState) {
+                      // 录音：整钮即为圆角方停止符，无中心孔。
+                      RecordFabState.recording => const SizedBox.shrink(),
+                      RecordFabState.paused => Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 4,
+                              height: 16,
+                              color: AppColors.accentOn,
+                            ),
+                            const SizedBox(width: 5),
+                            Container(
+                              width: 4,
+                              height: 16,
+                              color: AppColors.accentOn,
+                            ),
+                          ],
+                        ),
+                      // 待机：8–10dp 纯黑实心圆点（非贯穿孔）。
+                      RecordFabState.idle => Container(
+                          width: 9,
+                          height: 9,
+                          decoration: const BoxDecoration(
+                            color: AppColors.accentOn,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                    },
                   ),
-                  alignment: Alignment.center,
-                  child: switch (fabState) {
-                    RecordFabState.recording => Container(
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          color: AppColors.accentOn,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                    RecordFabState.paused => Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 4,
-                            height: 16,
-                            color: AppColors.accentOn,
-                          ),
-                          const SizedBox(width: 5),
-                          Container(
-                            width: 4,
-                            height: 16,
-                            color: AppColors.accentOn,
-                          ),
-                        ],
-                      ),
-                    RecordFabState.idle => Container(
-                        width: 16,
-                        height: 16,
-                        decoration: const BoxDecoration(
-                          color: AppColors.accentOn,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                  },
                 ),
               ),
             ],
@@ -669,16 +654,13 @@ class BottomNavBar extends StatelessWidget {
             child: Container(
               height: 64,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.12),
+                color: Colors.white.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(28),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.22),
-                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.35),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
+                    color: Colors.black.withValues(alpha: 0.22),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
                   ),
                 ],
               ),
@@ -747,7 +729,7 @@ class _NavItemState extends State<_NavItem> {
               size: 22,
               color: widget.active
                   ? AppColors.accent
-                  : AppColors.structure,
+                  : AppColors.textTertiary.withValues(alpha: 0.42),
             ),
             const SizedBox(height: 3),
             Text(
@@ -755,7 +737,7 @@ class _NavItemState extends State<_NavItem> {
               style: TextStyle(
                 color: widget.active
                     ? AppColors.accent
-                    : AppColors.structure,
+                    : AppColors.textTertiary.withValues(alpha: 0.42),
                 fontSize: 11,
                 fontWeight: widget.active ? FontWeight.w600 : FontWeight.w400,
               ),

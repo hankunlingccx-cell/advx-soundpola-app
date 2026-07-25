@@ -70,6 +70,7 @@ class DevicePairService {
     required String token,
     String? userId,
     String? email,
+    String? serverUrl,
   }) async {
     final bodyBytes = utf8.encode(
       jsonEncode({
@@ -77,6 +78,7 @@ class DevicePairService {
         'token': token,
         'user_id': userId,
         'email': email,
+        'server_url': serverUrl,
       }),
     );
 

@@ -30,6 +30,7 @@ dependencies:
   geolocator: ^14.0.2
   geocoding: ^5.0.0
   mobile_scanner: ^7.4.0
+  image: ^4.8.0
 
 dev_dependencies:
   flutter_test:

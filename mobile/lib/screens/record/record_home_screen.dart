@@ -66,9 +66,11 @@ class _RecordHomeScreenState extends State<RecordHomeScreen> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.pageHorizontal,
-                vertical: AppSpacing.item,
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageHorizontal,
+                6,
+                AppSpacing.pageHorizontal,
+                2,
               ),
               child: Row(
                 children: [
@@ -76,7 +78,7 @@ class _RecordHomeScreenState extends State<RecordHomeScreen> {
                     child: Text(
                       'SoundPola',
                       style: TextStyle(
-                        fontSize: 22,
+                        fontSize: 20,
                         fontWeight: FontWeight.w600,
                         color: AppColors.textPrimary,
                       ),
@@ -99,61 +101,92 @@ class _RecordHomeScreenState extends State<RecordHomeScreen> {
                           : '允许麦克风权限',
                       onPrimary: _requestMic,
                     )
-                  : Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.pageHorizontal,
-                      ),
-                      child: Column(
-                        children: [
-                          const Expanded(
-                            flex: 5,
-                            child: SoundVisualCanvas(seed: 8801, active: false),
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final h = constraints.maxHeight;
+                        final w = constraints.maxWidth;
+                        const bottomBlock = 168.0;
+                        final visualBudget = (h - bottomBlock - 8).clamp(120.0, h);
+                        // 主体宽 74%–82%；视觉中心约在可用区 39%–43%。
+                        final visualW =
+                            (w * 0.78).clamp(0.0, visualBudget * 0.92);
+                        final visualCenterY = (h * 0.40)
+                            .clamp(visualW * 0.48, h - bottomBlock - visualW * 0.35);
+                        final visualTop =
+                            (visualCenterY - visualW / 2).clamp(0.0, h * 0.18);
+
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.pageHorizontal,
                           ),
-                          // Hairline energy thread — visual link, not a divider.
-                          SizedBox(
-                            height: 28,
-                            width: 12,
-                            child: CustomPaint(
-                              painter: _StandbyLinkPainter(),
-                            ),
-                          ),
-                          RecordFab(
-                            state: RecordFabState.idle,
-                            onTap: _start,
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'LISTENING STANDBY',
-                            style: TextStyle(
-                              color: AppColors.textTertiary,
-                              fontSize: 11,
-                              letterSpacing: 1.4,
-                              fontFamily: 'monospace',
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            '等待捕捉声音',
-                            style: TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '按下按钮，麦克风口将开始接收环境声。',
-                            style: TextStyle(
-                              color: AppColors.textSecondary.withValues(
-                                alpha: 0.9,
+                          child: Stack(
+                            children: [
+                              Positioned(
+                                top: visualTop,
+                                left: (w - visualW) / 2 -
+                                    AppSpacing.pageHorizontal,
+                                width: visualW,
+                                height: visualW,
+                                child: const SoundVisualCanvas(
+                                  seed: 8801,
+                                  active: false,
+                                ),
                               ),
-                              fontSize: 13,
-                            ),
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: 10,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox(
+                                      height: 16,
+                                      width: 10,
+                                      child: CustomPaint(
+                                        painter: _StandbyLinkPainter(),
+                                      ),
+                                    ),
+                                    RecordFab(
+                                      state: RecordFabState.idle,
+                                      onTap: _start,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'LISTENING STANDBY',
+                                      style: TextStyle(
+                                        color: AppColors.textTertiary,
+                                        fontSize: 9.5,
+                                        letterSpacing: 0.9,
+                                        fontFamily: 'monospace',
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 5),
+                                    const Text(
+                                      '等待捕捉声音',
+                                      style: TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      '按下按钮，麦克风口将开始接收环境声。',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: AppColors.textSecondary
+                                            .withValues(alpha: 0.85),
+                                        fontSize: 12.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 20),
-                        ],
-                      ),
+                        );
+                      },
                     ),
             ),
           ],
@@ -169,16 +202,16 @@ class _StandbyLinkPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
     final paint = Paint()
-      ..color = AppColors.accent.withValues(alpha: 0.14)
-      ..strokeWidth = 0.8
+      ..color = AppColors.accent.withValues(alpha: 0.12)
+      ..strokeWidth = 0.7
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(Offset(cx, 0), Offset(cx, size.height), paint);
     for (var i = 0; i < 2; i++) {
-      final y = size.height * (0.25 + i * 0.4);
+      final y = size.height * (0.28 + i * 0.38);
       canvas.drawCircle(
         Offset(cx, y),
-        1.0,
-        Paint()..color = AppColors.accent.withValues(alpha: 0.22 - i * 0.06),
+        0.9,
+        Paint()..color = AppColors.accent.withValues(alpha: 0.18 - i * 0.05),
       );
     }
   }

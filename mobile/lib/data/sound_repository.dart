@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../cloud/cloud_media_models.dart';
 import '../services/visual_shape_service.dart';
+import '../visual/audio_feature_timeline.dart';
 import 'disc_rarity.dart';
 
 enum SoundStatus {
@@ -50,6 +51,15 @@ class SoundMemory {
     this.cloudState,
     this.visualUrl,
     this.visualPath,
+    this.packageDir,
+    this.coverPath,
+    this.visualMjpgPath,
+    this.visualIdxPath,
+    this.visualManifestPath,
+    this.audioFeaturesPath,
+    this.visualBakeStatus = VisualBakeStatus.none,
+    this.visualBakeError,
+    this.rendererVersion = kSoundVisualRendererVersion,
   })  : id = id ?? _newId(),
         recordedAt = recordedAt ?? DateTime.now(),
         visualSeed = visualSeed ?? DateTime.now().millisecondsSinceEpoch % 10000;
@@ -92,6 +102,22 @@ class SoundMemory {
   /// Local cached path of the visual JSON.
   final String? visualPath;
 
+  /// Package root: sounds/{id}/
+  final String? packageDir;
+  final String? coverPath;
+  final String? visualMjpgPath;
+  final String? visualIdxPath;
+  final String? visualManifestPath;
+  final String? audioFeaturesPath;
+  final VisualBakeStatus visualBakeStatus;
+  final String? visualBakeError;
+  final String rendererVersion;
+
+  bool get hasIndexedVisual =>
+      visualBakeStatus == VisualBakeStatus.ready &&
+      visualMjpgPath != null &&
+      visualIdxPath != null;
+
   /// Draft / 未绑定时展示「待揭晓」。
   bool get rarityPending => discRarity == null;
 
@@ -120,6 +146,17 @@ class SoundMemory {
     String? cloudState,
     String? visualUrl,
     String? visualPath,
+    String? packageDir,
+    String? coverPath,
+    String? visualMjpgPath,
+    String? visualIdxPath,
+    String? visualManifestPath,
+    String? audioFeaturesPath,
+    VisualBakeStatus? visualBakeStatus,
+    String? visualBakeError,
+    bool clearVisualBakeError = false,
+    String? rendererVersion,
+    int? visualSeed,
   }) {
     return SoundMemory(
       id: id,
@@ -131,7 +168,7 @@ class SoundMemory {
       locationLabel: locationLabel,
       deviceLabel: deviceLabel,
       status: status ?? this.status,
-      visualSeed: visualSeed,
+      visualSeed: visualSeed ?? this.visualSeed,
       discId: discId ?? this.discId,
       discRarity: discRarity ?? this.discRarity,
       discSeries: discSeries ?? this.discSeries,
@@ -149,6 +186,17 @@ class SoundMemory {
       cloudState: cloudState ?? this.cloudState,
       visualUrl: visualUrl ?? this.visualUrl,
       visualPath: visualPath ?? this.visualPath,
+      packageDir: packageDir ?? this.packageDir,
+      coverPath: coverPath ?? this.coverPath,
+      visualMjpgPath: visualMjpgPath ?? this.visualMjpgPath,
+      visualIdxPath: visualIdxPath ?? this.visualIdxPath,
+      visualManifestPath: visualManifestPath ?? this.visualManifestPath,
+      audioFeaturesPath: audioFeaturesPath ?? this.audioFeaturesPath,
+      visualBakeStatus: visualBakeStatus ?? this.visualBakeStatus,
+      visualBakeError: clearVisualBakeError
+          ? null
+          : (visualBakeError ?? this.visualBakeError),
+      rendererVersion: rendererVersion ?? this.rendererVersion,
     );
   }
 }
@@ -309,6 +357,14 @@ class SoundRepository extends ChangeNotifier {
     }
   }
 
+  SoundMemory? findByDiscId(String discId) {
+    try {
+      return _sounds.firstWhere((s) => s.discId == discId);
+    } catch (_) {
+      return null;
+    }
+  }
+
   void addDraft(SoundMemory memory) {
     draftsEmptyKind = null;
     _everHadDrafts = true;
@@ -347,17 +403,31 @@ class SoundRepository extends ChangeNotifier {
     if (index < 0) return false;
     final wasDraft = item.status != SoundStatus.collected;
     _sounds.removeAt(index);
-    if (item.audioPath != null) {
-      unawaited(_deleteFile(item.audioPath!));
-    }
-    if (item.visualPath != null) {
-      unawaited(_deleteFile(item.visualPath!));
+    if (item.packageDir != null) {
+      unawaited(_deleteDir(item.packageDir!));
+    } else {
+      if (item.audioPath != null) {
+        unawaited(_deleteFile(item.audioPath!));
+      }
+      if (item.visualPath != null) {
+        unawaited(_deleteFile(item.visualPath!));
+      }
+      if (item.coverPath != null) {
+        unawaited(_deleteFile(item.coverPath!));
+      }
     }
     if (wasDraft && drafts.isEmpty) {
       draftsEmptyKind = DraftsEmptyKind.cleared;
     }
     notifyListeners();
     return true;
+  }
+
+  Future<void> _deleteDir(String path) async {
+    try {
+      final d = Directory(path);
+      if (await d.exists()) await d.delete(recursive: true);
+    } catch (_) {}
   }
 
   Future<void> _deleteFile(String path) async {

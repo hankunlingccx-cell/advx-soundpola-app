@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../cloud/cloud_media_config.dart';
 import '../../services/auth_service.dart';
 import '../../services/device_pair_service.dart';
 import '../../services/permission_service.dart';
@@ -64,6 +65,7 @@ class _PairDeviceScreenState extends State<PairDeviceScreen> {
         token: token,
         userId: AuthService.instance.cloudUserId,
         email: AuthService.instance.currentUser?.account,
+        serverUrl: CloudMediaConfig.baseUrl,
       );
       if (!mounted) return;
       setState(() => _state = _PairState.success);

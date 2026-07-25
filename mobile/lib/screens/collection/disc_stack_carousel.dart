@@ -294,14 +294,14 @@ class _PlayDisc extends StatelessWidget {
           ColoredBox(
             color: Colors.white.withValues(alpha: elevated ? 0.06 : 0.12),
           ),
-          // 玻璃高光
+          // 玻璃高光 + 其上的扫带镭射（非整面染色）
           DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: const Alignment(-0.8, -1),
                 end: const Alignment(0.4, 0.35),
                 colors: [
-                  Colors.white.withValues(alpha: elevated ? 0.32 : 0.2),
+                  Colors.white.withValues(alpha: elevated ? 0.28 : 0.18),
                   Colors.white.withValues(alpha: 0.06),
                   Colors.transparent,
                   Colors.black.withValues(alpha: 0.08),
@@ -310,12 +310,17 @@ class _PlayDisc extends StatelessWidget {
               ),
             ),
           ),
+          if (rarity != null)
+            RarityHoloOverlay(
+              rarity: rarity,
+              intensityScale: elevated ? 1.2 : 1.0,
+            ),
           Container(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
                 color: elevated
-                    ? AppColors.accent.withValues(alpha: 0.7)
+                    ? RarityHoloStyle.of(rarity).accent.withValues(alpha: 0.75)
                     : Colors.white.withValues(alpha: 0.28),
                 width: elevated ? 1.4 : 1,
               ),

@@ -27,7 +27,7 @@ abstract final class AppRadii {
 abstract final class AppSizes {
   static const buttonHeight = 54.0;
   static const inputHeight = 52.0;
-  static const recordButton = 64.0;
+  static const recordButton = 60.0;
   static const bottomNav = 72.0;
   static const statusChipHeight = 26.0;
   static const avatar = 36.0;

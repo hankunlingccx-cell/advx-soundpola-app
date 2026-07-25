@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../services/audio_recording_service.dart';
 import '../../services/permission_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
+import '../../widgets/audio_drive_debug.dart';
 import '../../widgets/design_components.dart';
 import '../../widgets/empty_state_panel.dart';
 import '../../widgets/sound_visual.dart';
@@ -38,6 +41,8 @@ class _RecordingScreenState extends State<RecordingScreen> {
   int _tooShortDuration = 0;
   static const _visualSeed = 8801;
   static const _minDurationSec = 3;
+  /// Debug HUD for AGC calibration (kDebugMode only).
+  bool _showAudioDebug = kDebugMode;
 
   @override
   void initState() {
@@ -240,7 +245,22 @@ class _RecordingScreenState extends State<RecordingScreen> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(width: 48),
+                    if (kDebugMode)
+                      TextButton(
+                        onPressed: () =>
+                            setState(() => _showAudioDebug = !_showAudioDebug),
+                        child: Text(
+                          _showAudioDebug ? 'DBG' : 'dbg',
+                          style: TextStyle(
+                            color: _showAudioDebug
+                                ? AppColors.accent
+                                : AppColors.textTertiary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      )
+                    else
+                      const SizedBox(width: 48),
                   ],
                 ),
                 if (_error != null) ...[
@@ -259,25 +279,49 @@ class _RecordingScreenState extends State<RecordingScreen> {
                   ),
                 ],
                 Expanded(
-                  child: SoundVisualCanvas(
-                    seed: _visualSeed,
-                    mode: _paused
-                        ? SoundVisualMode.paused
-                        : (visualActive
-                            ? SoundVisualMode.recording
-                            : SoundVisualMode.idle),
-                    features: features,
-                    liveVolume: _recorder.liveVolume,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final side = math.min(
+                        constraints.maxWidth * 0.78,
+                        constraints.maxHeight * 0.88,
+                      );
+                      return Align(
+                        alignment: const Alignment(0, -0.15),
+                        child: SizedBox(
+                          width: side,
+                          height: side,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              SoundVisualCanvas(
+                                seed: _visualSeed,
+                                mode: _paused
+                                    ? SoundVisualMode.paused
+                                    : (visualActive
+                                        ? SoundVisualMode.recording
+                                        : SoundVisualMode.idle),
+                                features: features,
+                                liveVolume: _recorder.liveVolume,
+                              ),
+                              AudioDriveDebugPanel(
+                                features: features,
+                                visible: _showAudioDebug,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
                 TimerText(seconds: _seconds),
-                const SizedBox(height: AppSpacing.item),
+                const SizedBox(height: 6),
                 SizedBox(
-                  height: 18,
-                  width: 10,
+                  height: 12,
+                  width: 8,
                   child: CustomPaint(painter: _RecordEnergyLinkPainter()),
                 ),
-                const SizedBox(height: AppSpacing.item),
+                const SizedBox(height: 6),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [

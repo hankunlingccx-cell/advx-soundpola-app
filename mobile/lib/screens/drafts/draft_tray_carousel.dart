@@ -50,8 +50,8 @@ class DraftTrayCarousel extends StatefulWidget {
 
 class _DraftTrayCarouselState extends State<DraftTrayCarousel>
     with SingleTickerProviderStateMixin {
-  static const _cardW = 178.0;
-  static const _cardH = 232.0;
+  static const _cardW = 168.0;
+  static const _cardH = 218.0;
   /// Center-to-center step as fraction of card width → ~72% overlap.
   static const _overlapStep = 0.28;
 
@@ -283,10 +283,11 @@ class _DraftCardPlaceholder extends StatelessWidget {
 }
 
 Color _cardBase(int index) {
+  // Cool white ABS family — matches press shell, not ivory/cream.
   const tints = [
-    AppColors.cardIvory,
-    AppColors.cardCool,
-    AppColors.cardSilver,
+    Color(0xFFF3F5F2),
+    Color(0xFFEEF1EE),
+    Color(0xFFE8ECE9),
   ];
   return tints[index % tints.length];
 }
@@ -365,42 +366,41 @@ class DraftTrayCard extends StatelessWidget {
         child: AnimatedContainer(
           duration: AppMotion.fast,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(16),
             gradient: LinearGradient(
-              begin: const Alignment(-0.55, -1),
-              end: const Alignment(0.45, 1),
+              begin: const Alignment(-0.75, -1),
+              end: const Alignment(0.55, 1),
               colors: [
-                Colors.white,
+                const Color(0xFFFFFFFF),
                 base,
-                Color.lerp(base, const Color(0xFFD8DDDA), 0.4)!,
+                Color.lerp(base, const Color(0xFFC9CECB), 0.45)!,
               ],
+              stops: const [0.0, 0.45, 1.0],
             ),
             border: Border.all(
-              color: Colors.white.withValues(alpha: elevated ? 0.95 : 0.5),
+              color: const Color(0xFFB8BEBA).withValues(alpha: elevated ? 0.9 : 0.55),
               width: 0.9,
             ),
             boxShadow: [
-              // Thickness / contact shadow
               BoxShadow(
-                color: Colors.black.withValues(alpha: elevated ? 0.42 : 0.26),
-                blurRadius: elevated ? 28 : 16,
-                offset: Offset(0, elevated ? 14 : 8),
+                color: Colors.black.withValues(alpha: elevated ? 0.32 : 0.18),
+                blurRadius: elevated ? 14 : 8,
+                offset: Offset(0, elevated ? 8 : 4),
               ),
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.12),
-                blurRadius: 2,
-                offset: const Offset(1.5, 2.5),
+                color: Colors.black.withValues(alpha: 0.1),
+                blurRadius: 1.5,
+                offset: const Offset(1, 2),
               ),
-              // Top edge highlight
-              BoxShadow(
-                color: Colors.white.withValues(alpha: 0.55),
-                blurRadius: 0.6,
-                offset: const Offset(0, -0.7),
+              const BoxShadow(
+                color: Color(0x55FFFFFF),
+                blurRadius: 0,
+                offset: Offset(0, -0.6),
               ),
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(16),
             child: Stack(
               children: [
                 // Left category accent strip (single accent)
@@ -419,7 +419,7 @@ class DraftTrayCard extends StatelessWidget {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 14, 12),
+                  padding: const EdgeInsets.fromLTRB(14, 12, 12, 10),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -429,7 +429,7 @@ class DraftTrayCard extends StatelessWidget {
                             'DRAFT / $numLabel',
                             style: TextStyle(
                               fontFamily: 'Courier',
-                              fontSize: 11,
+                              fontSize: 10.5,
                               letterSpacing: 0.6,
                               fontWeight: FontWeight.w600,
                               color: AppColors.ink.withValues(alpha: 0.45),
@@ -449,16 +449,16 @@ class DraftTrayCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                       Center(
                         child: _CircularPlayVisual(
                           item: item,
-                          size: 96,
+                          size: 92,
                           playingOverride: playingOverride,
                           progressOverride: progressOverride,
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       Text(
                         item.title,
                         maxLines: 1,
@@ -466,12 +466,12 @@ class DraftTrayCard extends StatelessWidget {
                         style: const TextStyle(
                           color: AppColors.ink,
                           fontWeight: FontWeight.w600,
-                          fontSize: 17,
+                          fontSize: 16,
                           height: 1.15,
                           letterSpacing: -0.25,
                         ),
                       ),
-                      const SizedBox(height: 5),
+                      const SizedBox(height: 4),
                       Text(
                         '${item.category} · ${formatDuration(item.durationSec)} · $_dateLabel',
                         maxLines: 1,
@@ -479,7 +479,7 @@ class DraftTrayCard extends StatelessWidget {
                         style: TextStyle(
                           fontFamily: 'Courier',
                           color: AppColors.inkMuted.withValues(alpha: 0.95),
-                          fontSize: 11,
+                          fontSize: 10.5,
                           height: 1.2,
                         ),
                       ),
@@ -488,7 +488,7 @@ class DraftTrayCard extends StatelessWidget {
                         _statusLine,
                         style: TextStyle(
                           color: elevated ? AppColors.accent : AppColors.inkMuted,
-                          fontSize: 11,
+                          fontSize: 10.5,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.4,
                         ),

@@ -885,7 +885,25 @@ class _DiscVisualState extends State<_DiscVisual>
                 ),
                 ColoredBox(
                   color: Colors.white.withValues(
-                    alpha: dimmed ? 0.3 : 0.08,
+                    alpha: dimmed ? 0.28 : 0.06,
+                  ),
+                ),
+                // 陶瓷高光：镭射叠在高光扫带上，非整面染色
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: const Alignment(-0.8, -1),
+                      end: const Alignment(0.4, 0.35),
+                      colors: [
+                        Colors.white.withValues(
+                          alpha: floating ? 0.34 : 0.24,
+                        ),
+                        Colors.white.withValues(alpha: 0.08),
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: pressed ? 0.14 : 0.08),
+                      ],
+                      stops: const [0.0, 0.28, 0.55, 1.0],
+                    ),
                   ),
                 ),
                 if (_needsLaser && _laser != null)
@@ -896,37 +914,12 @@ class _DiscVisualState extends State<_DiscVisual>
                         painter: RarityHoloSheenPainter(
                           t: _laser!.value,
                           style: holo,
-                          intensityScale: floating ? 1.1 : 0.95,
+                          intensityScale: floating ? 1.2 : 1.05,
                         ),
                       );
                     },
                   ),
               ],
-            ),
-          ),
-        ),
-        IgnorePointer(
-          child: ClipOval(
-            child: SizedBox(
-              width: size,
-              height: size,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: const Alignment(-0.8, -1),
-                    end: const Alignment(0.4, 0.35),
-                    colors: [
-                      Colors.white.withValues(
-                        alpha: floating ? 0.42 : 0.32,
-                      ),
-                      Colors.white.withValues(alpha: 0.08),
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: pressed ? 0.18 : 0.1),
-                    ],
-                    stops: const [0.0, 0.28, 0.55, 1.0],
-                  ),
-                ),
-              ),
             ),
           ),
         ),

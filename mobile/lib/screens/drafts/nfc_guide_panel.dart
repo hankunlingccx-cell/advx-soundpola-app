@@ -7,18 +7,39 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
 
-/// Drafts 页内 NFC 指引 / 操作区状态。
+/// Drafts 页内 NFC 封存引导（云端准备无需贴近 → 单次贴近检查并写入）。
 enum NfcGuidePhase {
   howto,
   dimmed,
-  waiting,
-  found,
-  pressing,
+  /// 开始封存 / 等待云端准备
+  checkPrompt,
+  /// （保留）识别中
+  checking,
+  /// （保留）验证成功
+  verified,
+  /// 云端：上传
+  cloudUploading,
+  /// 云端：处理
+  cloudProcessing,
+  /// 等待单次贴近（检查＋写入）
+  writePrompt,
+  /// 正在写入
+  writing,
+  /// 写入成功，可移开
+  writeSuccess,
+  /// 上链中
+  chaining,
   complete,
-  interrupted,
-  alreadyBound,
+  cardAlreadyBound,
+  cardInvalid,
+  cloudFailed,
+  wrongCard,
+  writeFailed,
+  chainFailed,
   empty,
 }
+
+enum CloudPrepStage { upload, process, ready }
 
 class NfcGuidePanel extends StatelessWidget {
   const NfcGuidePanel({
@@ -26,41 +47,51 @@ class NfcGuidePanel extends StatelessWidget {
     required this.phase,
     required this.breath,
     this.soundTitle,
-    this.progress = 0,
+    this.cloudStage,
     this.statusHint,
     this.chaining = false,
     this.failReason,
+    this.boundTitle,
+    this.boundTimeLabel,
+    this.boundContentId,
     this.onStartDetect,
     this.onCancelWrite,
     this.onRetrieve,
     this.onRetry,
     this.onDetectOther,
+    this.onViewBoundSound,
     this.onViewCollection,
     this.onContinue,
     this.onStartRecord,
-    this.onSimulate,
+    this.onRetryChain,
+    this.onLater,
     this.autoListening = false,
+    this.isSimulation = false,
   });
 
   final NfcGuidePhase phase;
   final Animation<double> breath;
   final String? soundTitle;
-  final double progress;
-  /// 写入阶段文案（上传云端 / 贴近写入链接等）。
+  final CloudPrepStage? cloudStage;
   final String? statusHint;
   final bool chaining;
   final String? failReason;
+  final String? boundTitle;
+  final String? boundTimeLabel;
+  final String? boundContentId;
   final VoidCallback? onStartDetect;
   final VoidCallback? onCancelWrite;
   final VoidCallback? onRetrieve;
   final VoidCallback? onRetry;
   final VoidCallback? onDetectOther;
+  final VoidCallback? onViewBoundSound;
   final VoidCallback? onViewCollection;
   final VoidCallback? onContinue;
   final VoidCallback? onStartRecord;
-  final VoidCallback? onSimulate;
-  /// 系统已自动监听 NFC 时，主按钮改为「取消写入」。
+  final VoidCallback? onRetryChain;
+  final VoidCallback? onLater;
   final bool autoListening;
+  final bool isSimulation;
 
   @override
   Widget build(BuildContext context) {
@@ -116,57 +147,148 @@ class NfcGuidePanel extends StatelessWidget {
 
   Widget _buildBody(BuildContext context) {
     return switch (phase) {
-      NfcGuidePhase.howto || NfcGuidePhase.dimmed => _HowtoBody(),
-      NfcGuidePhase.waiting => _WaitingBody(
+      NfcGuidePhase.howto || NfcGuidePhase.dimmed => const _HowtoBody(),
+      NfcGuidePhase.checkPrompt => _CheckPromptBody(
           breath: breath,
           autoListening: autoListening,
+          isSimulation: isSimulation,
           onStartDetect: onStartDetect,
           onCancelWrite: onCancelWrite,
           onRetrieve: onRetrieve,
         ),
-      NfcGuidePhase.found => _FoundBody(statusHint: statusHint),
-      NfcGuidePhase.pressing => _PressingBody(
-          progress: progress,
+      NfcGuidePhase.checking => _CheckingBody(breath: breath),
+      NfcGuidePhase.verified => const _VerifiedBody(),
+      NfcGuidePhase.cloudUploading || NfcGuidePhase.cloudProcessing =>
+        _CloudBody(
+          stage: cloudStage ??
+              (phase == NfcGuidePhase.cloudUploading
+                  ? CloudPrepStage.upload
+                  : CloudPrepStage.process),
+          onRetrieve: onRetrieve,
+          isSimulation: isSimulation,
           statusHint: statusHint,
         ),
+      NfcGuidePhase.writePrompt => _WritePromptBody(
+          breath: breath,
+          autoListening: autoListening,
+          onCancelWrite: onCancelWrite,
+          onRetrieve: onRetrieve,
+          isSimulation: isSimulation,
+        ),
+      NfcGuidePhase.writing => const _WritingBody(),
+      NfcGuidePhase.writeSuccess => const _WriteSuccessBody(),
+      NfcGuidePhase.chaining => _ChainingBody(soundTitle: soundTitle ?? ''),
       NfcGuidePhase.complete => _CompleteBody(
           soundTitle: soundTitle ?? '',
           chaining: chaining,
           onViewCollection: onViewCollection,
           onContinue: onContinue,
         ),
-      NfcGuidePhase.interrupted => _InterruptedBody(
-          reason: failReason,
-          onRetry: onRetry,
-          onRetrieve: onRetrieve,
-          onSimulate: onSimulate,
+      NfcGuidePhase.cardAlreadyBound => _BoundBody(
+          title: boundTitle,
+          timeLabel: boundTimeLabel,
+          contentId: boundContentId,
+          onDetectOther: onDetectOther,
+          onViewBoundSound: onViewBoundSound,
         ),
-      NfcGuidePhase.alreadyBound => _BoundBody(onDetectOther: onDetectOther),
+      NfcGuidePhase.cardInvalid => _FailBody(
+          code: 'CARD INVALID',
+          title: '未能识别声片',
+          message: failReason ?? '请调整声片位置后重试',
+          primaryLabel: '重新识别',
+          onPrimary: onRetry,
+          onRetrieve: onRetrieve,
+        ),
+      NfcGuidePhase.cloudFailed => _FailBody(
+          code: 'CLOUD FAILED',
+          title: '云端准备失败',
+          message: failReason ?? '请检查网络后重试上传，无需贴近声片。',
+          primaryLabel: '重试云端准备',
+          onPrimary: onRetry,
+          onRetrieve: onRetrieve,
+          note: '此步骤不需要 NFC',
+        ),
+      NfcGuidePhase.wrongCard => _FailBody(
+          code: 'WRONG CARD',
+          title: '这不是刚才验证的声片',
+          message: '请使用已完成检查的声片',
+          primaryLabel: '再次贴近正确声片',
+          onPrimary: onRetry,
+          onRetrieve: onRetrieve,
+        ),
+      NfcGuidePhase.writeFailed => _FailBody(
+          code: 'WRITE FAILED',
+          title: '声片写入未完成',
+          message: failReason ?? '请保持贴近后重试写入。云端内容已保留，不会重新上传。',
+          primaryLabel: '重试写入',
+          onPrimary: onRetry,
+          onRetrieve: onRetrieve,
+          note: '只会重试 NFC 写入，不会重新上传',
+        ),
+      NfcGuidePhase.chainFailed => _ChainFailBody(
+          soundTitle: soundTitle ?? '',
+          failReason: failReason,
+          onRetryChain: onRetryChain,
+          onLater: onLater,
+          onViewCollection: onViewCollection,
+        ),
       NfcGuidePhase.empty => _EmptyBody(onStartRecord: onStartRecord),
     };
   }
 }
 
 class _SectionHead extends StatelessWidget {
-  const _SectionHead({required this.code, required this.title});
+  const _SectionHead({
+    required this.code,
+    required this.title,
+    this.stepLabel,
+  });
 
   final String code;
   final String title;
+  final String? stepLabel;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          code,
-          style: TextStyle(
-            fontFamily: 'Courier',
-            color: AppColors.accent.withValues(alpha: 0.95),
-            fontSize: 11,
-            letterSpacing: 0.8,
-            fontWeight: FontWeight.w600,
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                code,
+                style: TextStyle(
+                  fontFamily: 'Courier',
+                  color: AppColors.accent.withValues(alpha: 0.95),
+                  fontSize: 11,
+                  letterSpacing: 0.8,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            if (stepLabel != null)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: AppColors.accent.withValues(alpha: 0.28),
+                  ),
+                ),
+                child: Text(
+                  stepLabel!,
+                  style: const TextStyle(
+                    color: AppColors.accent,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ),
+          ],
         ),
         const SizedBox(height: 4),
         Text(
@@ -183,7 +305,30 @@ class _SectionHead extends StatelessWidget {
   }
 }
 
+class _SimBadge extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          'SIMULATION',
+          style: TextStyle(
+            fontFamily: 'Courier',
+            color: AppColors.textTertiary.withValues(alpha: 0.8),
+            fontSize: 9,
+            letterSpacing: 1.2,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _HowtoBody extends StatelessWidget {
+  const _HowtoBody();
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -192,7 +337,7 @@ class _HowtoBody extends StatelessWidget {
         const _SectionHead(code: 'HOW TO PRESS', title: '如何封存声音'),
         const SizedBox(height: 8),
         Text(
-          '拖动一张声音卡片插入设备，\n然后将实体声片靠近手机 NFC 区域。',
+          '拖动一张声音卡片插入设备，\n然后将空白声片轻触手机 NFC 区域。',
           style: TextStyle(
             color: AppColors.textTertiary.withValues(alpha: 0.95),
             fontSize: 13,
@@ -207,11 +352,11 @@ class _HowtoBody extends StatelessWidget {
 class _PhoneNfcDiagram extends StatelessWidget {
   const _PhoneNfcDiagram({
     required this.breath,
-    this.pulse = true,
+    this.mode = _NfcVisualMode.pulse,
   });
 
   final Animation<double> breath;
-  final bool pulse;
+  final _NfcVisualMode mode;
 
   @override
   Widget build(BuildContext context) {
@@ -222,7 +367,11 @@ class _PhoneNfcDiagram extends StatelessWidget {
     return AnimatedBuilder(
       animation: breath,
       builder: (context, _) {
-        final wave = pulse ? (0.15 + 0.35 * breath.value) : 0.2;
+        final wave = switch (mode) {
+          _NfcVisualMode.pulse => 0.18 + 0.42 * breath.value,
+          _NfcVisualMode.glow => 0.35,
+          _NfcVisualMode.off => 0.0,
+        };
         return Column(
           children: [
             SizedBox(
@@ -230,17 +379,22 @@ class _PhoneNfcDiagram extends StatelessWidget {
               child: CustomPaint(
                 size: const Size(160, 88),
                 painter: _PhoneNfcPainter(
-                  accent: false,
+                  accent: mode != _NfcVisualMode.off,
                   waveAlpha: wave,
+                  discAway: mode == _NfcVisualMode.off,
                 ),
               ),
             ),
             const SizedBox(height: 6),
             Text(
-              hint,
-              style: const TextStyle(
-                color: AppColors.textTertiary,
+              mode == _NfcVisualMode.off ? '无需贴近 NFC' : hint,
+              style: TextStyle(
+                color: mode == _NfcVisualMode.off
+                    ? AppColors.accent.withValues(alpha: 0.85)
+                    : AppColors.textTertiary,
                 fontSize: 11,
+                fontWeight:
+                    mode == _NfcVisualMode.off ? FontWeight.w600 : FontWeight.w400,
               ),
             ),
           ],
@@ -250,11 +404,18 @@ class _PhoneNfcDiagram extends StatelessWidget {
   }
 }
 
+enum _NfcVisualMode { pulse, glow, off }
+
 class _PhoneNfcPainter extends CustomPainter {
-  _PhoneNfcPainter({required this.accent, required this.waveAlpha});
+  _PhoneNfcPainter({
+    required this.accent,
+    required this.waveAlpha,
+    this.discAway = false,
+  });
 
   final bool accent;
   final double waveAlpha;
+  final bool discAway;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -273,7 +434,6 @@ class _PhoneNfcPainter extends CustomPainter {
         ..strokeWidth = 1.4
         ..color = AppColors.structure,
     );
-    // 常见感应区示意（上半）
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromCenter(
@@ -285,48 +445,55 @@ class _PhoneNfcPainter extends CustomPainter {
       ),
       Paint()
         ..color = (accent ? AppColors.accent : AppColors.structure)
-            .withValues(alpha: accent ? 0.35 : 0.4),
+            .withValues(alpha: accent ? 0.4 : 0.35),
     );
 
-    // 声片圆
-    final discC = Offset(size.width * 0.72, size.height * 0.48);
+    final discC = Offset(
+      size.width * (discAway ? 0.82 : 0.72),
+      size.height * (discAway ? 0.72 : 0.48),
+    );
     canvas.drawCircle(
       discC,
       16,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.3
-        ..color = accent ? AppColors.accent : AppColors.structure,
+        ..color = accent && !discAway ? AppColors.accent : AppColors.structure,
     );
     canvas.drawCircle(
       discC,
       4,
-      Paint()..color = (accent ? AppColors.accent : AppColors.structure)
-          .withValues(alpha: 0.5),
+      Paint()
+        ..color = (accent && !discAway ? AppColors.accent : AppColors.structure)
+            .withValues(alpha: 0.5),
     );
 
-    // 低亮度感应波纹
-    for (var i = 1; i <= 3; i++) {
-      canvas.drawCircle(
-        discC,
-        16.0 + i * 7,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.9
-          ..color = AppColors.accent.withValues(alpha: waveAlpha / i),
-      );
+    if (waveAlpha > 0.01 && !discAway) {
+      for (var i = 1; i <= 3; i++) {
+        canvas.drawCircle(
+          discC,
+          16.0 + i * 7,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 0.9
+            ..color = AppColors.accent.withValues(alpha: waveAlpha / i),
+        );
+      }
     }
   }
 
   @override
   bool shouldRepaint(covariant _PhoneNfcPainter old) =>
-      old.accent != accent || old.waveAlpha != waveAlpha;
+      old.accent != accent ||
+      old.waveAlpha != waveAlpha ||
+      old.discAway != discAway;
 }
 
-class _WaitingBody extends StatefulWidget {
-  const _WaitingBody({
+class _CheckPromptBody extends StatelessWidget {
+  const _CheckPromptBody({
     required this.breath,
     required this.autoListening,
+    required this.isSimulation,
     this.onStartDetect,
     this.onCancelWrite,
     this.onRetrieve,
@@ -334,43 +501,24 @@ class _WaitingBody extends StatefulWidget {
 
   final Animation<double> breath;
   final bool autoListening;
+  final bool isSimulation;
   final VoidCallback? onStartDetect;
   final VoidCallback? onCancelWrite;
   final VoidCallback? onRetrieve;
-
-  @override
-  State<_WaitingBody> createState() => _WaitingBodyState();
-}
-
-class _WaitingBodyState extends State<_WaitingBody>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulse;
-
-  @override
-  void initState() {
-    super.initState();
-    // 感应波纹约每 3 秒一次
-    _pulse = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 3000),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _pulse.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionHead(code: 'READY TO PRESS', title: '准备写入实体声片'),
+        if (isSimulation) _SimBadge(),
+        const _SectionHead(
+          code: 'READY TO PRESS',
+          title: '准备封存声音',
+        ),
         const SizedBox(height: 8),
         const Text(
-          '将一枚未绑定的 SoundPola 声片\n贴近手机背部的 NFC 感应区域。',
+          '先上传并生成声片链接（无需贴近）\n准备完成后，只需贴近声片一次即可检查并写入',
           style: TextStyle(
             color: AppColors.textTertiary,
             fontSize: 13,
@@ -379,128 +527,469 @@ class _WaitingBodyState extends State<_WaitingBody>
         ),
         const SizedBox(height: 12),
         Center(
-          child: _PhoneNfcDiagram(breath: _pulse, pulse: true),
+          child: _PhoneNfcDiagram(
+            breath: breath,
+            mode: _NfcVisualMode.off,
+          ),
         ),
         const SizedBox(height: 12),
-        if (widget.autoListening)
-          SecondaryButton(
-            text: '取消写入',
-            onPressed: widget.onCancelWrite,
-          )
+        if (autoListening)
+          SecondaryButton(text: '取消', onPressed: onCancelWrite)
         else
-          PrimaryButton(
-            text: '开始检测 NFC',
-            onPressed: widget.onStartDetect,
-          ),
+          PrimaryButton(text: '开始准备', onPressed: onStartDetect),
         const SizedBox(height: 8),
-        SecondaryButton(
-          text: '取回声音',
-          onPressed: widget.onRetrieve,
+        SecondaryButton(text: '取回声音', onPressed: onRetrieve),
+      ],
+    );
+  }
+}
+
+class _CheckingBody extends StatelessWidget {
+  const _CheckingBody({required this.breath});
+
+  final Animation<double> breath;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHead(
+          code: 'CHECKING PIECE',
+          title: '正在识别声片',
+          stepLabel: '第 1 次，共 2 次',
         ),
         const SizedBox(height: 8),
         const Text(
-          '每枚实体声片只能永久绑定一段声音',
+          '请短暂保持贴近',
           style: TextStyle(
-            color: AppColors.textTertiary,
-            fontSize: 11,
+            color: AppColors.textSecondary,
+            fontSize: 13,
+            height: 1.45,
+            fontWeight: FontWeight.w500,
           ),
+        ),
+        const SizedBox(height: 12),
+        Center(
+          child: _PhoneNfcDiagram(breath: breath, mode: _NfcVisualMode.pulse),
         ),
       ],
     );
   }
 }
 
-class _FoundBody extends StatelessWidget {
-  const _FoundBody({this.statusHint});
-
-  final String? statusHint;
+class _VerifiedBody extends StatelessWidget {
+  const _VerifiedBody();
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionHead(code: 'SOUND PIECE FOUND', title: '已检测到实体声片'),
+        const _SectionHead(
+          code: 'PIECE VERIFIED',
+          title: '声片验证完成',
+          stepLabel: '第 1 次，共 2 次',
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.accent.withValues(alpha: 0.18),
+                border: Border.all(color: AppColors.accent.withValues(alpha: 0.55)),
+              ),
+              child: const Icon(Icons.check_rounded, size: 18, color: AppColors.accent),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                '现在可以移开声片',
+                style: TextStyle(
+                  color: AppColors.accent,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 8),
-        Text(
-          statusHint ?? '正在准备云端链接，随后请再次贴近写入。',
-          style: const TextStyle(
-            color: AppColors.textTertiary,
-            fontSize: 13,
-            height: 1.45,
-          ),
+        const Text(
+          '即将准备声音内容，无需持续贴近',
+          style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
         ),
       ],
     );
   }
 }
 
-class _PressingBody extends StatelessWidget {
-  const _PressingBody({required this.progress, this.statusHint});
+class _CloudBody extends StatelessWidget {
+  const _CloudBody({
+    required this.stage,
+    this.onRetrieve,
+    this.isSimulation = false,
+    this.statusHint,
+  });
 
-  final double progress;
+  final CloudPrepStage stage;
+  final VoidCallback? onRetrieve;
+  final bool isSimulation;
   final String? statusHint;
 
   @override
   Widget build(BuildContext context) {
-    final pct = (progress * 100).round().clamp(0, 100);
+    final steps = [
+      ('上传声音', stage.index >= CloudPrepStage.upload.index),
+      ('生成声音内容', stage.index >= CloudPrepStage.process.index),
+      ('等待写入', stage == CloudPrepStage.ready),
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHead(
-          code: 'PRESSING SOUND · $pct%',
-          title: '正在写入声音',
+        if (isSimulation) _SimBadge(),
+        const _SectionHead(
+          code: 'PREPARING MEMORY',
+          title: '正在准备声音内容',
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.accent.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.accent.withValues(alpha: 0.28)),
+          ),
+          child: const Text(
+            '请移开声片 · 此步骤无需贴近 NFC',
+            style: TextStyle(
+              color: AppColors.accent,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
         const SizedBox(height: 8),
         Text(
-          statusHint ?? '请勿移动实体声片。',
+          statusHint?.trim().isNotEmpty == true
+              ? statusHint!
+              : '正在上传并生成声片链接，完成后请贴近声片一次',
           style: const TextStyle(
             color: AppColors.textTertiary,
-            fontSize: 13,
-            height: 1.45,
+            fontSize: 12,
+            height: 1.4,
           ),
         ),
         const SizedBox(height: 14),
-        CustomPaint(
-          size: const Size(double.infinity, 14),
-          painter: _SegmentProgressPainter(progress: progress),
+        for (var i = 0; i < steps.length; i++) ...[
+          _StageRow(
+            index: i + 1,
+            label: steps[i].$1,
+            active: steps[i].$2,
+            current: stage.index == i ||
+                (stage == CloudPrepStage.ready && i == steps.length - 1),
+          ),
+          if (i < steps.length - 1) const SizedBox(height: 8),
+        ],
+        const SizedBox(height: 14),
+        Center(
+          child: _PhoneNfcDiagram(
+            breath: const AlwaysStoppedAnimation(0.2),
+            mode: _NfcVisualMode.off,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SecondaryButton(text: '取回声音', onPressed: onRetrieve),
+      ],
+    );
+  }
+}
+
+class _StageRow extends StatelessWidget {
+  const _StageRow({
+    required this.index,
+    required this.label,
+    required this.active,
+    required this.current,
+  });
+
+  final int index;
+  final String label;
+  final bool active;
+  final bool current;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = current
+        ? AppColors.accent
+        : (active ? AppColors.textSecondary : AppColors.textTertiary);
+    return Row(
+      children: [
+        Container(
+          width: 22,
+          height: 22,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: current
+                ? AppColors.accent.withValues(alpha: 0.2)
+                : AppColors.surface2,
+            border: Border.all(color: color.withValues(alpha: 0.5)),
+          ),
+          child: active && !current
+              ? const Icon(Icons.check, size: 12, color: AppColors.accent)
+              : Text(
+                  '$index',
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 13,
+            fontWeight: current ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+        if (current) ...[
+          const Spacer(),
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.6,
+              color: AppColors.accent.withValues(alpha: 0.85),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _WritePromptBody extends StatelessWidget {
+  const _WritePromptBody({
+    required this.breath,
+    required this.autoListening,
+    this.onCancelWrite,
+    this.onRetrieve,
+    this.isSimulation = false,
+  });
+
+  final Animation<double> breath;
+  final bool autoListening;
+  final VoidCallback? onCancelWrite;
+  final VoidCallback? onRetrieve;
+  final bool isSimulation;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (isSimulation) _SimBadge(),
+        const _SectionHead(
+          code: 'READY TO WRITE',
+          title: '请贴近声片',
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          '内容已准备完成\n贴近后将检查声片是否已写入，空白则完成封存\n写入完成前请保持贴近',
+          style: TextStyle(
+            color: AppColors.textTertiary,
+            fontSize: 13,
+            height: 1.45,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.accent.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Text(
+            '只需贴近一次 · 检查并写入',
+            style: TextStyle(
+              color: AppColors.accent,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Center(
+          child: _PhoneNfcDiagram(breath: breath, mode: _NfcVisualMode.glow),
+        ),
+        const SizedBox(height: 12),
+        if (autoListening)
+          SecondaryButton(text: '取消写入', onPressed: onCancelWrite),
+        const SizedBox(height: 8),
+        SecondaryButton(text: '取回声音', onPressed: onRetrieve),
+      ],
+    );
+  }
+}
+
+class _WritingBody extends StatelessWidget {
+  const _WritingBody();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionHead(
+          code: 'WRITING',
+          title: '正在写入声片',
+        ),
+        SizedBox(height: 8),
+        Text(
+          '请保持贴近，不要移动',
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ],
     );
   }
 }
 
-class _SegmentProgressPainter extends CustomPainter {
-  _SegmentProgressPainter({required this.progress});
-
-  final double progress;
+class _WriteSuccessBody extends StatelessWidget {
+  const _WriteSuccessBody();
 
   @override
-  void paint(Canvas canvas, Size size) {
-    const segments = 16;
-    const gap = 3.0;
-    final totalGap = gap * (segments - 1);
-    final w = (size.width - totalGap) / segments;
-    final filled = (progress.clamp(0.0, 1.0) * segments).ceil();
-
-    for (var i = 0; i < segments; i++) {
-      final x = i * (w + gap);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, 2, w, size.height - 4),
-          const Radius.circular(1.5),
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHead(code: 'PRESSED', title: '声片写入完成'),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.accent.withValues(alpha: 0.18),
+              ),
+              child: const Icon(Icons.check_rounded, size: 18, color: AppColors.accent),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              '现在可以移开',
+              style: TextStyle(
+                color: AppColors.accent,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
-        Paint()
-          ..color = i < filled
-              ? AppColors.accent
-              : AppColors.structure.withValues(alpha: 0.7),
-      );
-    }
+      ],
+    );
   }
+}
+
+class _ChainingBody extends StatelessWidget {
+  const _ChainingBody({required this.soundTitle});
+
+  final String soundTitle;
 
   @override
-  bool shouldRepaint(covariant _SegmentProgressPainter old) =>
-      old.progress != progress;
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHead(code: 'REGISTERING', title: '声片已封存'),
+        const SizedBox(height: 8),
+        Text(
+          soundTitle.isEmpty
+              ? '正在登记数字藏品'
+              : '「$soundTitle」正在登记数字藏品',
+          style: const TextStyle(
+            color: AppColors.textTertiary,
+            fontSize: 13,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppColors.surface2,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Column(
+            children: [
+              _StatusLine(label: '声片写入', value: '已完成', done: true),
+              SizedBox(height: 6),
+              _StatusLine(label: '本地绑定', value: '已完成', done: true),
+              SizedBox(height: 6),
+              _StatusLine(label: '数字藏品登记', value: '进行中', done: false),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          '无需再次贴近声片',
+          style: TextStyle(
+            color: AppColors.accent,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatusLine extends StatelessWidget {
+  const _StatusLine({
+    required this.label,
+    required this.value,
+    required this.done,
+  });
+
+  final String label;
+  final String value;
+  final bool done;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            color: done ? AppColors.accent : AppColors.textSecondary,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _CompleteBody extends StatelessWidget {
@@ -521,12 +1010,12 @@ class _CompleteBody extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionHead(code: 'PRESS COMPLETE', title: '声音已完成封存'),
+        const _SectionHead(code: 'PRESS COMPLETE', title: '封存完成'),
         const SizedBox(height: 8),
         Text(
           chaining
               ? '「$soundTitle」已与实体声片绑定，\n正在生成正式收藏资产。'
-              : '「$soundTitle」已与实体声片绑定。',
+              : '声音已加入 Collection',
           style: const TextStyle(
             color: AppColors.textTertiary,
             fontSize: 13,
@@ -539,87 +1028,193 @@ class _CompleteBody extends StatelessWidget {
           onPressed: onViewCollection,
         ),
         const SizedBox(height: 8),
-        SecondaryButton(
-          text: '继续写入下一张',
-          onPressed: onContinue,
-        ),
-      ],
-    );
-  }
-}
-
-class _InterruptedBody extends StatelessWidget {
-  const _InterruptedBody({
-    this.reason,
-    this.onRetry,
-    this.onRetrieve,
-    this.onSimulate,
-  });
-
-  final String? reason;
-  final VoidCallback? onRetry;
-  final VoidCallback? onRetrieve;
-  final VoidCallback? onSimulate;
-
-  @override
-  Widget build(BuildContext context) {
-    final text = (reason != null && reason!.trim().isNotEmpty)
-        ? reason!.trim()
-        : '请重新贴近实体声片，并在写入过程中保持位置不动。';
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _SectionHead(code: 'PRESS INTERRUPTED', title: '写入未完成'),
-        const SizedBox(height: 8),
-        Text(
-          text,
-          maxLines: 4,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 13,
-            height: 1.45,
-          ),
-        ),
-        const SizedBox(height: 14),
-        PrimaryButton(text: '重新检测', onPressed: onRetry),
-        if (onSimulate != null) ...[
-          const SizedBox(height: 8),
-          SecondaryButton(text: '模拟写入（开发）', onPressed: onSimulate),
-        ],
-        const SizedBox(height: 8),
-        SecondaryButton(text: '取回声音', onPressed: onRetrieve),
+        SecondaryButton(text: '继续写入下一张', onPressed: onContinue),
       ],
     );
   }
 }
 
 class _BoundBody extends StatelessWidget {
-  const _BoundBody({this.onDetectOther});
+  const _BoundBody({
+    this.title,
+    this.timeLabel,
+    this.contentId,
+    this.onDetectOther,
+    this.onViewBoundSound,
+  });
 
+  final String? title;
+  final String? timeLabel;
+  final String? contentId;
   final VoidCallback? onDetectOther;
+  final VoidCallback? onViewBoundSound;
+
+  @override
+  Widget build(BuildContext context) {
+    final shortId = (contentId == null || contentId!.isEmpty)
+        ? '—'
+        : (contentId!.length <= 10
+            ? contentId!
+            : '${contentId!.substring(0, 6)}…${contentId!.substring(contentId!.length - 4)}');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHead(
+          code: 'ALREADY BOUND',
+          title: '该声片已绑定',
+        ),
+        const SizedBox(height: 8),
+        Text(
+          title?.isNotEmpty == true ? title! : '已永久绑定一段声音',
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '绑定时间：${timeLabel ?? '—'}',
+          style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+        ),
+        Text(
+          'contentId：$shortId',
+          style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          '每枚声片只能永久绑定一次，不提供覆盖写入。',
+          style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+        ),
+        const SizedBox(height: 14),
+        if (onViewBoundSound != null) ...[
+          PrimaryButton(text: '查看声音', onPressed: onViewBoundSound),
+          const SizedBox(height: 8),
+        ],
+        SecondaryButton(text: '更换其他声片', onPressed: onDetectOther),
+      ],
+    );
+  }
+}
+
+class _FailBody extends StatelessWidget {
+  const _FailBody({
+    required this.code,
+    required this.title,
+    required this.message,
+    required this.primaryLabel,
+    this.onPrimary,
+    this.onRetrieve,
+    this.note,
+  });
+
+  final String code;
+  final String title;
+  final String message;
+  final String primaryLabel;
+  final VoidCallback? onPrimary;
+  final VoidCallback? onRetrieve;
+  final String? note;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionHead(
-          code: 'SOUND PIECE ALREADY BOUND',
-          title: '这枚声片已经封存过声音',
-        ),
+        _SectionHead(code: code, title: title),
         const SizedBox(height: 8),
-        const Text(
-          '每枚 SoundPola 声片只能永久绑定一次，\n请更换一枚未绑定声片。',
-          style: TextStyle(
-            color: AppColors.textTertiary,
+        Text(
+          message,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
             fontSize: 13,
             height: 1.45,
           ),
         ),
+        if (note != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            note!,
+            style: TextStyle(
+              color: AppColors.accent.withValues(alpha: 0.9),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
         const SizedBox(height: 14),
-        PrimaryButton(text: '检测其他声片', onPressed: onDetectOther),
+        PrimaryButton(text: primaryLabel, onPressed: onPrimary),
+        if (onRetrieve != null) ...[
+          const SizedBox(height: 8),
+          SecondaryButton(text: '取回声音', onPressed: onRetrieve),
+        ],
+      ],
+    );
+  }
+}
+
+class _ChainFailBody extends StatelessWidget {
+  const _ChainFailBody({
+    required this.soundTitle,
+    this.failReason,
+    this.onRetryChain,
+    this.onLater,
+    this.onViewCollection,
+  });
+
+  final String soundTitle;
+  final String? failReason;
+  final VoidCallback? onRetryChain;
+  final VoidCallback? onLater;
+  final VoidCallback? onViewCollection;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHead(code: 'CHAIN FAILED', title: '声片已成功写入'),
+        const SizedBox(height: 8),
+        const Text(
+          '数字藏品登记暂时失败',
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        if (failReason != null && failReason!.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            failReason!,
+            style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+          ),
+        ],
+        const SizedBox(height: 10),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppColors.accent.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Text(
+            '重试只会重新提交登记，不会重新写入 NFC，无需再次贴近声片。',
+            style: TextStyle(
+              color: AppColors.accent,
+              fontSize: 12,
+              height: 1.4,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        PrimaryButton(text: '重试登记', onPressed: onRetryChain),
+        const SizedBox(height: 8),
+        SecondaryButton(text: '稍后处理', onPressed: onLater),
+        const SizedBox(height: 8),
+        SecondaryButton(text: '查看声音', onPressed: onViewCollection),
       ],
     );
   }

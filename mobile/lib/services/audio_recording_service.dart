@@ -7,6 +7,7 @@ import 'package:record/record.dart';
 
 import '../audio/audio_feature_analyzer.dart';
 import '../audio/audio_features.dart';
+import '../visual/audio_feature_timeline.dart';
 
 class AudioRecordingService {
   AudioRecordingService._();
@@ -18,6 +19,9 @@ class AudioRecordingService {
   DateTime? _pausedAt;
   Duration _pausedTotal = Duration.zero;
   String? _currentPath;
+  int _visualSeed = 0;
+  final AudioFeatureTimeline _timeline = AudioFeatureTimeline();
+  VoidCallback? _featuresListener;
 
   final StreamController<double> _amplitudeController =
       StreamController<double>.broadcast();
@@ -26,13 +30,26 @@ class AudioRecordingService {
   AudioFeatureAnalyzer? _analyzer;
   ValueNotifier<AudioFeatures>? get featuresNotifier => _analyzer?.features;
 
-  /// Normalized 0–1 amplitude at amp-callback rate (~20ms) for fast visual shape.
+  /// Gated + AGC'd 0–1 volume from analyzer (falls back to raw amp).
   final ValueNotifier<double> liveVolume = ValueNotifier(0.0);
+  VoidCallback? _analyzerLiveListener;
+
+  int get visualSeed => _visualSeed;
+  AudioFeatureTimeline get featureTimeline => _timeline;
 
   /// 已成功调用 start，可暂停／完成。
   bool get isRecording => _startedAt != null;
   bool _paused = false;
   bool get isPaused => _paused;
+
+  int _audioTimeMs() {
+    if (_startedAt == null) return 0;
+    var elapsed = DateTime.now().difference(_startedAt!) - _pausedTotal;
+    if (_paused && _pausedAt != null) {
+      elapsed -= DateTime.now().difference(_pausedAt!);
+    }
+    return elapsed.inMilliseconds.clamp(0, kMaxRecordingDurationSec * 1000);
+  }
 
   Future<String> _newFilePath() async {
     final dir = await getApplicationDocumentsDirectory();
@@ -45,10 +62,15 @@ class AudioRecordingService {
   }
 
   Future<void> _ensureAnalyzer() async {
-    _analyzer ??= await AudioFeatureAnalyzer.spawn();
+    if (_analyzer != null) return;
+    _analyzer = await AudioFeatureAnalyzer.spawn();
+    _analyzerLiveListener = () {
+      liveVolume.value = _analyzer!.liveVolume.value;
+    };
+    _analyzer!.liveVolume.addListener(_analyzerLiveListener!);
   }
 
-  Future<void> start() async {
+  Future<void> start({int? visualSeed}) async {
     if (isRecording) {
       await cancel();
     }
@@ -56,6 +78,9 @@ class AudioRecordingService {
       throw StateError('麦克风权限未授予');
     }
     await _ensureAnalyzer();
+    _visualSeed = visualSeed ??
+        (DateTime.now().millisecondsSinceEpoch % 900000) + 1000;
+    _timeline.clear();
     final path = await _newFilePath();
     _currentPath = path;
     try {
@@ -63,7 +88,9 @@ class AudioRecordingService {
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
           bitRate: 128000,
-          sampleRate: 44100,
+          sampleRate: 48000,
+          autoGain: true,
+          noiseSuppress: false,
         ),
         path: path,
       );
@@ -75,16 +102,22 @@ class AudioRecordingService {
     _paused = false;
     _pausedTotal = Duration.zero;
     _analyzer!.setActive(true);
+    _featuresListener = () {
+      if (_paused || _analyzer == null) return;
+      _timeline.add(_audioTimeMs(), _analyzer!.features.value);
+    };
+    _analyzer!.features.addListener(_featuresListener!);
     _ampSub?.cancel();
     _ampSub = _recorder
-        .onAmplitudeChanged(const Duration(milliseconds: 20))
+        .onAmplitudeChanged(const Duration(milliseconds: 16))
         .listen((amp) {
       final v = amp.current;
       _amplitudeController.add(v);
       _analyzer?.pushAmplitude(v);
-      // Normalize dBFS (−60…0) or already 0–1 for fast visual envelope.
-      final n = (v <= 1.0 && v >= 0.0) ? v : ((v + 60) / 60).clamp(0.0, 1.0);
-      liveVolume.value = n;
+      if (_analyzer == null || !_analyzer!.liveVolume.value.isFinite) {
+        final n = (v <= 1.0 && v >= 0.0) ? v : ((v + 60) / 60).clamp(0.0, 1.0);
+        liveVolume.value = n;
+      }
     });
   }
 
@@ -108,7 +141,13 @@ class AudioRecordingService {
     }
   }
 
-  Future<({String path, int durationSec})> stop() async {
+  Future<
+      ({
+        String path,
+        int durationSec,
+        int visualSeed,
+        AudioFeatureTimeline timeline,
+      })> stop() async {
     if (_startedAt == null && _currentPath == null) {
       throw StateError('录音尚未开始');
     }
@@ -122,6 +161,10 @@ class AudioRecordingService {
 
     await _ampSub?.cancel();
     _ampSub = null;
+    if (_featuresListener != null) {
+      _analyzer?.features.removeListener(_featuresListener!);
+      _featuresListener = null;
+    }
     _analyzer?.setActive(false);
 
     liveVolume.value = 0;
@@ -132,13 +175,18 @@ class AudioRecordingService {
     if (_paused && _pausedAt != null) {
       duration -= DateTime.now().difference(_pausedAt!);
     }
-    final sec = duration.inSeconds.clamp(1, 9999);
+    final sec = duration.inSeconds.clamp(1, kMaxRecordingDurationSec);
 
     final candidate = _firstNonEmpty(stoppedPath, _currentPath);
+    final seed = _visualSeed;
+    final timeline = AudioFeatureTimeline(
+      samples: List<AudioFeatureSample>.from(_timeline.samples),
+    );
     _startedAt = null;
     _paused = false;
     _pausedAt = null;
     _pausedTotal = Duration.zero;
+    _timeline.clear();
 
     if (candidate == null) {
       _currentPath = null;
@@ -146,13 +194,17 @@ class AudioRecordingService {
     }
 
     final file = File(candidate);
-    // MediaRecorder 偶发 stop 返回 null，但文件已落盘；短录也需等一小会儿。
     final ready = await _waitForFile(file);
     _currentPath = null;
     if (!ready) {
       throw StateError('录音文件未生成');
     }
-    return (path: candidate, durationSec: sec);
+    return (
+      path: candidate,
+      durationSec: sec,
+      visualSeed: seed,
+      timeline: timeline,
+    );
   }
 
   static String? _firstNonEmpty(String? a, String? b) {
@@ -178,8 +230,13 @@ class AudioRecordingService {
     } catch (_) {}
     await _ampSub?.cancel();
     _ampSub = null;
+    if (_featuresListener != null) {
+      _analyzer?.features.removeListener(_featuresListener!);
+      _featuresListener = null;
+    }
     _analyzer?.setActive(false);
     liveVolume.value = 0;
+    _timeline.clear();
     final path = _currentPath;
     _currentPath = null;
     if (path != null) {
@@ -207,6 +264,14 @@ class AudioRecordingService {
 
   void dispose() {
     _ampSub?.cancel();
+    if (_featuresListener != null) {
+      _analyzer?.features.removeListener(_featuresListener!);
+      _featuresListener = null;
+    }
+    if (_analyzerLiveListener != null) {
+      _analyzer?.liveVolume.removeListener(_analyzerLiveListener!);
+      _analyzerLiveListener = null;
+    }
     _amplitudeController.close();
     liveVolume.dispose();
     _analyzer?.dispose();

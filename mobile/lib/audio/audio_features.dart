@@ -1,58 +1,165 @@
-/// Normalized audio descriptors consumed by the visual layer (UI thread).
-/// Produced off-thread at ~25–30 Hz (RMS/bands) and ~15–25 Hz (pitch).
+import 'dart:typed_data';
+
+/// Normalized audio descriptors for the visual layer (UI thread).
+/// Produced off-thread ~40 Hz with AGC, soft gate, multi-band envelopes,
+/// and a compact modulation spectrum (from amplitude stream when PCM
+/// is unavailable; still drives local structure, not a single average).
 class AudioFeatures {
   const AudioFeatures({
-    this.rms = 0.1,
-    this.pitch = 0.45,
-    this.bass = 0.2,
-    this.mid = 0.25,
-    this.treble = 0.15,
+    this.rms = 0,
+    this.gatedRms = 0,
+    this.fastEnvelope = 0,
+    this.slowEnvelope = 0,
+    this.bass = 0.15,
+    this.lowMid = 0.15,
+    this.mid = 0.2,
+    this.highMid = 0.12,
+    this.treble = 0.1,
+    this.spectralCentroid = 0.35,
+    this.spectralFlux = 0,
     this.onset = 0,
+    this.zeroCrossingRate = 0.2,
+    this.pitch = 0.4,
     this.confidence = 0.4,
+    this.agcGain = 1,
+    this.noiseFloor = 0.02,
+    this.trackedPeak = 0.1,
+    this.spectrum = const <double>[],
   });
 
+  /// Raw normalized RMS before AGC (diagnostics).
   final double rms;
-  final double pitch;
+  /// Soft-gated, AGC'd energy used for visuals.
+  final double gatedRms;
+  final double fastEnvelope;
+  final double slowEnvelope;
   final double bass;
+  final double lowMid;
   final double mid;
+  final double highMid;
   final double treble;
+  final double spectralCentroid;
+  final double spectralFlux;
   final double onset;
+  final double zeroCrossingRate;
+  final double pitch;
   final double confidence;
+  final double agcGain;
+  final double noiseFloor;
+  final double trackedPeak;
 
+  /// Compact 0–1 spectrum bins (log-ish), length [spectrumBinCount].
+  final List<double> spectrum;
+
+  static const spectrumBinCount = 24;
   static const silent = AudioFeatures();
+
+  double sampleSpectrumLog(double u) {
+    if (spectrum.isEmpty) {
+      return (bass * (1 - u) + mid * 0.6 + treble * u).clamp(0.0, 1.0);
+    }
+    final n = spectrum.length;
+    final x = u.clamp(0.0, 1.0) * (n - 1);
+    final i0 = x.floor().clamp(0, n - 1);
+    final i1 = (i0 + 1).clamp(0, n - 1);
+    final f = x - i0;
+    return (spectrum[i0] * (1 - f) + spectrum[i1] * f).clamp(0.0, 1.0);
+  }
 
   AudioFeatures lerp(AudioFeatures o, double t) {
     double L(double a, double b) => a + (b - a) * t;
+    List<double> ls;
+    if (spectrum.isEmpty && o.spectrum.isEmpty) {
+      ls = const [];
+    } else {
+      final a = spectrum.isEmpty
+          ? List<double>.filled(spectrumBinCount, 0)
+          : spectrum;
+      final b = o.spectrum.isEmpty
+          ? List<double>.filled(spectrumBinCount, 0)
+          : o.spectrum;
+      final n = a.length < b.length ? a.length : b.length;
+      ls = List<double>.generate(n, (i) => L(a[i], b[i]));
+    }
     return AudioFeatures(
       rms: L(rms, o.rms),
-      pitch: L(pitch, o.pitch),
+      gatedRms: L(gatedRms, o.gatedRms),
+      fastEnvelope: L(fastEnvelope, o.fastEnvelope),
+      slowEnvelope: L(slowEnvelope, o.slowEnvelope),
       bass: L(bass, o.bass),
+      lowMid: L(lowMid, o.lowMid),
       mid: L(mid, o.mid),
+      highMid: L(highMid, o.highMid),
       treble: L(treble, o.treble),
+      spectralCentroid: L(spectralCentroid, o.spectralCentroid),
+      spectralFlux: L(spectralFlux, o.spectralFlux),
       onset: L(onset, o.onset),
+      zeroCrossingRate: L(zeroCrossingRate, o.zeroCrossingRate),
+      pitch: L(pitch, o.pitch),
       confidence: L(confidence, o.confidence),
+      agcGain: L(agcGain, o.agcGain),
+      noiseFloor: L(noiseFloor, o.noiseFloor),
+      trackedPeak: L(trackedPeak, o.trackedPeak),
+      spectrum: ls,
     );
   }
 
-  Map<String, double> toMap() => {
+  Map<String, dynamic> toMap() => {
         'rms': rms,
-        'pitch': pitch,
+        'gatedRms': gatedRms,
+        'fastEnvelope': fastEnvelope,
+        'slowEnvelope': slowEnvelope,
         'bass': bass,
+        'lowMid': lowMid,
         'mid': mid,
+        'highMid': highMid,
         'treble': treble,
+        'spectralCentroid': spectralCentroid,
+        'spectralFlux': spectralFlux,
         'onset': onset,
+        'zeroCrossingRate': zeroCrossingRate,
+        'pitch': pitch,
         'confidence': confidence,
+        'agcGain': agcGain,
+        'noiseFloor': noiseFloor,
+        'trackedPeak': trackedPeak,
+        'spectrum': spectrum,
       };
 
-  factory AudioFeatures.fromMap(Map<dynamic, dynamic> m) => AudioFeatures(
-        rms: (m['rms'] as num?)?.toDouble() ?? 0.1,
-        pitch: (m['pitch'] as num?)?.toDouble() ?? 0.45,
-        bass: (m['bass'] as num?)?.toDouble() ?? 0.2,
-        mid: (m['mid'] as num?)?.toDouble() ?? 0.25,
-        treble: (m['treble'] as num?)?.toDouble() ?? 0.15,
-        onset: (m['onset'] as num?)?.toDouble() ?? 0,
-        confidence: (m['confidence'] as num?)?.toDouble() ?? 0.4,
-      );
+  factory AudioFeatures.fromMap(Map<dynamic, dynamic> m) {
+    final rawSpec = m['spectrum'];
+    List<double> spec = const [];
+    if (rawSpec is Float32List) {
+      spec = rawSpec.toList(growable: false);
+    } else if (rawSpec is List) {
+      spec = rawSpec.map((e) => (e as num).toDouble()).toList(growable: false);
+    }
+    return AudioFeatures(
+      rms: (m['rms'] as num?)?.toDouble() ?? 0,
+      gatedRms: (m['gatedRms'] as num?)?.toDouble() ??
+          (m['rms'] as num?)?.toDouble() ??
+          0,
+      fastEnvelope: (m['fastEnvelope'] as num?)?.toDouble() ?? 0,
+      slowEnvelope: (m['slowEnvelope'] as num?)?.toDouble() ?? 0,
+      bass: (m['bass'] as num?)?.toDouble() ?? 0.15,
+      lowMid: (m['lowMid'] as num?)?.toDouble() ?? 0.15,
+      mid: (m['mid'] as num?)?.toDouble() ?? 0.2,
+      highMid: (m['highMid'] as num?)?.toDouble() ?? 0.12,
+      treble: (m['treble'] as num?)?.toDouble() ?? 0.1,
+      spectralCentroid: (m['spectralCentroid'] as num?)?.toDouble() ??
+          (m['pitch'] as num?)?.toDouble() ??
+          0.35,
+      spectralFlux: (m['spectralFlux'] as num?)?.toDouble() ?? 0,
+      onset: (m['onset'] as num?)?.toDouble() ?? 0,
+      zeroCrossingRate: (m['zeroCrossingRate'] as num?)?.toDouble() ?? 0.2,
+      pitch: (m['pitch'] as num?)?.toDouble() ?? 0.4,
+      confidence: (m['confidence'] as num?)?.toDouble() ?? 0.4,
+      agcGain: (m['agcGain'] as num?)?.toDouble() ?? 1,
+      noiseFloor: (m['noiseFloor'] as num?)?.toDouble() ?? 0.02,
+      trackedPeak: (m['trackedPeak'] as num?)?.toDouble() ?? 0.1,
+      spectrum: spec,
+    );
+  }
 }
 
 enum VisualQuality { high, medium, low }

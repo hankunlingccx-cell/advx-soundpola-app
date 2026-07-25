@@ -1,4 +1,5 @@
 import 'disc_rarity.dart';
+import '../visual/audio_feature_timeline.dart';
 
 /// 录音完成后、保存 Draft 前的临时会话数据。
 class RecordingSession {
@@ -6,15 +7,26 @@ class RecordingSession {
 
   static String? audioPath;
   static int durationSec = 0;
+  static int visualSeed = 0;
+  static AudioFeatureTimeline? featureTimeline;
 
-  static void set({required String path, required int duration}) {
+  static void set({
+    required String path,
+    required int duration,
+    int? seed,
+    AudioFeatureTimeline? timeline,
+  }) {
     audioPath = path;
     durationSec = duration;
+    if (seed != null) visualSeed = seed;
+    if (timeline != null) featureTimeline = timeline;
   }
 
   static void clear() {
     audioPath = null;
     durationSec = 0;
+    visualSeed = 0;
+    featureTimeline = null;
   }
 }
 

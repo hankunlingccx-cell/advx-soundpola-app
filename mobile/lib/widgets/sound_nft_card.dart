@@ -163,7 +163,7 @@ class SoundNftCard extends StatelessWidget {
                 ColoredBox(color: Colors.black.withValues(alpha: 0.28)),
                 RarityHoloOverlay(
                   rarity: item.discRarity,
-                  intensityScale: 1.05,
+                  intensityScale: 1.15,
                 ),
               ],
             )
@@ -180,7 +180,7 @@ class SoundNftCard extends StatelessWidget {
                 ),
                 RarityHoloOverlay(
                   rarity: item.discRarity,
-                  intensityScale: 0.55,
+                  intensityScale: 1.0,
                 ),
               ],
             ),
