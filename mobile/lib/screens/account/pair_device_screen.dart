@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../cloud/cloud_media_config.dart';
@@ -6,6 +7,7 @@ import '../../device/device_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/device_pair_service.dart';
 import '../../services/permission_service.dart';
+import '../../services/ring_recording_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
@@ -27,6 +29,7 @@ class _PairDeviceScreenState extends State<PairDeviceScreen> {
   _PairState _state = _PairState.loading;
   String _message = '';
   bool _busy = false;
+  bool _ringBusy = false;
 
   @override
   void initState() {
@@ -50,7 +53,9 @@ class _PairDeviceScreenState extends State<PairDeviceScreen> {
 
   Future<void> _onDetect(BarcodeCapture capture) async {
     if (_busy || _state != _PairState.scanning) return;
-    final raw = capture.barcodes.isEmpty ? null : capture.barcodes.first.rawValue;
+    final raw = capture.barcodes.isEmpty
+        ? null
+        : capture.barcodes.first.rawValue;
     final target = DevicePairService.parseQr(raw);
     if (target == null) return; // 非配对码，继续扫描
 
@@ -69,13 +74,50 @@ class _PairDeviceScreenState extends State<PairDeviceScreen> {
         serverUrl: CloudMediaConfig.baseUrl,
       );
       if (!mounted) return;
-      setState(() => _state = _PairState.success);
+      setState(() {
+        _message = '设备配对成功，已授权当前账号。';
+        _state = _PairState.success;
+      });
     } on AuthException catch (e) {
       _fail(e.message);
     } on DevicePairException catch (e) {
       _fail(e.message);
     } catch (_) {
       _fail('配对失败，请重试');
+    }
+  }
+
+  Future<void> _pairRing() async {
+    if (_busy || _ringBusy) return;
+    setState(() {
+      _ringBusy = true;
+      _message = '';
+    });
+    try {
+      if (_state == _PairState.scanning || _state == _PairState.sending) {
+        try {
+          await _controller.stop();
+        } catch (_) {}
+      }
+      final device = await RingRecordingService.instance.pairRing();
+      if (!mounted) return;
+      final battery = device.batteryLevel == null
+          ? ''
+          : ' · ${device.batteryLevel}%';
+      setState(() {
+        _message = '指环已通过蓝牙连接$battery';
+        _state = _PairState.success;
+      });
+    } on MissingPluginException {
+      _fail('当前平台暂不支持指环蓝牙连接');
+    } on PlatformException catch (e) {
+      _fail(e.message == null ? '指环连接失败' : '指环连接失败：${e.message}');
+    } catch (e) {
+      _fail('指环连接失败：$e');
+    } finally {
+      if (mounted) {
+        setState(() => _ringBusy = false);
+      }
     }
   }
 
@@ -92,6 +134,7 @@ class _PairDeviceScreenState extends State<PairDeviceScreen> {
       _state = _PairState.scanning;
       _message = '';
       _busy = false;
+      _ringBusy = false;
     });
     await _controller.start();
   }
@@ -109,7 +152,9 @@ class _PairDeviceScreenState extends State<PairDeviceScreen> {
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageHorizontal),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.pageHorizontal,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -121,6 +166,16 @@ class _PairDeviceScreenState extends State<PairDeviceScreen> {
               const SizedBox(height: AppSpacing.item),
               Expanded(child: _buildBody()),
               const SizedBox(height: AppSpacing.item),
+              if (_state != _PairState.success) ...[
+                SecondaryButton(
+                  text: _ringBusy ? '正在连接指环…' : '蓝牙连接指环',
+                  onPressed:
+                      (_busy || _ringBusy || _state == _PairState.sending)
+                      ? null
+                      : _pairRing,
+                ),
+                const SizedBox(height: AppSpacing.item),
+              ],
             ],
           ),
         ),
@@ -186,7 +241,7 @@ class _PairDeviceScreenState extends State<PairDeviceScreen> {
         return _MessagePanel(
           icon: Icons.check_circle_rounded,
           iconColor: AppColors.accent,
-          text: '设备配对成功，已授权当前账号。',
+          text: _message.isEmpty ? '设备配对成功，已授权当前账号。' : _message,
           action: PrimaryButton(text: '完成', onPressed: () => context.pop()),
         );
 

@@ -7,7 +7,7 @@ import 'audio_feature_timeline.dart';
 /// On-disk layout for one sound memory package:
 /// ```
 /// sounds/{id}/
-///   audio.wav | audio.m4a   (new recordings are PCM16 WAV)
+///   audio.wav | audio.m4a | audio.ogg   (new phone recordings are PCM16 WAV)
 ///   visual.mjpg
 ///   visual.idx
 ///   visual_manifest.json
@@ -35,11 +35,13 @@ class SoundPackageStore {
   String _join(Directory dir, String name) =>
       '${dir.path}${Platform.pathSeparator}$name';
 
-  /// Prefer WAV (PCM analysis pipeline); fall back to legacy AAC.
+  /// Prefer WAV (PCM analysis pipeline); fall back to other imported formats.
   Future<File> audioFile(String soundId) async {
     final dir = await packageDir(soundId);
-    final wav = File(_join(dir, 'audio.wav'));
-    if (await wav.exists()) return wav;
+    for (final name in _audioPackageNames) {
+      final file = File(_join(dir, name));
+      if (await file.exists()) return file;
+    }
     return File(_join(dir, 'audio.m4a'));
   }
 
@@ -64,10 +66,25 @@ class SoundPackageStore {
   static String _audioPackageName(String sourcePath) {
     final lower = sourcePath.toLowerCase();
     if (lower.endsWith('.wav')) return 'audio.wav';
+    if (lower.endsWith('.ogg')) return 'audio.ogg';
+    if (lower.endsWith('.mp3')) return 'audio.mp3';
+    if (lower.endsWith('.aac')) return 'audio.aac';
+    if (lower.endsWith('.flac')) return 'audio.flac';
+    if (lower.endsWith('.caf')) return 'audio.caf';
     return 'audio.m4a';
   }
 
-  /// Move/copy [sourceAudio] into package as audio.wav / audio.m4a; write features.
+  static const _audioPackageNames = [
+    'audio.wav',
+    'audio.m4a',
+    'audio.ogg',
+    'audio.mp3',
+    'audio.aac',
+    'audio.flac',
+    'audio.caf',
+  ];
+
+  /// Move/copy [sourceAudio] into package under a canonical audio name.
   Future<SoundPackagePaths> materialize({
     required String soundId,
     required String sourceAudioPath,
@@ -78,7 +95,7 @@ class SoundPackageStore {
     final src = File(sourceAudioPath);
     if (src.path != audio.path) {
       // Drop sibling legacy/new audio so only one canonical file remains.
-      for (final name in ['audio.wav', 'audio.m4a']) {
+      for (final name in _audioPackageNames) {
         final sibling = File(_join(dir, name));
         if (sibling.path != audio.path && await sibling.exists()) {
           try {

@@ -62,9 +62,9 @@ class SoundMemory {
     this.visualBakeStatus = VisualBakeStatus.none,
     this.visualBakeError,
     this.rendererVersion = kSoundVisualRendererVersion,
-  })  : id = id ?? _newId(),
-        recordedAt = recordedAt ?? DateTime.now(),
-        visualSeed = visualSeed ?? DateTime.now().millisecondsSinceEpoch % 10000;
+  }) : id = id ?? _newId(),
+       recordedAt = recordedAt ?? DateTime.now(),
+       visualSeed = visualSeed ?? DateTime.now().millisecondsSinceEpoch % 10000;
 
   static final _rng = Random();
   static String _newId() =>
@@ -82,12 +82,14 @@ class SoundMemory {
   final SoundStatus status;
   final int visualSeed;
   final String? discId;
+
   /// 由实体声片出厂决定；Draft 阶段为 null（待揭晓）。
   final DiscRarity? discRarity;
   final String? discSeries;
   final String? assetId;
   final String? audioPath;
   final String? nfcTagId;
+
   /// Hardware device that performed NFC write (path B), if any.
   final String? boundDeviceId;
   final DateTime? pressedAt;
@@ -96,13 +98,17 @@ class SoundMemory {
   final String? contractLabel;
   final String? tokenId;
   final String? txHash;
+
   /// Cloud Media content_id (32-hex).
   final String? contentId;
   final String? nfcUrl;
+
   /// Wire state: UPLOADED / PROCESSING / READY / FAILED / DELETED
   final String? cloudState;
+
   /// Remote URL of the 3D visual JSON (cloud-produced, re-fetchable).
   final String? visualUrl;
+
   /// Local cached path of the visual JSON.
   final String? visualPath;
 
@@ -125,8 +131,7 @@ class SoundMemory {
   /// Draft / 未绑定时展示「待揭晓」。
   bool get rarityPending => discRarity == null;
 
-  String get rarityDisplayLabel =>
-      discRarity?.headline ?? '待揭晓';
+  String get rarityDisplayLabel => discRarity?.headline ?? '待揭晓';
 
   SoundMemory copyWith({
     String? title,
@@ -212,10 +217,7 @@ const int kCategoryNameMaxLength = 12;
 
 /// Collection 按分类聚合的一组收藏（瀑布流胶囊单元）。
 class CollectionGroup {
-  const CollectionGroup({
-    required this.category,
-    required this.items,
-  });
+  const CollectionGroup({required this.category, required this.items});
 
   final String category;
   final List<SoundMemory> items;
@@ -446,7 +448,7 @@ class SoundRepository extends ChangeNotifier {
     draftsEmptyKind = null;
     _everHadDrafts = true;
     _ensureCategoryPresent(memory.category);
-    _sounds.insert(0, memory.copyWith(status: SoundStatus.drafted));
+    _sounds.insert(0, memory);
     notifyListeners();
   }
 
@@ -582,7 +584,6 @@ class SoundRepository extends ChangeNotifier {
   void markWriteFailed(String id) {
     update(id, (s) => s.copyWith(status: SoundStatus.writeFailed));
   }
-
 
   /// 后台管道：开始上传，进入处理中。
   void markUploading(String id) {
@@ -728,14 +729,13 @@ class SoundRepository extends ChangeNotifier {
     }
     for (final s in List<SoundMemory>.from(_sounds)) {
       if (s.visualUrl != null && s.visualPath == null && s.contentId != null) {
-        unawaited(VisualShapeService.instance
-            .cacheFromUrl(
-              contentId: s.contentId!,
-              url: s.visualUrl!,
-            )
-            .then((p) {
-          if (p != null) update(s.id, (c) => c.copyWith(visualPath: p));
-        }));
+        unawaited(
+          VisualShapeService.instance
+              .cacheFromUrl(contentId: s.contentId!, url: s.visualUrl!)
+              .then((p) {
+                if (p != null) update(s.id, (c) => c.copyWith(visualPath: p));
+              }),
+        );
       }
     }
     notifyListeners();

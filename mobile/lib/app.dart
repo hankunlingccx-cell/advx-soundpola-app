@@ -9,6 +9,7 @@ import 'lab/beat_ai_api_config.dart';
 import 'router/app_router.dart';
 import 'services/auth_service.dart';
 import 'services/deep_link_service.dart';
+import 'services/ring_recording_service.dart';
 import 'theme/app_theme.dart';
 
 class SoundpolaApp extends StatefulWidget {
@@ -28,6 +29,7 @@ class _SoundpolaAppState extends State<SoundpolaApp> {
   @override
   void initState() {
     super.initState();
+    AuthService.instance.addListener(_syncRingRecording);
     _boot();
   }
 
@@ -46,7 +48,10 @@ class _SoundpolaAppState extends State<SoundpolaApp> {
     await SoundRepository.instance.init();
     await DeepLinkService.instance.init(_router);
     await _resolveMicConsent();
-    if (mounted) setState(() => _booting = false);
+    if (mounted) {
+      setState(() => _booting = false);
+      _syncRingRecording();
+    }
   }
 
   Future<void> _resolveMicConsent() async {
@@ -62,10 +67,20 @@ class _SoundpolaAppState extends State<SoundpolaApp> {
 
   @override
   void dispose() {
+    AuthService.instance.removeListener(_syncRingRecording);
+    RingRecordingService.instance.stop();
     DeepLinkService.instance.dispose();
     _consented.dispose();
     _router.dispose();
     super.dispose();
+  }
+
+  void _syncRingRecording() {
+    if (_booting || !AuthService.instance.isLoggedIn) {
+      RingRecordingService.instance.stop();
+      return;
+    }
+    RingRecordingService.instance.start(_router);
   }
 
   @override
