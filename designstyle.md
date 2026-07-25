@@ -478,11 +478,13 @@ Record
 
 Drafts
 
-声音缩略图
+上下分区写入工作台（机器在上、卡片托盘在下）
 
-播放与 Press
+拟物写入机 + 横向错位暂存卡片
 
-描述摘要
+由下向上拖入插槽发起 Press
+
+圆形贴图环形播放进度 · 稀有度待揭晓
 
 Press
 
@@ -496,17 +498,11 @@ Collection
 
 分类胶囊叠片 + 双列瀑布流
 
-声片抽象贴图（种子随机）+ 顶部色层分类名
+玻璃拟物跑道 + 稳定声片贴图
 
-NFT 技术字段放 Memory
+分类声片播放页（环形进度 + 横向堆叠 + 完整记忆）
 
-Memory
-
-动态声音视觉
-
-记忆文本
-
-链上细节
+声片／NFT 信息折叠展示
 
 Account
 
@@ -633,13 +629,21 @@ RecordControl
 
 录音、暂停、继续、完成
 
-SoundCard
+SoundCard / DraftTrayCard
 
-Draft 视觉卡片
+Draft 横向错位暂存卡片（圆形贴图 + 环形进度）
+
+PressMachine
+
+拟物化声音写入机器（底部朝下插槽 + 像素状态屏）
 
 CollectionCapsule
 
-Collection 分类叠片胶囊（瀑布流单元）
+Collection 玻璃拟物分类跑道（瀑布流单元）
+
+CategoryPlayStage
+
+分类播放页：圆形声音可视化舞台 + 横向三维声片堆栈
 
 PlaybackBar
 
@@ -669,7 +673,7 @@ AssetCredentialPanel
 
 默认折叠的 NFT 技术信息
 
-Draft 使用 SoundCard；Collection 使用分类胶囊叠片（CollectionCapsule），不再复用同一套网格卡片骨架。
+Draft 使用横向错位托盘卡片（DraftTrayCard）+ 拟物写入机（PressMachine）；Collection 使用分类胶囊叠片（CollectionCapsule），不再复用同一套网格卡片骨架。
 
 12.4 响应式与设备适配
 

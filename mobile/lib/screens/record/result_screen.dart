@@ -194,6 +194,13 @@ class _ResultScreenState extends State<ResultScreen> {
               maxLength: 200,
             ),
             const SizedBox(height: AppSpacing.block),
+            const MetaRow(label: '声片稀有度', value: '待揭晓'),
+            const SizedBox(height: 6),
+            const Text(
+              '稀有度由实体声片决定，写入声片时揭晓',
+              style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+            ),
+            const SizedBox(height: AppSpacing.item),
             SecondaryButton(text: '重新录制', onPressed: widget.onReRecord),
             const SizedBox(height: AppSpacing.tight),
             PrimaryButton(text: '保存至 Drafts', onPressed: _save),

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'dart:math';
 import '../cloud/cloud_media_models.dart';
+import 'disc_rarity.dart';
 
 enum SoundStatus {
   drafted,
@@ -24,6 +25,8 @@ class SoundMemory {
     this.status = SoundStatus.drafted,
     int? visualSeed,
     this.discId,
+    this.discRarity,
+    this.discSeries,
     this.assetId,
     this.audioPath,
     this.nfcTagId,
@@ -56,6 +59,9 @@ class SoundMemory {
   final SoundStatus status;
   final int visualSeed;
   final String? discId;
+  /// 由实体声片出厂决定；Draft 阶段为 null（待揭晓）。
+  final DiscRarity? discRarity;
+  final String? discSeries;
   final String? assetId;
   final String? audioPath;
   final String? nfcTagId;
@@ -71,12 +77,20 @@ class SoundMemory {
   /// Wire state: UPLOADED / PROCESSING / READY / FAILED / DELETED
   final String? cloudState;
 
+  /// Draft / 未绑定时展示「待揭晓」。
+  bool get rarityPending => discRarity == null;
+
+  String get rarityDisplayLabel =>
+      discRarity?.headline ?? '待揭晓';
+
   SoundMemory copyWith({
     String? title,
     String? category,
     String? description,
     SoundStatus? status,
     String? discId,
+    DiscRarity? discRarity,
+    String? discSeries,
     String? assetId,
     String? audioPath,
     String? nfcTagId,
@@ -102,6 +116,8 @@ class SoundMemory {
       status: status ?? this.status,
       visualSeed: visualSeed,
       discId: discId ?? this.discId,
+      discRarity: discRarity ?? this.discRarity,
+      discSeries: discSeries ?? this.discSeries,
       assetId: assetId ?? this.assetId,
       audioPath: audioPath ?? this.audioPath,
       nfcTagId: nfcTagId ?? this.nfcTagId,
@@ -185,6 +201,8 @@ class SoundRepository extends ChangeNotifier {
       locationLabel: '大理',
       status: SoundStatus.chainFailed,
       discId: 'SP-2026-0312-C2',
+      discRarity: DiscRarity.sr,
+      discSeries: 'Genesis-01',
       visualSeed: 4412,
     ),
     SoundMemory(
@@ -195,6 +213,8 @@ class SoundRepository extends ChangeNotifier {
       locationLabel: '首尔 · 汉江',
       status: SoundStatus.collected,
       discId: 'SP-2026-0718-A3',
+      discRarity: DiscRarity.ssr,
+      discSeries: 'Genesis-01',
       assetId: '0x8f2a…c91',
       visualSeed: 7788,
     ),
@@ -205,6 +225,8 @@ class SoundRepository extends ChangeNotifier {
       durationSec: 9,
       status: SoundStatus.collected,
       discId: 'SP-2026-0702-B1',
+      discRarity: DiscRarity.r,
+      discSeries: 'Genesis-01',
       assetId: '0x11cd…90e',
       visualSeed: 5521,
     ),
@@ -215,6 +237,8 @@ class SoundRepository extends ChangeNotifier {
       locationLabel: '成都 · 宽窄巷',
       status: SoundStatus.collected,
       discId: 'SP-2026-0611-D4',
+      discRarity: DiscRarity.n,
+      discSeries: 'Everyday-02',
       assetId: '0x3ab1…e02',
       visualSeed: 2109,
     ),
@@ -225,6 +249,8 @@ class SoundRepository extends ChangeNotifier {
       locationLabel: '东京',
       status: SoundStatus.collected,
       discId: 'SP-2026-0520-E1',
+      discRarity: DiscRarity.sr,
+      discSeries: 'City-03',
       assetId: '0x77c0…a14',
       visualSeed: 8831,
     ),
@@ -235,6 +261,8 @@ class SoundRepository extends ChangeNotifier {
       locationLabel: '厦门 · 环岛路',
       status: SoundStatus.collected,
       discId: 'SP-2026-0418-N2',
+      discRarity: DiscRarity.r,
+      discSeries: 'Nature-01',
       assetId: '0x90fe…b33',
       visualSeed: 3012,
     ),
@@ -245,6 +273,8 @@ class SoundRepository extends ChangeNotifier {
       locationLabel: '莫干山',
       status: SoundStatus.collected,
       discId: 'SP-2026-0801-N7',
+      discRarity: DiscRarity.ssr,
+      discSeries: 'Nature-01',
       assetId: '0x12aa…d80',
       visualSeed: 6644,
     ),
@@ -255,6 +285,8 @@ class SoundRepository extends ChangeNotifier {
       locationLabel: '家中',
       status: SoundStatus.collected,
       discId: 'SP-2026-0303-F2',
+      discRarity: DiscRarity.n,
+      discSeries: 'Everyday-02',
       assetId: '0x55d1…c07',
       visualSeed: 1455,
     ),
@@ -265,6 +297,8 @@ class SoundRepository extends ChangeNotifier {
       locationLabel: '家中厨房',
       status: SoundStatus.collected,
       discId: 'SP-2026-0228-F5',
+      discRarity: DiscRarity.n,
+      discSeries: 'Everyday-02',
       assetId: '0xabe2…119',
       visualSeed: 9201,
     ),
@@ -275,6 +309,8 @@ class SoundRepository extends ChangeNotifier {
       locationLabel: '瑞士',
       status: SoundStatus.collected,
       discId: 'SP-2026-0912-T1',
+      discRarity: DiscRarity.sr,
+      discSeries: 'Travel-04',
       assetId: '0x44f9…882',
       visualSeed: 4770,
     ),
@@ -285,6 +321,8 @@ class SoundRepository extends ChangeNotifier {
       locationLabel: '浦东 T2',
       status: SoundStatus.collected,
       discId: 'SP-2026-0915-T3',
+      discRarity: DiscRarity.r,
+      discSeries: 'Travel-04',
       assetId: '0x6c01…fe4',
       visualSeed: 5882,
     ),
@@ -295,6 +333,8 @@ class SoundRepository extends ChangeNotifier {
       locationLabel: '京都',
       status: SoundStatus.collected,
       discId: 'SP-2026-1002-T8',
+      discRarity: DiscRarity.ssr,
+      discSeries: 'Travel-04',
       assetId: '0xd3a0…651',
       visualSeed: 2399,
     ),
@@ -305,6 +345,8 @@ class SoundRepository extends ChangeNotifier {
       locationLabel: '上海 · 咖啡馆',
       status: SoundStatus.collected,
       discId: 'SP-2026-0709-B3',
+      discRarity: DiscRarity.r,
+      discSeries: 'Genesis-01',
       assetId: '0x81bc…330',
       visualSeed: 7110,
     ),
@@ -396,6 +438,8 @@ class SoundRepository extends ChangeNotifier {
     String? contentId,
     String? nfcUrl,
     String? cloudState,
+    DiscRarity? discRarity,
+    String? discSeries,
   }) {
     final now = DateTime.now();
     update(
@@ -413,11 +457,19 @@ class SoundRepository extends ChangeNotifier {
         contentId: contentId ?? s.contentId,
         nfcUrl: nfcUrl ?? s.nfcUrl,
         cloudState: cloudState ?? s.cloudState ?? 'READY',
+        discRarity: discRarity ?? s.discRarity,
+        discSeries: discSeries ?? s.discSeries,
       ),
     );
   }
 
-  void markChainFailed(String id, String discId, {String? nfcTagId}) {
+  void markChainFailed(
+    String id,
+    String discId, {
+    String? nfcTagId,
+    DiscRarity? discRarity,
+    String? discSeries,
+  }) {
     update(
       id,
       (s) => s.copyWith(
@@ -425,6 +477,8 @@ class SoundRepository extends ChangeNotifier {
         discId: discId,
         nfcTagId: nfcTagId ?? s.nfcTagId,
         pressedAt: s.pressedAt ?? DateTime.now(),
+        discRarity: discRarity ?? s.discRarity,
+        discSeries: discSeries ?? s.discSeries,
       ),
     );
   }

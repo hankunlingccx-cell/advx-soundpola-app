@@ -7,10 +7,13 @@ abstract final class AppRoutes {
   static const draftDetail = '/draft/:id';
   static const pressMethod = '/press/method/:id';
   static const pressDetect = '/press/detect/:id';
+  static const pressReveal = '/press/reveal/:id';
   static const pressConfirm = '/press/confirm/:id';
   static const pressProgress = '/press/progress/:id';
   static const pressDone = '/press/done/:id';
-  static const memory = '/memory/:id';
+  /// 分类播放页：Category 声片浏览 + 播放 + 记忆 + 声片/数字资产信息一体化。
+  /// 分类名走 path（Uri 编码，兼容中文），soundId 走 query。
+  static const categoryPlay = '/collection/category/:categoryId';
   static const login = '/auth/login';
   static const register = '/auth/register';
   static const accountReady = '/auth/account-ready';
@@ -26,7 +29,17 @@ abstract final class AppRoutes {
   static String pressMethodPath(String id, {bool chainOnly = false}) =>
       chainOnly ? '/press/method/$id?chainOnly=1' : '/press/method/$id';
   static String pressDetectPath(String id) => '/press/detect/$id';
+  static String pressRevealPath(String id) => '/press/reveal/$id';
   static String pressConfirmPath(String id) => '/press/confirm/$id';
   static String pressDonePath(String id) => '/press/done/$id';
-  static String memoryPath(String id) => '/memory/$id';
+
+  /// 生成分类播放页路径；分类名用 [Uri.encodeComponent] 编码以兼容中文。
+  /// 读取端直接用 `state.pathParameters`（已解码），不要再 decodeComponent。
+  static String categoryPlayPath(String category, {String? soundId}) {
+    final encodedCategory = Uri.encodeComponent(category);
+    final query = (soundId != null && soundId.isNotEmpty)
+        ? '?soundId=${Uri.encodeComponent(soundId)}'
+        : '';
+    return '/collection/category/$encodedCategory$query';
+  }
 }

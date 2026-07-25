@@ -7,7 +7,10 @@ import 'package:nfc_manager/nfc_manager.dart';
 import 'package:nfc_manager/nfc_manager_android.dart';
 import 'package:nfc_manager/nfc_manager_ios.dart';
 
+import '../data/disc_rarity.dart';
+
 const soundpolaMimeType = 'application/vnd.soundpola+json';
+const soundpolaFactoryMimeType = 'application/vnd.soundpola.factory+json';
 
 enum NfcDeviceStatus {
   available,
@@ -22,6 +25,8 @@ class NfcBinding {
     required this.title,
     this.contentId,
     this.nfcUrl,
+    this.rarity,
+    this.series,
   });
 
   final String soundId;
@@ -31,14 +36,18 @@ class NfcBinding {
   final String? contentId;
   /// Absolute NFC resolve URL from ContentSummary.nfc_url when READY.
   final String? nfcUrl;
+  final DiscRarity? rarity;
+  final String? series;
 
   Map<String, dynamic> toJson() => {
-        'v': 2,
+        'v': 3,
         'soundId': soundId,
         'discId': discId,
         'title': title,
         if (contentId != null) 'contentId': contentId,
         if (nfcUrl != null) 'nfcUrl': nfcUrl,
+        if (rarity != null) 'rarity': rarity!.code,
+        if (series != null) 'series': series,
       };
 
   static NfcBinding? fromJson(Map<String, dynamic> json) {
@@ -51,6 +60,8 @@ class NfcBinding {
       title: json['title'] as String? ?? '',
       contentId: json['contentId'] as String? ?? json['content_id'] as String?,
       nfcUrl: json['nfcUrl'] as String? ?? json['nfc_url'] as String?,
+      rarity: DiscRarity.tryParse(json['rarity'] as String?),
+      series: json['series'] as String? ?? json['batch'] as String?,
     );
   }
 }
@@ -89,7 +100,9 @@ class NfcService {
   String generateDiscId(String tagIdHex) {
     final now = DateTime.now();
     final compact = tagIdHex.replaceAll(':', '');
-    final tail = compact.length > 4 ? compact.substring(compact.length - 4) : compact.padLeft(4, '0');
+    final tail = compact.length > 4
+        ? compact.substring(compact.length - 4)
+        : compact.padLeft(4, '0');
     return 'SP-${now.year}-${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-$tail';
   }
 
@@ -110,9 +123,53 @@ class NfcService {
     return null;
   }
 
+  /// 读取出厂声片档案；无正式记录时用 tagId 派生演示档案（仅开发）。
+  Future<DiscFactoryProfile?> readFactoryProfile(
+    NfcTag tag, {
+    bool allowDemoFallback = true,
+  }) async {
+    final message = await _readMessage(tag) ?? _cachedMessage(tag);
+    if (message != null) {
+      final factory = _parseFactory(message);
+      if (factory != null) {
+        if (!factory.isAuthentic) {
+          throw StateError('声片防伪校验失败');
+        }
+        return factory;
+      }
+    }
+    if (!allowDemoFallback) return null;
+    final tagId = tagIdHex(tag);
+    final demo = DiscFactoryProfile.demoFromTagId(tagId);
+    if (!demo.isAuthentic) {
+      throw StateError('声片防伪校验失败');
+    }
+    return demo;
+  }
+
   Future<bool> canWriteTag(NfcTag tag) async {
     if (await readBinding(tag) != null) return false;
     return _isWritable(tag);
+  }
+
+  NdefMessage? _cachedMessage(NfcTag tag) {
+    if (Platform.isAndroid) return NdefAndroid.from(tag)?.cachedNdefMessage;
+    if (Platform.isIOS) return NdefIos.from(tag)?.cachedNdefMessage;
+    return null;
+  }
+
+  DiscFactoryProfile? _parseFactory(NdefMessage message) {
+    for (final record in message.records) {
+      if (record.typeNameFormat == TypeNameFormat.media &&
+          utf8.decode(record.type) == soundpolaFactoryMimeType) {
+        try {
+          final json =
+              jsonDecode(utf8.decode(record.payload)) as Map<String, dynamic>;
+          return DiscFactoryProfile.fromJson(json);
+        } catch (_) {}
+      }
+    }
+    return null;
   }
 
   NfcBinding? _parseBinding(NdefMessage message) {
@@ -120,7 +177,8 @@ class NfcService {
       if (record.typeNameFormat == TypeNameFormat.media &&
           utf8.decode(record.type) == soundpolaMimeType) {
         try {
-          final json = jsonDecode(utf8.decode(record.payload)) as Map<String, dynamic>;
+          final json =
+              jsonDecode(utf8.decode(record.payload)) as Map<String, dynamic>;
           return NfcBinding.fromJson(json);
         } catch (_) {}
       }
@@ -163,6 +221,9 @@ class NfcService {
     required String title,
     String? contentId,
     String? nfcUrl,
+    DiscRarity? rarity,
+    String? series,
+    DiscFactoryProfile? factory,
   }) async {
     final writable = await _isWritable(tag);
     if (!writable) {
@@ -174,15 +235,48 @@ class NfcService {
       title: title,
       contentId: contentId,
       nfcUrl: nfcUrl,
+      rarity: rarity,
+      series: series,
     );
-    final records = <NdefRecord>[
+    final records = <NdefRecord>[];
+
+    final factoryRecord = factory?.copyWith(bound: true) ??
+        (rarity != null
+            ? DiscFactoryProfile(
+                discId: discId,
+                rarity: rarity,
+                series: series ?? 'Unknown',
+                signature: DiscFactoryProfile.computeSignature(
+                  discId: discId,
+                  rarity: rarity,
+                  series: series ?? 'Unknown',
+                  demo: true,
+                ),
+                bound: true,
+                demo: true,
+              )
+            : null);
+    if (factoryRecord != null) {
+      records.add(
+        NdefRecord(
+          typeNameFormat: TypeNameFormat.media,
+          type: Uint8List.fromList(utf8.encode(soundpolaFactoryMimeType)),
+          identifier: Uint8List(0),
+          payload: Uint8List.fromList(
+            utf8.encode(jsonEncode(factoryRecord.toJson())),
+          ),
+        ),
+      );
+    }
+
+    records.add(
       NdefRecord(
         typeNameFormat: TypeNameFormat.media,
         type: Uint8List.fromList(utf8.encode(soundpolaMimeType)),
         identifier: Uint8List(0),
         payload: Uint8List.fromList(utf8.encode(jsonEncode(binding.toJson()))),
       ),
-    ];
+    );
     // Prefer URI for Trigger boards that resolve nfc_url; keep text fallback.
     final uri = nfcUrl;
     if (uri != null && uri.isNotEmpty) {

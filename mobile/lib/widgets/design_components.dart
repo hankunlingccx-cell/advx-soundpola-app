@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../data/disc_rarity.dart';
 import '../data/sound_repository.dart';
 import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
@@ -121,6 +122,74 @@ class StatusChip extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.w500),
+      ),
+    );
+  }
+}
+
+/// 稀有度角标；null / pending 显示「待揭晓」。
+class RarityChip extends StatelessWidget {
+  const RarityChip({
+    super.key,
+    this.rarity,
+    this.pending = false,
+    this.compact = false,
+  });
+
+  final DiscRarity? rarity;
+  final bool pending;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final showPending = pending || rarity == null;
+    final label = showPending ? '待揭晓' : rarity!.code;
+    final Color fg;
+    final Color bg;
+    if (showPending) {
+      fg = AppColors.textTertiary;
+      bg = AppColors.surface2;
+    } else {
+      (bg, fg) = switch (rarity!) {
+        DiscRarity.n => (
+            AppColors.surface2,
+            AppColors.textSecondary,
+          ),
+        DiscRarity.r => (
+            AppColors.accent.withValues(alpha: 0.12),
+            AppColors.accent,
+          ),
+        DiscRarity.sr => (
+            const Color(0xFF4FA9E8).withValues(alpha: 0.16),
+            const Color(0xFF4FA9E8),
+          ),
+        DiscRarity.ssr => (
+            AppColors.accent.withValues(alpha: 0.22),
+            AppColors.accent,
+          ),
+      };
+    }
+    return Container(
+      height: compact ? 22 : AppSizes.statusChipHeight,
+      padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(50),
+        border: Border.all(
+          color: showPending
+              ? AppColors.borderSubtle
+              : fg.withValues(alpha: 0.35),
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: TextStyle(
+          color: fg,
+          fontSize: compact ? 11 : 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: showPending ? 0 : 0.4,
+        ),
       ),
     );
   }

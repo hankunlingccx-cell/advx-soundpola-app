@@ -5,6 +5,7 @@ import '../data/session.dart';
 import '../data/sound_repository.dart';
 import '../screens/account/account_screen.dart';
 import '../screens/auth/auth_screens.dart';
+import '../screens/collection/category_play_screen.dart';
 import '../screens/collection/collection_screen.dart';
 import '../screens/drafts/drafts_screen.dart';
 import '../screens/press/press_screens.dart';
@@ -168,6 +169,18 @@ GoRouter createRouter() {
                 id: id,
                 onBack: () => context.pop(),
                 onDetected: () =>
+                    context.pushReplacement(AppRoutes.pressRevealPath(id)),
+              );
+            },
+          ),
+          GoRoute(
+            path: AppRoutes.pressReveal,
+            builder: (context, state) {
+              final id = state.pathParameters['id']!;
+              return PressRevealScreen(
+                id: id,
+                onBack: () => context.pop(),
+                onConfirm: () =>
                     context.pushReplacement(AppRoutes.pressConfirmPath(id)),
               );
             },
@@ -205,16 +218,24 @@ GoRouter createRouter() {
               return PressDoneScreen(
                 id: id,
                 onCollection: () => context.go(AppRoutes.mainTab(2)),
-                onMemory: () => context.push(AppRoutes.memoryPath(id)),
+                onOpenCategoryPlay: (category) {
+                  context.go(
+                    AppRoutes.categoryPlayPath(category, soundId: id),
+                  );
+                },
               );
             },
           ),
           GoRoute(
-            path: AppRoutes.memory,
+            path: AppRoutes.categoryPlay,
             builder: (context, state) {
-              final id = state.pathParameters['id']!;
-              return MemoryScreen(
-                id: id,
+              // go_router 已对 path 参数做百分号解码；不可再 Uri.decodeComponent，
+              // 否则中文等非 ASCII 会抛 Illegal percent encoding in URI。
+              final category = state.pathParameters['categoryId'] ?? '';
+              final soundId = state.uri.queryParameters['soundId'];
+              return CategoryPlayScreen(
+                category: category,
+                initialSoundId: soundId,
                 onBack: () => context.pop(),
               );
             },
@@ -275,7 +296,11 @@ class _MainShellState extends State<MainShell> {
             onLogin: () => context.push(AppRoutes.login),
           ),
           CollectionScreen(
-            onOpenMemory: (id) => context.push(AppRoutes.memoryPath(id)),
+            onOpenCategoryPlay: (category, {String? soundId}) {
+              context.push(
+                AppRoutes.categoryPlayPath(category, soundId: soundId),
+              );
+            },
             onLogin: () => context.push(AppRoutes.login),
           ),
         ],

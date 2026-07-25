@@ -1,34 +1,26 @@
+import 'dart:math' as math;
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../cloud/cloud_media_client.dart';
+import '../../data/disc_rarity.dart';
 import '../../data/sound_repository.dart';
-import '../../services/audio_playback_service.dart';
 import '../../services/auth_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
+import '../../widgets/disc_texture.dart';
 import '../../widgets/sound_visual.dart';
+import '../../widgets/ssr_aura_layer.dart';
 
-/// 分类胶囊（对齐 Figma 100:1023）+ 顶部色层承载分类名。
-const _capsuleFill = Color(0xFF2F2F2F);
-const _capsuleStroke = Color(0x3AFFFFFF); // rgba(255,255,255,0.23)
+/// 玻璃跑道胶囊色值（半透明，配合 BackdropFilter）。
+const _capsuleGlassTop = Color(0xCC3A3A3A);
+const _capsuleGlassBottom = Color(0xB31C1C1C);
+const _capsuleStroke = Color(0x59FFFFFF);
+const _capsuleStrokeInner = Color(0x1AFFFFFF);
 const _discFill = Color(0xFF8B8B8B);
-const _discShadow = Color(0x1A000000);
-
-/// 声片贴图资源；按 visualSeed 稳定映射，表现为随机赋予。
-const _discTextures = [
-  'assets/disc_textures/disc_01.png',
-  'assets/disc_textures/disc_02.png',
-  'assets/disc_textures/disc_03.png',
-  'assets/disc_textures/disc_04.png',
-  'assets/disc_textures/disc_05.png',
-  'assets/disc_textures/disc_06.png',
-  'assets/disc_textures/disc_07.png',
-];
-
-String _discTextureFor(int visualSeed) =>
-    _discTextures[visualSeed.abs() % _discTextures.length];
-
+const _discShadow = Color(0x40000000);
 
 /// 稿面：圆片 140、重叠 80、内边距 16；顶部色层放分类名。
 const _discSize = 140.0;
@@ -38,14 +30,16 @@ const _labelBlock = 36.0;
 const _columnGap = 10.0;
 const _emptyCapsuleMinHeight = 120.0;
 
+typedef OpenCategoryPlay = void Function(String category, {String? soundId});
+
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({
     super.key,
-    required this.onOpenMemory,
+    required this.onOpenCategoryPlay,
     required this.onLogin,
   });
 
-  final ValueChanged<String> onOpenMemory;
+  final OpenCategoryPlay onOpenCategoryPlay;
   final VoidCallback onLogin;
 
   @override
@@ -96,102 +90,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
     } finally {
       if (mounted) setState(() => _syncing = false);
     }
-  }
-
-  void _openGroupSheet(CollectionGroup group) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: AppColors.surface1,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppRadii.sheet),
-        ),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.pageHorizontal,
-              AppSpacing.item,
-              AppSpacing.pageHorizontal,
-              AppSpacing.section,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.border,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.item),
-                Text(
-                  group.category,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${group.count} 段收藏',
-                  style: const TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.item),
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.sizeOf(context).height * 0.5,
-                  ),
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: group.items.length,
-                    separatorBuilder: (_, _) => const Divider(
-                      height: 1,
-                      color: AppColors.borderSubtle,
-                    ),
-                    itemBuilder: (context, index) {
-                      final item = group.items[index];
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: _DiscDot(textureAsset: _discTextureFor(item.visualSeed)),
-                        title: Text(
-                          item.title,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        subtitle: Text(
-                          '${formatDuration(item.durationSec)} · ${item.locationLabel}',
-                          style: const TextStyle(
-                            color: AppColors.textTertiary,
-                            fontSize: 12,
-                          ),
-                        ),
-                        onTap: () {
-                          Navigator.pop(context);
-                          widget.onOpenMemory(item.id);
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
   }
 
   @override
@@ -268,8 +166,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                               color: AppColors.accent,
                               child: _CollectionWaterfall(
                                 groups: groups,
-                                onOpenMemory: widget.onOpenMemory,
-                                onOpenGroup: _openGroupSheet,
+                                onOpenCategoryPlay: widget.onOpenCategoryPlay,
                                 onMoveToCategory: (id, category) {
                                   SoundRepository.instance
                                       .updateCategory(id, category);
@@ -327,14 +224,12 @@ List<List<CollectionGroup>> _splitMasonry(
 class _CollectionWaterfall extends StatefulWidget {
   const _CollectionWaterfall({
     required this.groups,
-    required this.onOpenMemory,
-    required this.onOpenGroup,
+    required this.onOpenCategoryPlay,
     required this.onMoveToCategory,
   });
 
   final List<CollectionGroup> groups;
-  final ValueChanged<String> onOpenMemory;
-  final ValueChanged<CollectionGroup> onOpenGroup;
+  final OpenCategoryPlay onOpenCategoryPlay;
   final void Function(String soundId, String category) onMoveToCategory;
 
   @override
@@ -374,19 +269,46 @@ class _CollectionWaterfallState extends State<_CollectionWaterfall> {
     return Column(
       children: [
         if (dragging)
-          const Padding(
-            padding: EdgeInsets.fromLTRB(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
               AppSpacing.pageHorizontal,
               0,
               AppSpacing.pageHorizontal,
               8,
             ),
-            child: Text(
-              '拖到目标分类跑道松开',
-              style: TextStyle(
-                color: AppColors.accent,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    gradient: LinearGradient(
+                      colors: [
+                        AppColors.accent.withValues(alpha: 0.18),
+                        AppColors.accent.withValues(alpha: 0.08),
+                      ],
+                    ),
+                    border: Border.all(
+                      color: AppColors.accent.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  child: const Text(
+                    '拖到目标分类跑道松开',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.accentSoft,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -416,9 +338,16 @@ class _CollectionWaterfallState extends State<_CollectionWaterfall> {
                             highlighted: _hoverCategory == group.category,
                             onOpenGroup: () {
                               if (_draggingId != null) return;
-                              widget.onOpenGroup(group);
+                              // 点击分类跑道 → 进入该分类声片播放页
+                              widget.onOpenCategoryPlay(group.category);
                             },
-                            onOpenMemory: widget.onOpenMemory,
+                            onOpenDisc: (soundId) {
+                              if (_draggingId != null) return;
+                              widget.onOpenCategoryPlay(
+                                group.category,
+                                soundId: soundId,
+                              );
+                            },
                             onDragStarted: _onDragStarted,
                             onDragEnded: _onDragEnded,
                             onHoverChanged: (active) {
@@ -453,12 +382,12 @@ class _CollectionWaterfallState extends State<_CollectionWaterfall> {
   }
 }
 
-/// 分组样式：#2F2F2F 跑道胶囊 + 灰圆叠片；顶部叠色层显示分类名。
+/// 分组样式：玻璃拟物跑道 + 声片叠放；顶部玻璃罩显示分类名。
 class _CategoryCapsule extends StatelessWidget {
   const _CategoryCapsule({
     required this.group,
     required this.onOpenGroup,
-    required this.onOpenMemory,
+    required this.onOpenDisc,
     required this.onDragStarted,
     required this.onDragEnded,
     required this.onHoverChanged,
@@ -471,7 +400,7 @@ class _CategoryCapsule extends StatelessWidget {
   final String? draggingId;
   final bool highlighted;
   final VoidCallback onOpenGroup;
-  final ValueChanged<String> onOpenMemory;
+  final ValueChanged<String> onOpenDisc;
   final ValueChanged<String> onDragStarted;
   final VoidCallback onDragEnded;
   final ValueChanged<bool> onHoverChanged;
@@ -488,7 +417,10 @@ class _CategoryCapsule extends StatelessWidget {
         return item.category != group.category;
       },
       onMove: (_) {
-        if (!highlighted) onHoverChanged(true);
+        if (!highlighted) {
+          HapticFeedback.selectionClick();
+          onHoverChanged(true);
+        }
       },
       onLeave: (_) => onHoverChanged(false),
       onAcceptWithDetails: (details) {
@@ -498,156 +430,254 @@ class _CategoryCapsule extends StatelessWidget {
       builder: (context, candidateData, rejectedData) {
         final hot = highlighted || candidateData.isNotEmpty;
         return GestureDetector(
-          onTap: onOpenGroup,
+          onTap: () {
+            HapticFeedback.lightImpact();
+            onOpenGroup();
+          },
           child: Semantics(
             label: '${group.category}，$count 段收藏',
             button: true,
-            child: AnimatedContainer(
+            child: AnimatedScale(
+              scale: hot ? 1.02 : 1.0,
               duration: AppMotion.fast,
-              width: double.infinity,
-              // 描边与光晕放在外层，避免 clip 裁掉导致高亮断裂
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(100),
-                border: Border.all(
-                  color: hot ? AppColors.accent : _capsuleStroke,
-                  width: hot ? 2 : 1,
+              curve: Curves.easeOutCubic,
+              child: AnimatedContainer(
+                duration: AppMotion.normal,
+                curve: Curves.easeOutCubic,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(100),
+                  border: Border.all(
+                    color: hot
+                        ? AppColors.accent.withValues(alpha: 0.9)
+                        : _capsuleStroke,
+                    width: hot ? 1.6 : 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: hot ? 0.55 : 0.38),
+                      offset: Offset(0, hot ? 14 : 10),
+                      blurRadius: hot ? 28 : 18,
+                    ),
+                    if (hot)
+                      BoxShadow(
+                        color: AppColors.accent.withValues(alpha: 0.32),
+                        blurRadius: 22,
+                        spreadRadius: 0.5,
+                      )
+                    else
+                      BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.04),
+                        offset: const Offset(0, -1),
+                        blurRadius: 0,
+                      ),
+                  ],
                 ),
-                boxShadow: hot
-                    ? [
-                        BoxShadow(
-                          color: AppColors.accent.withValues(alpha: 0.28),
-                          blurRadius: 14,
-                          spreadRadius: 0.5,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(98),
+                  child: Stack(
+                    fit: StackFit.passthrough,
+                    children: [
+                      // 毛玻璃底
+                      Positioned.fill(
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(
+                            sigmaX: hot ? 22 : 16,
+                            sigmaY: hot ? 22 : 16,
+                          ),
+                          child: const SizedBox.expand(),
                         ),
-                      ]
-                    : null,
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(98),
-                child: ColoredBox(
-                  color: _capsuleFill,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final disc = (constraints.maxWidth - _capsulePad * 2)
-                          .clamp(0.0, _discSize);
-                      final yStep = _discStep(disc);
-                      final stackH = count == 0
-                          ? 0.0
-                          : disc + (count - 1) * yStep;
-                      final bodyH = count == 0
-                          ? _emptyCapsuleMinHeight
-                          : _capsulePad * 2 + stackH;
+                      ),
+                      // 玻璃渐变填充
+                      Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: hot
+                                  ? [
+                                      AppColors.accent.withValues(alpha: 0.22),
+                                      _capsuleGlassTop,
+                                      _capsuleGlassBottom,
+                                    ]
+                                  : [
+                                      _capsuleGlassTop,
+                                      const Color(0xB3282828),
+                                      _capsuleGlassBottom,
+                                    ],
+                              stops: hot
+                                  ? const [0.0, 0.35, 1.0]
+                                  : const [0.0, 0.45, 1.0],
+                            ),
+                          ),
+                        ),
+                      ),
+                      // 顶部高光条（拟物玻璃反光）
+                      Positioned(
+                        top: 0,
+                        left: 12,
+                        right: 12,
+                        height: 42,
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(80),
+                              ),
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.white.withValues(alpha: 0.22),
+                                  Colors.white.withValues(alpha: 0.06),
+                                  Colors.white.withValues(alpha: 0.0),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // 内描边
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(98),
+                              border: Border.all(
+                                color: hot
+                                    ? AppColors.accent.withValues(alpha: 0.35)
+                                    : _capsuleStrokeInner,
+                                width: 1,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final disc = (constraints.maxWidth - _capsulePad * 2)
+                              .clamp(0.0, _discSize);
+                          final yStep = _discStep(disc);
+                          final stackH = count == 0
+                              ? 0.0
+                              : disc + (count - 1) * yStep;
+                          final bodyH = count == 0
+                              ? _emptyCapsuleMinHeight
+                              : _capsulePad * 2 + stackH;
 
-                      return SizedBox(
-                        height: bodyH,
-                        child: Stack(
-                          children: [
-                            if (count > 0)
-                              Positioned(
-                                top: _capsulePad,
-                                left: _capsulePad,
-                                right: _capsulePad,
-                                height: stackH,
-                                child: Stack(
-                                  clipBehavior: Clip.none,
-                                  children: [
-                                    for (var i = 0; i < count; i++)
-                                      Positioned(
-                                        top: i * yStep,
-                                        left: ((constraints.maxWidth -
-                                                    _capsulePad * 2) -
-                                                disc) /
-                                            2,
-                                        child: _SoundDisc(
-                                          size: disc,
-                                          soundId: group.items[i].id,
-                                          textureAsset: _discTextureFor(
-                                            group.items[i].visualSeed,
+                          return SizedBox(
+                            height: bodyH,
+                            child: Stack(
+                              children: [
+                                if (count > 0)
+                                  Positioned(
+                                    top: _capsulePad,
+                                    left: _capsulePad,
+                                    right: _capsulePad,
+                                    height: stackH,
+                                    child: Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        for (var i = 0; i < count; i++)
+                                          Positioned(
+                                            top: i * yStep,
+                                            left: ((constraints.maxWidth -
+                                                        _capsulePad * 2) -
+                                                    disc) /
+                                                2,
+                                            child: _SoundDisc(
+                                              size: disc,
+                                              soundId: group.items[i].id,
+                                              textureAsset: discTextureFor(
+                                                group.items[i].visualSeed,
+                                              ),
+                                              rarity: group.items[i].discRarity,
+                                              lifting: draggingId ==
+                                                  group.items[i].id,
+                                              onTap: () => onOpenDisc(
+                                                group.items[i].id,
+                                              ),
+                                              onDragStarted: onDragStarted,
+                                              onDragEnded: onDragEnded,
+                                            ),
                                           ),
-                                          lifting:
-                                              draggingId == group.items[i].id,
-                                          onTap: () =>
-                                              onOpenMemory(group.items[i].id),
-                                          onDragStarted: onDragStarted,
-                                          onDragEnded: onDragEnded,
+                                      ],
+                                    ),
+                                  ),
+                                // 分类名玻璃罩
+                                Positioned(
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  height: _labelBlock + 40,
+                                  child: IgnorePointer(
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: [
+                                            Colors.black.withValues(alpha: 0.55),
+                                            Colors.black.withValues(alpha: 0.28),
+                                            Colors.black.withValues(alpha: 0.0),
+                                          ],
+                                          stops: const [0.0, 0.45, 1.0],
                                         ),
                                       ),
-                                  ],
-                                ),
-                              ),
-                            Positioned(
-                              top: 0,
-                              left: 0,
-                              right: 0,
-                              height: _labelBlock + 36,
-                              child: const IgnorePointer(
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        Color(0xF52F2F2F),
-                                        Color(0xD92F2F2F),
-                                        Color(0x992F2F2F),
-                                        Color(0x4D2F2F2F),
-                                        Color(0x142F2F2F),
-                                        Color(0x002F2F2F),
-                                      ],
-                                      stops: [
-                                        0.0,
-                                        0.22,
-                                        0.45,
-                                        0.68,
-                                        0.88,
-                                        1.0,
-                                      ],
                                     ),
                                   ),
                                 ),
-                              ),
-                            ),
-                            Positioned(
-                              top: 14,
-                              left: 10,
-                              right: 10,
-                              child: IgnorePointer(
-                                child: Text(
-                                  group.category,
-                                  textAlign: TextAlign.center,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: hot
-                                        ? AppColors.accent
-                                        : AppColors.textPrimary,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                    height: 1.2,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            // 最上层再描一圈完整高亮环，避免被圆片/罩层遮断
-                            if (hot)
-                              Positioned.fill(
-                                child: IgnorePointer(
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(98),
-                                      border: Border.all(
-                                        color: AppColors.accent
-                                            .withValues(alpha: 0.95),
-                                        width: 1.5,
+                                Positioned(
+                                  top: 14,
+                                  left: 10,
+                                  right: 10,
+                                  child: IgnorePointer(
+                                    child: Text(
+                                      group.category,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: hot
+                                            ? AppColors.accentHighlight
+                                            : AppColors.textPrimary,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        height: 1.2,
+                                        shadows: [
+                                          Shadow(
+                                            color: Colors.black
+                                                .withValues(alpha: 0.55),
+                                            blurRadius: 8,
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
-                      );
-                    },
+                                if (hot)
+                                  Positioned.fill(
+                                    child: IgnorePointer(
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(98),
+                                          border: Border.all(
+                                            color: AppColors.accent
+                                                .withValues(alpha: 0.85),
+                                            width: 1.4,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -659,7 +689,7 @@ class _CategoryCapsule extends StatelessWidget {
   }
 }
 
-class _SoundDisc extends StatelessWidget {
+class _SoundDisc extends StatefulWidget {
   const _SoundDisc({
     required this.size,
     required this.soundId,
@@ -667,148 +697,401 @@ class _SoundDisc extends StatelessWidget {
     required this.onTap,
     required this.onDragStarted,
     required this.onDragEnded,
+    this.rarity,
     this.lifting = false,
   });
 
   final double size;
   final String soundId;
   final String textureAsset;
+  final DiscRarity? rarity;
   final bool lifting;
   final VoidCallback onTap;
   final ValueChanged<String> onDragStarted;
   final VoidCallback onDragEnded;
 
   @override
+  State<_SoundDisc> createState() => _SoundDiscState();
+}
+
+class _SoundDiscState extends State<_SoundDisc> {
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
+    final scale = widget.lifting
+        ? 0.94
+        : _pressed
+            ? 0.93
+            : 1.0;
+
     return LongPressDraggable<String>(
-      data: soundId,
+      data: widget.soundId,
       hapticFeedbackOnStart: true,
-      delay: const Duration(milliseconds: 260),
-      onDragStarted: () => onDragStarted(soundId),
-      onDragEnd: (_) => onDragEnded(),
-      onDraggableCanceled: (_, _) => onDragEnded(),
+      delay: const Duration(milliseconds: 240),
+      onDragStarted: () {
+        setState(() => _pressed = false);
+        widget.onDragStarted(widget.soundId);
+      },
+      onDragEnd: (_) => widget.onDragEnded(),
+      onDraggableCanceled: (_, _) => widget.onDragEnded(),
       feedback: Material(
         color: Colors.transparent,
         elevation: 0,
         child: Transform.scale(
-          scale: 1.14,
+          scale: 1.18,
           child: _DiscVisual(
-            size: size,
-            textureAsset: textureAsset,
+            size: widget.size,
+            textureAsset: widget.textureAsset,
+            rarity: widget.rarity,
             floating: true,
           ),
         ),
       ),
-      // 原位留下淡影，表达「从跑道中浮出」
       childWhenDragging: Opacity(
-        opacity: 0.18,
-        child: _DiscVisual(size: size, textureAsset: textureAsset),
+        opacity: 0.16,
+        child: _DiscVisual(
+          size: widget.size,
+          textureAsset: widget.textureAsset,
+          rarity: widget.rarity,
+          dimmed: true,
+        ),
       ),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: lifting ? null : onTap,
+        onTapDown: widget.lifting
+            ? null
+            : (_) {
+                setState(() => _pressed = true);
+                HapticFeedback.selectionClick();
+              },
+        onTapUp: widget.lifting
+            ? null
+            : (_) {
+                setState(() => _pressed = false);
+                widget.onTap();
+              },
+        onTapCancel: () => setState(() => _pressed = false),
         child: AnimatedScale(
-          scale: lifting ? 0.96 : 1,
+          scale: scale,
           duration: AppMotion.fast,
-          child: _DiscVisual(size: size, textureAsset: textureAsset),
+          curve: Curves.easeOutCubic,
+          child: _DiscVisual(
+            size: widget.size,
+            textureAsset: widget.textureAsset,
+            rarity: widget.rarity,
+            pressed: _pressed,
+          ),
         ),
       ),
     );
   }
 }
 
-class _DiscVisual extends StatelessWidget {
+/// 稀有度暂以贴图区分（后续按等级换贴图）；卡面统一叠加镭射扫光。
+class _DiscVisual extends StatefulWidget {
   const _DiscVisual({
     required this.size,
     required this.textureAsset,
+    this.rarity,
     this.floating = false,
+    this.pressed = false,
+    this.dimmed = false,
   });
 
   final double size;
   final String textureAsset;
+  final DiscRarity? rarity;
   final bool floating;
+  final bool pressed;
+  final bool dimmed;
+
+  @override
+  State<_DiscVisual> createState() => _DiscVisualState();
+}
+
+class _DiscVisualState extends State<_DiscVisual>
+    with SingleTickerProviderStateMixin {
+  AnimationController? _laser;
+
+  bool get _needsLaser => !widget.dimmed;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncLaser();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DiscVisual oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.dimmed != widget.dimmed) {
+      _syncLaser();
+    }
+  }
+
+  void _syncLaser() {
+    if (_needsLaser) {
+      _laser ??= AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 3600),
+      )..repeat();
+    } else {
+      _laser?.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _laser?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final size = widget.size;
+    final floating = widget.floating;
+    final pressed = widget.pressed;
+    final dimmed = widget.dimmed;
+    final rim = size * 0.035;
+
+    final glow = AppColors.accent.withValues(
+      alpha: floating ? 0.36 : 0.18,
+    );
+
+    final face = Stack(
+      alignment: Alignment.center,
+      children: [
+        ClipOval(
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ColoredBox(
+                  color: Colors.white,
+                ),
+                Opacity(
+                  opacity: dimmed ? 0.18 : 0.48,
+                  child: Image.asset(
+                    widget.textureAsset,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.high,
+                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                  ),
+                ),
+                ColoredBox(
+                  color: Colors.white.withValues(
+                    alpha: dimmed ? 0.3 : 0.08,
+                  ),
+                ),
+                if (_needsLaser && _laser != null)
+                  AnimatedBuilder(
+                    animation: _laser!,
+                    builder: (context, _) {
+                      return CustomPaint(
+                        painter: _HoloSheenPainter(
+                          t: _laser!.value,
+                          intensity: 0.9,
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
+        IgnorePointer(
+          child: ClipOval(
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: const Alignment(-0.8, -1),
+                    end: const Alignment(0.4, 0.35),
+                    colors: [
+                      Colors.white.withValues(
+                        alpha: floating ? 0.42 : 0.32,
+                      ),
+                      Colors.white.withValues(alpha: 0.08),
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: pressed ? 0.18 : 0.1),
+                    ],
+                    stops: const [0.0, 0.28, 0.55, 1.0],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        IgnorePointer(
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: floating
+                    ? AppColors.accent.withValues(alpha: 0.75)
+                    : AppColors.accent.withValues(alpha: 0.55),
+                width: floating ? 1.6 : 1.3,
+              ),
+            ),
+          ),
+        ),
+        if (!dimmed)
+          IgnorePointer(
+            child: Container(
+              width: size - 3,
+              height: size - 3,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFFD879C8).withValues(alpha: 0.28),
+                  width: 0.8,
+                ),
+              ),
+            ),
+          ),
+        IgnorePointer(
+          child: Container(
+            width: size - rim * 2,
+            height: size - rim * 2,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.black.withValues(alpha: 0.18),
+                width: 0.8,
+              ),
+            ),
+          ),
+        ),
+        IgnorePointer(
+          child: Container(
+            width: size * 0.12,
+            height: size * 0.12,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  Colors.white.withValues(alpha: 0.35),
+                  Colors.white.withValues(alpha: 0.05),
+                  Colors.transparent,
+                ],
+              ),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.2),
+                width: 0.6,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+
+    return AnimatedContainer(
+      duration: AppMotion.fast,
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: _discFill,
-        border: floating
-            ? Border.all(
-                color: AppColors.accent.withValues(alpha: 0.55),
-                width: 1.5,
-              )
-            : null,
         boxShadow: [
           BoxShadow(
-            color: floating
-                ? Colors.black.withValues(alpha: 0.45)
-                : _discShadow,
-            offset: floating ? const Offset(0, 10) : const Offset(-3, 0),
-            blurRadius: floating ? 22 : 4,
+            color: Colors.black.withValues(alpha: floating ? 0.55 : 0.35),
+            offset: Offset(0, floating ? 16 : (pressed ? 2 : 6)),
+            blurRadius: floating ? 28 : (pressed ? 6 : 12),
+            spreadRadius: floating ? 1 : 0,
           ),
           if (!floating)
-            const BoxShadow(
-              color: _discShadow,
-              offset: Offset(0, -5),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.28),
+              offset: const Offset(0, -4),
               blurRadius: 10,
             ),
-          if (floating)
+          if (floating || !dimmed)
             BoxShadow(
-              color: AppColors.accent.withValues(alpha: 0.28),
-              blurRadius: 18,
+              color: glow,
+              blurRadius: 26,
+              spreadRadius: 1,
             ),
+          BoxShadow(
+            color: Colors.white.withValues(alpha: floating ? 0.12 : 0.06),
+            offset: const Offset(-2, -3),
+            blurRadius: 6,
+          ),
         ],
       ),
-      child: ClipOval(
-        child: Image.asset(
-          textureAsset,
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          filterQuality: FilterQuality.medium,
-          errorBuilder: (_, _, _) => ColoredBox(color: _discFill),
-        ),
+      child: SsrAuraLayer(
+        size: size,
+        enabled: SsrAuraLayer.isSsr(widget.rarity) && !dimmed,
+        intensity: floating ? 1.0 : 0.55,
+        parallax: floating
+            ? const Offset(2.5, -1.5)
+            : (pressed ? const Offset(1.2, 0.8) : Offset.zero),
+        child: face,
       ),
     );
   }
 }
 
-class _DiscDot extends StatelessWidget {
-  const _DiscDot({required this.textureAsset});
+/// 全等级镭射折射扫光（稀有度差异后续由贴图承担）。
+class _HoloSheenPainter extends CustomPainter {
+  _HoloSheenPainter({required this.t, required this.intensity});
 
-  final String textureAsset;
+  final double t;
+  final double intensity;
+
+  static const _colors = [
+    Color(0x0063E0CB),
+    Color(0xA663E0CB),
+    Color(0x994FA9E8),
+    Color(0x997667E8),
+    Color(0x99D879C8),
+    Color(0xA663E0CB),
+    Color(0x0063E0CB),
+  ];
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: const BoxDecoration(
-        color: _discFill,
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: _discShadow,
-            offset: Offset(-2, 0),
-            blurRadius: 3,
-          ),
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final angle = t * math.pi * 2;
+    final paint = Paint()
+      ..blendMode = BlendMode.softLight
+      ..shader = SweepGradient(
+        startAngle: angle,
+        endAngle: angle + math.pi * 2,
+        colors: _colors
+            .map(
+              (c) => c.withValues(alpha: (c.a * intensity).clamp(0.0, 1.0)),
+            )
+            .toList(),
+        stops: const [0.0, 0.14, 0.32, 0.48, 0.64, 0.82, 1.0],
+      ).createShader(rect);
+    canvas.drawRect(rect, paint);
+
+    // 斜向高亮带
+    final band = Paint()
+      ..blendMode = BlendMode.plus
+      ..shader = LinearGradient(
+        begin: Alignment(-1 + 2 * t, -1),
+        end: Alignment(t, 1),
+        colors: [
+          Colors.transparent,
+          Colors.white.withValues(alpha: 0.18 * intensity),
+          const Color(0xFF63E0CB).withValues(alpha: 0.22 * intensity),
+          Colors.transparent,
         ],
-      ),
-      child: ClipOval(
-        child: Image.asset(
-          textureAsset,
-          width: 36,
-          height: 36,
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => const ColoredBox(color: _discFill),
-        ),
-      ),
-    );
+        stops: const [0.35, 0.48, 0.55, 0.7],
+      ).createShader(rect);
+    canvas.drawRect(rect, band);
   }
+
+  @override
+  bool shouldRepaint(covariant _HoloSheenPainter oldDelegate) =>
+      oldDelegate.t != t || oldDelegate.intensity != intensity;
 }
 
 class _LoginGate extends StatelessWidget {
@@ -848,216 +1131,6 @@ class _LoginGate extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class MemoryScreen extends StatefulWidget {
-  const MemoryScreen({super.key, required this.id, required this.onBack});
-
-  final String id;
-  final VoidCallback onBack;
-
-  @override
-  State<MemoryScreen> createState() => _MemoryScreenState();
-}
-
-class _MemoryScreenState extends State<MemoryScreen> {
-  bool _playing = false;
-  bool _assetExpanded = false;
-  final _player = AudioPlaybackService.instance;
-
-  @override
-  void dispose() {
-    _player.stop();
-    super.dispose();
-  }
-
-  Future<void> _togglePlay(String? path) async {
-    if (path == null || path.isEmpty) {
-      setState(() => _playing = !_playing);
-      return;
-    }
-    if (_playing) {
-      await _player.stop();
-      setState(() => _playing = false);
-    } else {
-      await _player.play(path);
-      setState(() => _playing = true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: SoundRepository.instance,
-      builder: (context, _) {
-        final item = SoundRepository.instance.get(widget.id);
-        if (item == null) {
-          return Scaffold(
-            body: Center(
-              child: TextButton(
-                onPressed: widget.onBack,
-                child: const Text('返回'),
-              ),
-            ),
-          );
-        }
-
-        return Scaffold(
-          backgroundColor: AppColors.bgPrimary,
-          body: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.pageHorizontal,
-              ),
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    GestureDetector(
-                      onTap: widget.onBack,
-                      child: const Text(
-                        '返回',
-                        style: TextStyle(color: AppColors.textSecondary),
-                      ),
-                    ),
-                    const Text(
-                      'Memory',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    Text(
-                      '分享',
-                      style: TextStyle(
-                        color: AppColors.textTertiary.withValues(alpha: 0.6),
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.tight),
-                Text(
-                  formatRecordedAt(item.recordedAt),
-                  style: const TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 12,
-                  ),
-                ),
-                Text(
-                  item.locationLabel,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.item),
-                GestureDetector(
-                  onTap: () => _togglePlay(item.audioPath),
-                  child: ClipRRect(
-                    borderRadius:
-                        BorderRadius.circular(AppRadii.collectionCard),
-                    child: SizedBox(
-                      height: 340,
-                      child: ColoredBox(
-                        color: AppColors.surface1,
-                        child: Padding(
-                          padding: const EdgeInsets.all(AppSpacing.section),
-                          child: SoundVisualCanvas(
-                            seed: item.visualSeed,
-                            mode: _playing
-                                ? SoundVisualMode.playback
-                                : SoundVisualMode.complete,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.section),
-                Text(
-                  item.title,
-                  style: const TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '#${item.category}  ·  ${formatDuration(item.durationSec)}',
-                  style: const TextStyle(color: AppColors.textSecondary),
-                ),
-                const SizedBox(height: 8),
-                StatusChip(status: item.status),
-                if (item.description.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.item),
-                  Text(
-                    item.description,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.section),
-                InkWell(
-                  onTap: () =>
-                      setState(() => _assetExpanded = !_assetExpanded),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.tight,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          '声片与数字资产',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        Text(
-                          _assetExpanded ? '收起' : '展开',
-                          style: const TextStyle(
-                            color: AppColors.accent,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (_assetExpanded) ...[
-                  MetaRow(label: '声片编号', value: item.discId ?? '—'),
-                  MetaRow(
-                    label: '写入时间',
-                    value: item.pressedAt != null
-                        ? formatRecordedAt(item.pressedAt!)
-                        : '—',
-                  ),
-                  MetaRow(label: '数字资产编号', value: item.assetId ?? '—'),
-                  MetaRow(
-                    label: '上链时间',
-                    value: item.chainedAt != null
-                        ? formatRecordedAt(item.chainedAt!)
-                        : '—',
-                  ),
-                  const MetaRow(label: '绑定状态', value: '永久绑定'),
-                  MetaRow(label: '网络', value: item.networkLabel),
-                  MetaRow(label: '合约', value: item.contractLabel ?? '—'),
-                  MetaRow(label: 'Token ID', value: item.tokenId ?? '—'),
-                  MetaRow(label: '交易凭证', value: item.txHash ?? '—'),
-                ],
-                const SizedBox(height: AppSpacing.section),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 }

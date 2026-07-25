@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../cloud/cloud_media_client.dart';
 import '../../cloud/cloud_media_models.dart';
+import '../../data/disc_rarity.dart';
 import '../../data/session.dart';
 import '../../data/sound_repository.dart';
 import '../../services/auth_service.dart';
@@ -11,7 +14,9 @@ import '../../services/nfc_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
+import '../../widgets/sound_nft_card.dart';
 import '../../widgets/sound_visual.dart';
+import '../../widgets/ssr_aura_layer.dart';
 
 class PressMethodScreen extends StatefulWidget {
   const PressMethodScreen({
@@ -292,7 +297,9 @@ class _PressDetectScreenState extends State<PressDetectScreen> {
                 setState(() {
                   _state = _DetectState.bound;
                   _boundDiscId = binding.discId;
-                  _message = '该声片已绑定，无法覆盖';
+                  _message = binding.rarity != null
+                      ? '该声片已绑定（${binding.rarity!.code}），无法覆盖'
+                      : '该声片已绑定，无法覆盖';
                 });
               }
               return;
@@ -307,14 +314,42 @@ class _PressDetectScreenState extends State<PressDetectScreen> {
               }
               return;
             }
+            final factory = await NfcService.instance.readFactoryProfile(tag);
+            if (factory == null) {
+              if (mounted) {
+                setState(() {
+                  _state = _DetectState.unreadable;
+                  _message = '未识别到正版声片出厂信息';
+                });
+              }
+              return;
+            }
+            if (factory.bound) {
+              _handled = true;
+              await NfcService.instance.stopSession();
+              if (mounted) {
+                setState(() {
+                  _state = _DetectState.bound;
+                  _boundDiscId = factory.discId;
+                  _message = '该声片已绑定，无法覆盖';
+                });
+              }
+              return;
+            }
             _handled = true;
-            final discId = NfcService.instance.generateDiscId(tagId);
-            PressSession.set(tagId: tagId, disc: discId);
+            PressSession.set(
+              tagId: tagId,
+              disc: factory.discId,
+              discRarity: factory.rarity,
+              discSeries: factory.series,
+              signature: factory.signature,
+              demo: factory.demo,
+            );
             await NfcService.instance.stopSession(message: '声片已识别');
             if (mounted) {
               setState(() {
                 _state = _DetectState.ready;
-                _message = '空白声片 · $discId';
+                _message = '声片 ${factory.discId} · 稀有度待揭晓';
               });
               widget.onDetected();
             }
@@ -403,6 +438,7 @@ class _PressConfirmScreenState extends State<PressConfirmScreen> {
   Widget build(BuildContext context) {
     final item = SoundRepository.instance.get(widget.id);
     final discId = PressSession.discId ?? item?.discId ?? '—';
+    final rarity = PressSession.rarity ?? item?.discRarity;
     return Scaffold(
       backgroundColor: AppColors.canvasBg,
       appBar: AppBar(
@@ -429,6 +465,12 @@ class _PressConfirmScreenState extends State<PressConfirmScreen> {
               ],
               const SizedBox(height: AppSpacing.item),
               MetaRow(label: '声片编号', value: discId),
+              MetaRow(
+                label: '稀有度',
+                value: rarity?.headline ?? '待揭晓',
+              ),
+              if (PressSession.series != null)
+                MetaRow(label: '系列', value: PressSession.series!),
               MetaRow(label: '写入方式', value: '手机 NFC'),
               const SizedBox(height: AppSpacing.item),
               Container(
@@ -438,7 +480,7 @@ class _PressConfirmScreenState extends State<PressConfirmScreen> {
                   borderRadius: BorderRadius.circular(AppRadii.card),
                 ),
                 child: const Text(
-                  '每张声片只能写入一个声音。写入完成后，声音和声片将永久绑定，无法替换或覆盖。',
+                  '每张声片只能写入一个声音。写入完成后，声音和声片将永久绑定，无法替换或覆盖。稀有度由实体声片决定，不可编辑。',
                   style: TextStyle(color: AppColors.ink800, height: 1.5, fontSize: 14),
                 ),
               ),
@@ -454,7 +496,7 @@ class _PressConfirmScreenState extends State<PressConfirmScreen> {
               ),
               const Spacer(),
               PrimaryButton(
-                text: '确认并写入',
+                text: '确认并永久绑定',
                 enabled: _checked,
                 onPressed: _checked ? widget.onConfirm : null,
               ),
@@ -467,6 +509,296 @@ class _PressConfirmScreenState extends State<PressConfirmScreen> {
       ),
     );
   }
+}
+
+/// NFC 读取成功后的稀有度揭晓（声片鉴定）。
+class PressRevealScreen extends StatefulWidget {
+  const PressRevealScreen({
+    super.key,
+    required this.id,
+    required this.onBack,
+    required this.onConfirm,
+  });
+
+  final String id;
+  final VoidCallback onBack;
+  final VoidCallback onConfirm;
+
+  @override
+  State<PressRevealScreen> createState() => _PressRevealScreenState();
+}
+
+class _PressRevealScreenState extends State<PressRevealScreen>
+    with TickerProviderStateMixin {
+  late final AnimationController _unveil;
+  late final AnimationController _scan;
+  late final AnimationController _tier;
+  int _litTier = 0;
+  bool _ssrBurst = false;
+
+  DiscRarity get _rarity => PressSession.rarity ?? DiscRarity.n;
+
+  @override
+  void initState() {
+    super.initState();
+    _unveil = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..forward();
+    _scan = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    )..repeat();
+    _tier = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    );
+    _runReveal();
+  }
+
+  Future<void> _runReveal() async {
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+    _tier.forward();
+    final target = switch (_rarity) {
+      DiscRarity.n => 1,
+      DiscRarity.r => 2,
+      DiscRarity.sr => 3,
+      DiscRarity.ssr => 4,
+    };
+    for (var i = 1; i <= target; i++) {
+      await Future.delayed(const Duration(milliseconds: 280));
+      if (!mounted) return;
+      setState(() => _litTier = i);
+      HapticFeedback.selectionClick();
+    }
+    await Future.delayed(const Duration(milliseconds: 200));
+    if (!mounted) return;
+    if (_rarity == DiscRarity.ssr) {
+      setState(() => _ssrBurst = true);
+      HapticFeedback.mediumImpact();
+      await Future.delayed(const Duration(milliseconds: 80));
+      if (mounted) HapticFeedback.heavyImpact();
+    } else {
+      HapticFeedback.mediumImpact();
+    }
+    PressSession.markRevealed();
+  }
+
+  @override
+  void dispose() {
+    _unveil.dispose();
+    _scan.dispose();
+    _tier.dispose();
+    super.dispose();
+  }
+
+  Color get _accent => switch (_rarity) {
+        DiscRarity.n => const Color(0xFF9AA3A1),
+        DiscRarity.r => AppColors.accent,
+        DiscRarity.sr => const Color(0xFF4FA9E8),
+        DiscRarity.ssr => AppColors.accent,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final item = SoundRepository.instance.get(widget.id);
+    final discId = PressSession.discId ?? '—';
+    final revealed = _litTier >= switch (_rarity) {
+      DiscRarity.n => 1,
+      DiscRarity.r => 2,
+      DiscRarity.sr => 3,
+      DiscRarity.ssr => 4,
+    };
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.pageHorizontal),
+          child: Column(
+            children: [
+              const SizedBox(height: AppSpacing.item),
+              const Text(
+                '声片鉴定',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: 240,
+                height: 240,
+                child: AnimatedBuilder(
+                  animation: Listenable.merge([_unveil, _scan]),
+                  builder: (context, _) {
+                    return CustomPaint(
+                      painter: _RevealAuraPainter(
+                        progress: _unveil.value,
+                        scan: _scan.value,
+                        accent: _accent,
+                        intensity: _rarity.index / 3,
+                      ),
+                      child: Opacity(
+                        opacity: Curves.easeOut.transform(_unveil.value),
+                        child: Transform.scale(
+                          scale: 0.86 + 0.14 * _unveil.value,
+                          child: SsrAuraLayer(
+                            size: 220,
+                            enabled: _rarity == DiscRarity.ssr && revealed,
+                            intensity: 1,
+                            burst: _ssrBurst,
+                            playing: _ssrBurst,
+                            energy: _ssrBurst ? 0.9 : 0.35,
+                            child: SoundVisualCanvas(
+                              seed: item?.visualSeed ?? 0,
+                              mode: SoundVisualMode.complete,
+                              dark: true,
+                              active: revealed &&
+                                  (_rarity == DiscRarity.sr ||
+                                      _rarity == DiscRarity.ssr),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: AppSpacing.section),
+              Text(
+                revealed ? '声片鉴定完成' : '正在鉴定声片…',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (final (i, code) in const [
+                    (1, 'N'),
+                    (2, 'R'),
+                    (3, 'SR'),
+                    (4, 'SSR'),
+                  ])
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 200),
+                        style: TextStyle(
+                          fontSize: _litTier == i ? 18 : 13,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: _litTier >= i
+                              ? (i == _litTier && revealed
+                                  ? _accent
+                                  : Colors.white54)
+                              : Colors.white24,
+                        ),
+                        child: Text(code),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              AnimatedOpacity(
+                opacity: revealed ? 1 : 0,
+                duration: const Duration(milliseconds: 350),
+                child: Column(
+                  children: [
+                    Text(
+                      _rarity.headline,
+                      style: TextStyle(
+                        color: _accent,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '该稀有度来自声片 No. $discId',
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      '该稀有度由实体声片决定',
+                      style: TextStyle(
+                        color: Colors.white38,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              PrimaryButton(
+                text: '确认并永久绑定',
+                enabled: revealed,
+                onPressed: revealed ? widget.onConfirm : null,
+              ),
+              const SizedBox(height: AppSpacing.tight),
+              SecondaryButton(text: '返回检查', onPressed: widget.onBack),
+              const SizedBox(height: AppSpacing.section),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RevealAuraPainter extends CustomPainter {
+  _RevealAuraPainter({
+    required this.progress,
+    required this.scan,
+    required this.accent,
+    required this.intensity,
+  });
+
+  final double progress;
+  final double scan;
+  final Color accent;
+  final double intensity;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height / 2);
+    final r = size.width * 0.42;
+    final ring = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..color = accent.withValues(alpha: 0.15 + 0.35 * intensity * progress);
+    canvas.drawCircle(c, r + 8, ring);
+
+    final sweep = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..shader = SweepGradient(
+        startAngle: scan * math.pi * 2,
+        colors: [
+          Colors.transparent,
+          accent.withValues(alpha: 0.55),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.12, 0.28],
+        transform: GradientRotation(scan * math.pi * 2),
+      ).createShader(Rect.fromCircle(center: c, radius: r + 16));
+    canvas.drawCircle(c, r + 16, sweep);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RevealAuraPainter oldDelegate) =>
+      oldDelegate.progress != progress ||
+      oldDelegate.scan != scan ||
+      oldDelegate.accent != accent;
 }
 
 class PressProgressScreen extends StatefulWidget {
@@ -559,7 +891,12 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
         _nfcWritten = true;
         SoundRepository.instance.update(
           widget.id,
-          (s) => s.copyWith(discId: discId, nfcTagId: PressSession.tagIdHex),
+          (s) => s.copyWith(
+            discId: discId,
+            nfcTagId: PressSession.tagIdHex,
+            discRarity: PressSession.rarity,
+            discSeries: PressSession.series,
+          ),
         );
         setState(() => _progress = 0.7);
         await Future.delayed(const Duration(milliseconds: 400));
@@ -580,6 +917,8 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
       final assetId = await ChainService.instance.submitAsset(
         soundId: widget.id,
         discId: discId,
+        rarityCode: (PressSession.rarity ?? item.discRarity)?.code,
+        series: PressSession.series ?? item.discSeries,
       );
 
       setState(() {
@@ -594,6 +933,8 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
         contentId: ready.contentId,
         nfcUrl: ready.nfcUrl,
         cloudState: ready.state.wire,
+        discRarity: PressSession.rarity ?? item.discRarity,
+        discSeries: PressSession.series ?? item.discSeries,
       );
       PressSession.clear();
       await Future.delayed(const Duration(milliseconds: 400));
@@ -605,6 +946,8 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
           widget.id,
           discId ?? 'SP-UNKNOWN',
           nfcTagId: PressSession.tagIdHex ?? item.nfcTagId,
+          discRarity: PressSession.rarity ?? item.discRarity,
+          discSeries: PressSession.series ?? item.discSeries,
         );
       } else {
         SoundRepository.instance.markWriteFailed(widget.id);
@@ -711,6 +1054,24 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
             title: item.title,
             contentId: contentId,
             nfcUrl: nfcUrl,
+            rarity: PressSession.rarity ?? item.discRarity,
+            series: PressSession.series ?? item.discSeries,
+            factory: PressSession.rarity == null
+                ? null
+                : DiscFactoryProfile(
+                    discId: discId,
+                    rarity: PressSession.rarity!,
+                    series: PressSession.series ?? 'Unknown',
+                    signature: PressSession.factorySignature ??
+                        DiscFactoryProfile.computeSignature(
+                          discId: discId,
+                          rarity: PressSession.rarity!,
+                          series: PressSession.series ?? 'Unknown',
+                          demo: PressSession.factoryDemo,
+                        ),
+                    bound: true,
+                    demo: PressSession.factoryDemo,
+                  ),
           );
           await NfcService.instance.stopSession(message: '写入成功');
           if (!completer.isCompleted) completer.complete(true);
@@ -787,23 +1148,69 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
   }
 }
 
-class PressDoneScreen extends StatelessWidget {
+/// 写入完成终章：NFC 写入 + 上链均成功后，先以 3D 翻面动画封存声片，
+/// 揭示背面的 NFT 稀有度卡，随后卡片永久保持展示。
+class PressDoneScreen extends StatefulWidget {
   const PressDoneScreen({
     super.key,
     required this.id,
     required this.onCollection,
-    required this.onMemory,
+    required this.onOpenCategoryPlay,
   });
 
   final String id;
   final VoidCallback onCollection;
-  final VoidCallback onMemory;
+  final ValueChanged<String> onOpenCategoryPlay;
+
+  @override
+  State<PressDoneScreen> createState() => _PressDoneScreenState();
+}
+
+class _PressDoneScreenState extends State<PressDoneScreen>
+    with SingleTickerProviderStateMixin {
+  static const _cardWidth = 300.0;
+  static const _cardHeight = 460.0;
+
+  late final AnimationController _flip;
+  late final Animation<double> _flipCurve;
+  bool _revealed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _flip = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    );
+    _flipCurve = CurvedAnimation(parent: _flip, curve: Curves.easeOutCubic);
+    _flip.addStatusListener((status) {
+      if (status == AnimationStatus.completed && !_revealed) {
+        setState(() => _revealed = true);
+        HapticFeedback.mediumImpact();
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 260), () {
+        if (mounted) _flip.forward();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _flip.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final item = SoundRepository.instance.get(id);
+    final item = SoundRepository.instance.get(widget.id);
+    if (item == null) {
+      return _buildFallback();
+    }
+
     return Scaffold(
-      backgroundColor: AppColors.bgPrimary,
+      backgroundColor: Colors.black,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.pageHorizontal),
@@ -811,13 +1218,85 @@ class PressDoneScreen extends StatelessWidget {
             children: [
               const Spacer(),
               SizedBox(
-                height: 160,
-                child: SoundVisualCanvas(
-                  seed: item?.visualSeed ?? 999,
-                  mode: SoundVisualMode.complete,
+                width: _cardWidth,
+                height: _cardHeight,
+                child: AnimatedBuilder(
+                  animation: _flipCurve,
+                  builder: (context, _) {
+                    final angle = _flipCurve.value * math.pi;
+                    final showFront = angle < math.pi / 2;
+                    final transform = Matrix4.identity()
+                      ..setEntry(3, 2, 0.0012)
+                      ..rotateY(angle);
+                    return Transform(
+                      alignment: Alignment.center,
+                      transform: transform,
+                      child: showFront
+                          ? const _CardFrontFace()
+                          : Transform(
+                              alignment: Alignment.center,
+                              transform: Matrix4.identity()..rotateY(math.pi),
+                              child: _CardBackFace(
+                                item: item,
+                                animate: _revealed,
+                              ),
+                            ),
+                    );
+                  },
                 ),
               ),
               const SizedBox(height: AppSpacing.section),
+              AnimatedOpacity(
+                opacity: _revealed ? 1 : 0,
+                duration: const Duration(milliseconds: 420),
+                curve: Curves.easeOut,
+                child: const Text(
+                  '写入完成 · 数字资产已生成',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              AnimatedOpacity(
+                opacity: _revealed ? 1 : 0,
+                duration: const Duration(milliseconds: 420),
+                child: IgnorePointer(
+                  ignoring: !_revealed,
+                  child: Column(
+                    children: [
+                      PrimaryButton(
+                        text: '返回 Collection',
+                        onPressed: widget.onCollection,
+                      ),
+                      const SizedBox(height: AppSpacing.tight),
+                      SecondaryButton(
+                        text: '查看声片记忆',
+                        onPressed: () => widget.onOpenCategoryPlay(item.category),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.section),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFallback() {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.pageHorizontal),
+          child: Column(
+            children: [
+              const Spacer(),
               const Text(
                 '写入完成',
                 style: TextStyle(
@@ -827,40 +1306,102 @@ class PressDoneScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
-                item?.title ?? '',
-                style: const TextStyle(color: AppColors.textSecondary),
+              const Text(
+                '未找到该声片的记录',
+                style: TextStyle(color: AppColors.textTertiary, fontSize: 13),
               ),
-              if (item?.discId != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  '声片 ${item!.discId}',
-                  style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
-                ),
-              ],
-              if (item?.assetId != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  '数字资产 ${item!.assetId}',
-                  style: const TextStyle(color: AppColors.accent, fontSize: 13),
-                ),
-              ],
-              if (item?.chainedAt != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  '上链 ${formatRecordedAt(item!.chainedAt!)}',
-                  style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
-                ),
-              ],
               const Spacer(),
-              PrimaryButton(text: '返回 Collection', onPressed: onCollection),
-              const SizedBox(height: AppSpacing.tight),
-              SecondaryButton(text: '打开 Memory', onPressed: onMemory),
+              PrimaryButton(text: '返回 Collection', onPressed: widget.onCollection),
               const SizedBox(height: AppSpacing.section),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 翻面动画正面：深色玻璃封片，隐去内容直到揭晓。
+class _CardFrontFace extends StatelessWidget {
+  const _CardFrontFace();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.surface2, Colors.black],
+        ),
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.6),
+            blurRadius: 40,
+            offset: const Offset(0, 20),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppColors.accent.withValues(alpha: 0.4),
+                  width: 1.2,
+                ),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.graphic_eq_rounded,
+                color: AppColors.accent,
+                size: 24,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.section),
+            const Text(
+              'SoundPola',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 3,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '声片已封存',
+              style: TextStyle(
+                color: AppColors.textTertiary,
+                fontSize: 12,
+                letterSpacing: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 翻面动画背面：NFT 稀有度卡，动画结束后永久展示。
+class _CardBackFace extends StatelessWidget {
+  const _CardBackFace({required this.item, required this.animate});
+
+  final SoundMemory item;
+  final bool animate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SoundNftCard(item: item, animateVisual: animate),
     );
   }
 }
