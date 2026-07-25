@@ -316,9 +316,9 @@ void _analyzerMain(SendPort ready) {
 
     final boosted = (instRms * agcGain).clamp(0.0, 1.5);
 
-    // Soft gate — never hard-zero light speech
-    final gate = _smoothstep(noiseFloor, noiseFloor * 2.5, boosted);
-    final gated = (boosted * gate).clamp(0.0, 1.0);
+    // Soft gate — keep light speech / humming audible to the visual.
+    final gate = _smoothstep(noiseFloor * 0.65, noiseFloor * 2.0, boosted);
+    final gated = (boosted * math.max(gate, 0.35)).clamp(0.0, 1.0);
 
     // Adaptive noise floor only when truly quiet
     final nearFloor = instRms < noiseFloor * 1.8 + 0.01;
@@ -421,10 +421,18 @@ void _analyzerMain(SendPort ready) {
             0.92 * trebleE) /
         wSum;
 
-    // Perceptual lift of gated for quiet speech (after AGC already helped)
+    // Perceptual lift — punchier for visualization.
     final perceptual = math
-        .pow(gated.clamp(0.0, 1.0), 0.62)
+        .pow(gated.clamp(0.0, 1.0), 0.5)
         .toDouble()
+        .clamp(0.0, 1.0);
+
+    // Without PCM, approximate "height" from timbre proxies so pitchControl
+    // still moves with brighter / hissier / higher speech.
+    final heightProxy = (0.22 * centroid +
+            0.32 * trebleE +
+            0.26 * highMidE +
+            0.20 * zcrE)
         .clamp(0.0, 1.0);
 
     final yinWin = hasPcm && pcmRing.count >= 64
@@ -437,7 +445,7 @@ void _analyzerMain(SendPort ready) {
       pcm: yinWin,
       rms: pcmRms,
       noiseGate: noiseFloor * 2.2,
-      spectralCentroid01: centroid,
+      spectralCentroid01: hasPcm ? centroid : heightProxy,
       dtSec: dt,
     );
 

@@ -13,7 +13,10 @@ import '../../widgets/sound_visual.dart';
 
 /// 用户只需点选声音，一键生成并试听；无需手动编辑节拍 / 拖拽摆位。
 class SoundLabScreen extends StatefulWidget {
-  const SoundLabScreen({super.key});
+  const SoundLabScreen({super.key, this.embeddedInShell = false});
+
+  /// 作为底部导航第四 Tab 嵌入时为 true（无返回键，右上角进 Account）。
+  final bool embeddedInShell;
 
   @override
   State<SoundLabScreen> createState() => _SoundLabScreenState();
@@ -51,16 +54,24 @@ class _SoundLabScreenState extends State<SoundLabScreen> {
           backgroundColor: AppColors.bgPrimary,
           appBar: AppBar(
             title: const Text('Sound Lab'),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => context.pop(),
-            ),
+            automaticallyImplyLeading: !widget.embeddedInShell,
+            leading: widget.embeddedInShell
+                ? null
+                : IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => context.pop(),
+                  ),
             actions: [
               IconButton(
                 tooltip: '刷新音源',
                 onPressed: _c.refreshSources,
                 icon: const Icon(Icons.refresh),
               ),
+              if (widget.embeddedInShell) ...[
+                const SizedBox(width: 4),
+                const AccountAvatarButton(compact: true),
+                const SizedBox(width: 8),
+              ],
             ],
           ),
           body: SafeArea(

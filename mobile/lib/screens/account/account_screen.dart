@@ -248,11 +248,6 @@ class AccountScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: AppSpacing.item),
                   SecondaryButton(
-                    text: 'Sound Lab 声音实验室',
-                    onPressed: () => context.push(AppRoutes.soundLab),
-                  ),
-                  const SizedBox(height: AppSpacing.item),
-                  SecondaryButton(
                     text: '退出登录',
                     danger: true,
                     onPressed: () => _logout(context),

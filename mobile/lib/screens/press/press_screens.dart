@@ -146,7 +146,7 @@ class _PressMethodScreenState extends State<PressMethodScreen> {
           const SizedBox(height: AppSpacing.tight),
           _MethodCard(
             title: '硬件设备写入',
-            subtitle: '发送到已绑定的 Memory Terminal',
+            subtitle: '发送写入任务至已连接设备，在设备端完成写入',
             enabled: !_loading,
             onTap: () => context.push(AppRoutes.pressHardwarePath(widget.id)),
           ),

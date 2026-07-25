@@ -122,7 +122,7 @@ Draft 阶段为「待揭晓」
 
 3. 一级导航
 
-底部导航保持三个核心入口，不增加第四个“我的”：
+底部导航四个入口（不增加独立“我的”Tab）：
 
 一级导航
 
@@ -148,15 +148,21 @@ Collection
 
 已写入声片并完成上链的声音收藏
 
+Lab
+
+声音实验室
+
+点选音源、生成并试听阿卡贝拉编排
+
 辅助入口：
 
 Account：通过各一级页面右上角的头像进入。
 
-Press：从 Drafts 卡片或暂存声音详情发起。
+Press：从 Drafts 卡片「发送至设备写入」、暂存详情或 Press 方式选择页发起。
 
 分类声片播放页：从 Collection 分类跑道圆进入（不进底栏）；页内完成浏览、播放与完整记忆展示，不再设独立 Memory 页。
 
-这种结构让“捕捉—暂存—收藏”始终是产品主叙事，账号与 NFT 管理作为支撑层存在。
+这种结构让“捕捉—暂存—收藏”始终是产品主叙事；Lab 作为创作实验入口进底栏；账号与 NFT 管理作为支撑层存在。
 
 4. 登录策略
 
@@ -424,7 +430,7 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 04 录音首页
 
-顶部：SoundPola 标识、账户入口。
+顶部：SoundPola 标识、连接设备图标入口（`ConnectDeviceIconButton` → WiFi 扫码配对）、账户入口。
 
 未授权麦克风（阻断态，非普通空态）：`MIC ACCESS REQUIRED` / 需要麦克风权限；中央为关闭的麦克风端口视觉；主按钮「允许麦克风权限」或「前往系统设置」。
 
@@ -432,7 +438,7 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 主录音按钮靠底部导航上方；与可视化间距缩短；极细垂直能量线关联（非分割线）。视觉中心约在屏高 39%–43%，主体宽约屏宽 74%–82%。
 
-底部三项导航（Record / Drafts / Collection）；底栏降低高光／边框与非选中对比度，焦点依次为可视化 → 录音钮 → 状态文 → 导航。
+底部四项导航（Record / Drafts / Collection / Lab）；底栏降低高光／边框与非选中对比度，焦点依次为可视化 → 录音钮 → 状态文 → 导航。
 
 04b 导入本地音频
 
@@ -496,11 +502,18 @@ NFC 指引：插入成功后展开；Browsing 不提前展开。流程：明确�
 
 08 Draft 详情
 
-声音视觉主图、播放、名称 / 分类 / 描述（分类为用户自定义：已创建列表或新建）、只读元数据。
+声音视觉主图（点击播放／暂停）、名称 / 分类 / 描述（分类为用户自定义：已创建列表或新建）、只读元数据。
 
-主操作：「返回暂存台写入」（写入在 Drafts 页拖入设备完成）。
+暂存声音操作项：
 
-次要操作：编辑信息、删除。已写入 NFC 待上链的声音不可删除。
+- 播放
+- 编辑声音信息
+- 删除（已写入 NFC 待上链的声音不可删除）
+- 发送至设备写入
+
+主操作：「发送至设备写入」→ 进入硬件写入任务页。APP 只发送写入任务，不在暂存页完成写入；放入声卡、确认写入与硬件校验均在设备端完成。
+
+Drafts 列表对当前选中声卡亦提供「发送至设备写入」快捷入口；手机 NFC 封存仍可通过长按拖入拟物设备完成。
 
 7.4 登录与账户建立
 
@@ -559,6 +572,27 @@ NFC 指引：插入成功后展开；Browsing 不提前展开。流程：明确�
 手机 NFC 写入：兼容性、开启状态、操作说明。
 
 硬件设备写入：设备名称、连接状态、连接入口。
+
+12b 发送至设备写入（硬件路径）
+
+流程：
+
+选择暂存声音 → 点击「发送至设备」→ 选择或确认已连接设备 → APP 发送声音写入任务 → 设备接收并缓存任务 → 用户在设备上放入声卡 → 设备执行写入与校验 → 结果同步回 APP → 写入成功后进入 Collection。
+
+职责边界：APP 发送的是写入任务，不会直接在暂存页完成写入；插入声卡、确认写入和硬件校验均在设备端完成。设备应将等待声卡、写入中、校验中、成功或失败等状态实时同步至 APP。写入成功后，该声音从「暂存」更新为「已写入」并进入 Collection；写入失败时保留原暂存录音，允许用户重新发送任务或在设备端重试。
+
+点击「发送至设备」后，APP 依次显示：
+
+| 状态 | APP 提示 |
+| --- | --- |
+| 未连接 | 请先连接 SoundPola 设备 |
+| 正在发送 | 正在向设备发送写入请求 |
+| 设备已接收 | 请求已发送，请前往设备继续操作 |
+| 等待放入声卡 | 请在设备中放入一枚空白 Sound Piece |
+| 正在写入 | 设备正在写入，请勿移走声卡 |
+| 正在校验 | 正在验证声卡绑定结果 |
+| 写入成功 | 声音已写入并加入收藏 |
+| 写入失败 | 写入未完成，可重新发送或重试 |
 
 13 声片检测
 
@@ -840,7 +874,7 @@ App 经局域网原始 TCP Socket 向设备 `POST /pair`（不用 package:http�
 
 界面状态：loading →（权限）→ scanning → sending → success；失败可重扫。nonce 一次性且约 3 分钟 TTL；仅配对界面受理；局域网明文 HTTP 为 MVP 可接受，后续可加 TLS。
 
-入口：Account 主按钮「WiFi 扫码连接设备」；「我的设备」空态／列表「连接新设备」；Press「硬件设备写入」未绑定时直接进入扫码页。
+入口：Record 主页账户旁设备图标；Account 主按钮「WiFi 扫码连接设备」；「我的设备」空态／列表「连接新设备」；Press「硬件设备写入」未绑定时直接进入扫码页。
 
 硬件端 Memory Terminal HMI（权威：`hadwareui.md` + `docs/hardware-ui-preview/index.html`）：
 
@@ -904,9 +938,9 @@ NFT 的保留、转移或失去访问权风险。
 
 Shell
 
-/record /drafts /collection
+/record /drafts /collection /lab
 
-三项底部导航容器
+四项底部导航容器（Lab = Sound Lab）
 
 Capture
 
@@ -1076,17 +1110,17 @@ App
 │       ├── 实体声片信息
 │       ├── NFT 数字资产信息
 │       └── 分享与编辑展示信息
+├── Lab（Sound Lab 声音实验室，底部第四 Tab）
 └── Account
     ├── 个人中心
-    ├── Sound Lab 声音实验室（自动化阿卡贝拉测试页，`/lab/sound`，不进底栏）
     ├── 我的数字资产
     ├── 声片与设备
     ├── 账号与安全
     └── 权限与隐私
 
-9.1 Sound Lab 声音实验室（测试页）
+9.1 Sound Lab 声音实验室
 
-定位：自动化声音阿卡贝拉测试页；旁路路由 `/lab/sound`，不进底部三 Tab；入口在 Account。
+定位：自动化声音阿卡贝拉页；底部导航第四入口（标签 Lab）；旁路路由 `/lab/sound` 仍可用。
 
 **用户流程**：点选 1–4 段声音 →「生成阿卡贝拉并试听」→ 截取各段最高音量有效声段（`HotClip`）→ **随机发明节拍型**（如「咚咚打咚咚-」）→ 把声段填进拍点并偶发叠唱试听。
 
@@ -1126,7 +1160,7 @@ Account 首页。
 
 可视化留存：录音中记录 AudioDrive 时间序列；保存后离屏确定性 bake（低粒子档、逐帧向 UI yield）→ Indexed-MJPEG（512²／12fps／q≈80）＋idx＋manifest＋cover；播放按 audioPositionMs 随机访问帧（最新帧优先、旧解码丢弃）；`rendererVersion=soundpola_kaleido_linear_v1`。
 
-三 Tab：Record / Drafts / Collection；Press / 分类声片播放页 / Account 不进底栏。
+四 Tab：Record / Drafts / Collection / Lab；Press / 分类声片播放页 / Account 不进底栏。
 
 启动页分流：已登录进主 Tab，未登录进登录页；麦克风在录音时按需申请。
 
@@ -1134,7 +1168,7 @@ Account 首页。
 
 账号密码注册 / 登录（本地账号库 + 安全 session）；登录后映射签发 Cloud Media UserToken（SecureStorage，一次下发长期持有）。
 
-Press：multipart 上传源音频 → 轮询至 READY（FAILED 可 retry）→ NFC 写入 `contentId` + `nfc_url`（兼容 Trigger）→ 本地仍模拟 NFT 上链；可选经已配对 Memory Terminal 硬件完成物理写入／出卡（HMI 见 `hadwareui.md`）。
+Press：multipart 上传源音频 → 轮询至 READY（FAILED 可 retry）→ NFC 写入 `contentId` + `nfc_url`（兼容 Trigger）→ 本地仍模拟 NFT 上链；可选经已配对 Memory Terminal 硬件完成物理写入／出卡（HMI 见 `hadwareui.md`）。Draft 详情／列表「发送至设备写入」走硬件任务路径：APP 发任务、设备端放卡写入校验、状态回传；成功进 Collection，失败保留 Draft 可重发。
 
 NFC 深链打开：声片 URI 记录（`https://{host}/c/{contentId}` 或自定义 scheme `soundpola://c/{contentId}`）冷／热启动均进入 `/c/:contentId` 内容解析页（本机已有则进分类播放；未登录先登录再恢复；可 claim 云端记忆）。`go_router` 忽略平台原始 URI 作为初始 location，由 DeepLinkService 归一化后导航，避免 `soundpola://…` 被当成未知路由。
 
@@ -1146,7 +1180,7 @@ Drafts 保持本地优先且按账户隔离；Collection 登录后同步当前�
 
 真实麦克风录音、本地播放、NFC 读写（设备支持时）；云媒体契约见 `docs/openapi-cloud-media.yaml`。
 
-Account 首页：昵称、收藏/声片数量、数字资产账户缩写、退出登录（Drafts／Collection 按账号隔离；换号清空视图）；测试入口 **Sound Lab**（`/lab/sound`）：点选音源 → 程序随机节拍阿卡贝拉（HotClip + 声部编排）；AI 网关暂关。
+Account 首页：昵称、收藏/声片数量、数字资产账户缩写、退出登录（Drafts／Collection 按账号隔离；换号清空视图）。**Lab** 底栏入口：点选音源 → 程序随机节拍阿卡贝拉（HotClip + 声部编排）；AI 网关暂关。
 
 Drafts 本地优先且按登录账户隔离；Collection 登录后仅同步当前账号 READY 内容（不同账号互不串数据）。
 

@@ -220,30 +220,30 @@ class KaleidoLinearEngine {
     final live = f.fastEnvelope > 0.001
         ? f.fastEnvelope
         : (f.gatedRms > 0.001 ? f.gatedRms : f.rms);
-    energy = _ar(energy, live.clamp(0.0, 1.0), 0.02, 0.15, dt);
-    bass = _ar(bass, f.bass, 0.03, 0.18, dt);
-    mid = _ar(mid, f.mid, 0.025, 0.12, dt);
-    treble = _ar(treble, f.treble, 0.02, 0.1, dt);
-    centroid = _ar(centroid, f.spectralCentroid, 0.06, 0.25, dt);
-    flux = _ar(flux, f.spectralFlux, 0.02, 0.14, dt);
-    final onsetT = f.onset > 0.22 ? f.onset : 0.0;
-    onset = onsetT > onset ? onsetT : _ar(onset, 0, 0.05, 0.28, dt);
-    zcr = _ar(zcr, f.zeroCrossingRate, 0.04, 0.14, dt);
-    // Tracker already smooths; light blend keeps paint/analysis clocks aligned.
-    pitch = _ar(pitch, f.pitchControl.clamp(0.0, 1.0), 0.06, 0.14, dt);
-    pitchConf = _ar(pitchConf, f.confidence.clamp(0.0, 1.0), 0.08, 0.18, dt);
+    // Fast attack so loudness visibly punches the field.
+    energy = _ar(energy, live.clamp(0.0, 1.0), 0.012, 0.12, dt);
+    bass = _ar(bass, f.bass, 0.02, 0.14, dt);
+    mid = _ar(mid, f.mid, 0.018, 0.1, dt);
+    treble = _ar(treble, f.treble, 0.015, 0.08, dt);
+    centroid = _ar(centroid, f.spectralCentroid, 0.04, 0.18, dt);
+    flux = _ar(flux, f.spectralFlux, 0.015, 0.12, dt);
+    final onsetT = f.onset > 0.15 ? f.onset : 0.0;
+    onset = onsetT > onset ? onsetT : _ar(onset, 0, 0.04, 0.22, dt);
+    zcr = _ar(zcr, f.zeroCrossingRate, 0.03, 0.12, dt);
+    pitch = _ar(pitch, f.pitchControl.clamp(0.0, 1.0), 0.04, 0.12, dt);
+    pitchConf = _ar(pitchConf, f.confidence.clamp(0.0, 1.0), 0.06, 0.16, dt);
   }
 
   void tick(double dt) {
     time += dt;
     applyInertia(dt);
-    final idle = 0.035 +
-        math.sin(time * 0.55) * 0.008 +
+    final idle = 0.04 +
+        math.sin(time * 0.55) * 0.01 +
         math.sin(time * 0.19) * 0.006;
     final drive = math.max(energy, idle);
     final look = _pitchLook(pitch);
-    final flowSpeed = 0.055 *
-        (1.0 + drive * 1.1 + flux * 0.6) *
+    final flowSpeed = 0.08 *
+        (1.0 + drive * 1.8 + flux * 1.0 + onset * 0.8) *
         look.flowMul;
     flowPhase = (flowPhase + dt * flowSpeed) % 1.0;
   }
@@ -275,18 +275,19 @@ class KaleidoLinearEngine {
     final cy = size.height * 0.5;
     final scale = size.shortestSide * 0.46 * zoom;
 
-    final idle = 0.035 + math.sin(time * 0.55) * 0.008;
+    final idle = 0.04 + math.sin(time * 0.55) * 0.01;
     final drive = math.max(energy, idle);
     final look = _pitchLook(pitch);
-    final shapeT = _smoothstep(0.2, 0.8, pitch);
-    // Geometry stays almost fixed; pitch morphs sharpness / density / size.
-    final geo = _soft(drive) * 0.35;
-    final fold = (0.28 + mid * 0.22 + userFold * 0.5).clamp(0.12, 0.55) *
+    final shapeT = _smoothstep(0.15, 0.85, pitch);
+    // Audio drives brightness + flow strongly; pitch morphs density / sharpness.
+    final geo = _soft(drive) * 0.72;
+    final fold = (0.28 + mid * 0.28 + userFold * 0.5 + drive * 0.08)
+            .clamp(0.12, 0.62) *
         look.foldMul;
     final outerBoost =
-        0.98 + bass * 0.04 + onset * 0.02 + shapeT * 0.035 + onset * 0.03;
+        0.97 + bass * 0.06 + onset * 0.05 + shapeT * 0.05 + drive * 0.03;
     final tipSharp =
-        0.22 + look.sharpness * 0.55 + treble * 0.12 + zcr * 0.06;
+        0.2 + look.sharpness * 0.7 + treble * 0.18 + zcr * 0.1 + drive * 0.08;
 
     // Build Q1 once (pure circles). Coordinates: +x right, +y up from origin.
     // Cull rect keeps mirrored Picture draws finite (avoids unbounded glitches).
@@ -306,9 +307,9 @@ class KaleidoLinearEngine {
         2 => 0.6 + mid * 0.2 + treble * 0.15,
         _ => 0.55 + treble * 0.3 + zcr * 0.1,
       };
-      // Brightness carries most of the audio response — not radius.
-      final bright = (0.28 + drive * 0.42 + localSoft * 0.35 + onset * 0.18) *
-          layerW;
+      // Brightness follows mic energy / onset clearly.
+      final bright =
+          (0.18 + drive * 0.62 + localSoft * 0.28 + onset * 0.28) * layerW;
       final color = _color(bright.clamp(0.0, 1.0), rib.layer);
       final half = (rib.parallel - 1) * 0.5;
 
@@ -348,19 +349,20 @@ class KaleidoLinearEngine {
           final px = xy.$1 * scale;
           final py = xy.$2 * scale;
 
-          // Higher pitch → finer beads (thinner line feel).
+          // Tiny beads; swell slightly with energy so loudness is readable.
           final bead = (0.55 +
                   localSoft * 0.18 +
-                  geo * 0.12 +
+                  geo * 0.22 +
+                  drive * 0.15 +
                   (1.0 - (p - half).abs() / (half + 0.01)) * 0.08) *
               (0.85 + rib.sizeBias * 0.15) *
               look.beadScale *
               (size.shortestSide / 420.0);
-          final a = (0.14 + bright * 0.48).clamp(0.08, 0.58) *
+          final a = (0.12 + bright * 0.62).clamp(0.08, 0.72) *
               (0.6 + (1 - (p - half).abs() / (half + 1)) * 0.4);
           _fill.color = color.withValues(alpha: a);
           // Flutter y-down: store Q1 as (+px, -py) so +y math is screen-up.
-          q1.drawCircle(Offset(px, -py), bead.clamp(0.25, 1.35), _fill);
+          q1.drawCircle(Offset(px, -py), bead.clamp(0.28, 1.65), _fill);
         }
       }
     }

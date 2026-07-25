@@ -17,7 +17,7 @@ import '../../widgets/design_components.dart';
 import '../../widgets/empty_state_panel.dart';
 import '../../widgets/sound_visual.dart';
 
-/// Press path B: send write job to bound Memory Terminal (mock-capable).
+/// 发送写入任务至 Memory Terminal；插入声卡／确认／校验均在设备端完成。
 class HardwarePressScreen extends StatefulWidget {
   const HardwarePressScreen({
     super.key,
@@ -59,7 +59,7 @@ class _HardwarePressScreenState extends State<HardwarePressScreen> {
       setState(() {
         _jobStatus = p.status;
         _cardUid = p.cardUid ?? _cardUid;
-        _statusMessage = p.message;
+        _statusMessage = p.message ?? p.status.appHint;
       });
       if (p.status == WriteJobStatus.success) {
         _onVerifiedSuccess(p);
@@ -110,9 +110,9 @@ class _HardwarePressScreenState extends State<HardwarePressScreen> {
     }
     setState(() {
       _busy = true;
-      _statusMessage = null;
+      _statusMessage = WriteJobStatus.transferring.appHint;
       _cardUid = null;
-      _jobStatus = null;
+      _jobStatus = WriteJobStatus.transferring;
       _collected = false;
     });
     try {
@@ -126,27 +126,20 @@ class _HardwarePressScreenState extends State<HardwarePressScreen> {
     } catch (e) {
       setState(() {
         _jobStatus = WriteJobStatus.connectionFailed;
-        _statusMessage = '连接失败';
+        _statusMessage = WriteJobStatus.connectionFailed.appHint;
       });
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _confirmWrite() async {
-    final job = _job;
-    if (job == null || _cardUid == null) return;
-    setState(() => _busy = true);
-    try {
-      await soundPolaDeviceService.confirmWrite(job.jobId);
-    } catch (e) {
-      setState(() {
-        _jobStatus = WriteJobStatus.writeFailed;
-        _statusMessage = '确认写入失败';
-      });
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+  bool get _notConnected {
+    final device = DeviceRegistry.instance.activeDevice;
+    if (device == null) return true;
+    return _conn.phase == DeviceConnectionPhase.unbound ||
+        _conn.phase == DeviceConnectionPhase.boundOffline ||
+        _conn.phase == DeviceConnectionPhase.offline ||
+        _jobStatus == WriteJobStatus.connectionFailed;
   }
 
   @override
@@ -172,9 +165,10 @@ class _HardwarePressScreenState extends State<HardwarePressScreen> {
       animation: DeviceRegistry.instance,
       builder: (context, _) {
         final device = DeviceRegistry.instance.activeDevice;
-        final waitingConfirm = _jobStatus == WriteJobStatus.waitingForCard &&
-            _cardUid != null &&
-            _cardUid!.isNotEmpty;
+        final waitingOnDevice = _jobStatus == WriteJobStatus.transferred ||
+            _jobStatus == WriteJobStatus.waitingForCard ||
+            _jobStatus == WriteJobStatus.writing ||
+            _jobStatus == WriteJobStatus.verifying;
         final canStart = !_busy &&
             !_collected &&
             (_jobStatus == null ||
@@ -187,7 +181,7 @@ class _HardwarePressScreenState extends State<HardwarePressScreen> {
             backgroundColor: AppColors.bgPrimary,
             elevation: 0,
             foregroundColor: AppColors.textPrimary,
-            title: const Text('硬件设备写入'),
+            title: const Text('发送至设备写入'),
             leading: IconButton(
               icon: const Icon(Icons.arrow_back),
               onPressed: widget.onBack,
@@ -197,57 +191,46 @@ class _HardwarePressScreenState extends State<HardwarePressScreen> {
             child: ListView(
               padding: const EdgeInsets.all(AppSpacing.pageHorizontal),
               children: [
-                // Zone 1 — sound
                 const _SectionLabel('声音'),
                 const SizedBox(height: 8),
                 _SoundSummary(item: item),
                 const SizedBox(height: AppSpacing.section),
 
-                // Zone 2 — device
-                const _SectionLabel('设备状态'),
+                const _SectionLabel('设备'),
                 const SizedBox(height: 8),
                 _DeviceStatusCard(
                   device: device,
                   conn: _conn,
+                  notConnected: device == null ||
+                      (_jobStatus == null && _notConnected),
                   onBind: () => context.push(AppRoutes.pairDevice),
                   onSwitch: () => context.push(AppRoutes.myDevices),
                 ),
                 const SizedBox(height: AppSpacing.section),
 
-                // Zone 3 — progress
-                const _SectionLabel('写入进度'),
+                const _SectionLabel('写入任务状态'),
                 const SizedBox(height: 8),
                 _ProgressCard(
                   jobStatus: _jobStatus,
                   cardUid: _cardUid,
                   message: _statusMessage,
                   collected: _collected,
+                  noDevice: device == null,
+                ),
+                const SizedBox(height: AppSpacing.item),
+                const Text(
+                  'APP 仅发送写入任务。放入 Sound Piece、确认写入与硬件校验均在设备端完成，状态会同步回本页。',
+                  style: TextStyle(
+                    color: AppColors.textTertiary,
+                    fontSize: 12,
+                    height: 1.45,
+                  ),
                 ),
                 const SizedBox(height: AppSpacing.section),
 
-                if (waitingConfirm) ...[
-                  _ConfirmPanel(
-                    item: item,
-                    deviceName: device?.deviceName ?? '—',
-                    cardUid: _cardUid!,
-                    busy: _busy,
-                    onConfirm: _confirmWrite,
-                  ),
-                  const SizedBox(height: AppSpacing.item),
-                  // Mock controls — explicit events only (no auto-success timer).
-                  if (!_collected) ...[
-                    SecondaryButton(
-                      text: '模拟：注入写入失败',
-                      onPressed: _busy
-                          ? null
-                          : () => _mock.mockFailWrite(),
-                    ),
-                    const SizedBox(height: AppSpacing.item),
-                  ],
-                ] else if (_jobStatus == WriteJobStatus.waitingForCard &&
-                    (_cardUid == null || _cardUid!.isEmpty)) ...[
+                if (waitingOnDevice && !_collected) ...[
                   SecondaryButton(
-                    text: '模拟：检测到空白声卡',
+                    text: '模拟：设备放入空白声卡并写入',
                     onPressed: _busy ? null : () => _mock.mockDetectCard(),
                   ),
                   const SizedBox(height: AppSpacing.item),
@@ -258,15 +241,32 @@ class _HardwarePressScreenState extends State<HardwarePressScreen> {
                         : () => _mock.mockDetectCard(alreadyBound: true),
                   ),
                   const SizedBox(height: AppSpacing.item),
+                  SecondaryButton(
+                    text: '模拟：写入失败',
+                    onPressed:
+                        _busy ? null : () => _mock.mockFailWrite(),
+                  ),
+                  const SizedBox(height: AppSpacing.section),
                 ],
 
                 if (canStart)
                   PrimaryButton(
-                    text: device == null ? 'WiFi 扫码连接设备' : '发送到设备',
+                    text: device == null ? '连接 SoundPola 设备' : '发送至设备',
                     onPressed: device == null
                         ? () => context.push(AppRoutes.pairDevice)
                         : _startTransfer,
                   ),
+
+                if (_jobStatus != null &&
+                    _jobStatus!.isTerminal &&
+                    _jobStatus != WriteJobStatus.success &&
+                    !_collected) ...[
+                  const SizedBox(height: AppSpacing.item),
+                  SecondaryButton(
+                    text: '重新发送写入任务',
+                    onPressed: device == null ? null : _startTransfer,
+                  ),
+                ],
 
                 if (_collected) ...[
                   PrimaryButton(
@@ -361,12 +361,14 @@ class _DeviceStatusCard extends StatelessWidget {
   const _DeviceStatusCard({
     required this.device,
     required this.conn,
+    required this.notConnected,
     required this.onBind,
     required this.onSwitch,
   });
 
   final SoundPolaDevice? device;
   final DeviceConnectionState conn;
+  final bool notConnected;
   final VoidCallback onBind;
   final VoidCallback onSwitch;
 
@@ -383,7 +385,7 @@ class _DeviceStatusCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              '未绑定设备',
+              '未连接',
               style: TextStyle(
                 color: AppColors.warning,
                 fontWeight: FontWeight.w600,
@@ -391,7 +393,7 @@ class _DeviceStatusCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              '扫描 Memory Terminal 屏幕上的配对二维码，将手机与设备连到同一 WiFi 后完成授权。',
+              '请先连接 SoundPola 设备',
               style: TextStyle(color: AppColors.textSecondary, height: 1.4),
             ),
             const SizedBox(height: 12),
@@ -406,7 +408,7 @@ class _DeviceStatusCard extends StatelessWidget {
       DeviceConnectionPhase.boundOffline => '已绑定 · 未连接',
       DeviceConnectionPhase.connecting => '正在连接',
       DeviceConnectionPhase.connected => '已连接',
-      DeviceConnectionPhase.transferring => '正在传输',
+      DeviceConnectionPhase.transferring => '正在发送',
       DeviceConnectionPhase.waitingForCard => '等待放入声卡',
       DeviceConnectionPhase.writing => '正在写入',
       DeviceConnectionPhase.verifying => '正在校验',
@@ -435,16 +437,27 @@ class _DeviceStatusCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            '$phaseLabel'
-            '${device!.batteryLevel != null || conn.batteryLevel != null ? ' · 电量 ${conn.batteryLevel ?? device!.batteryLevel}%' : ''}',
-            style: const TextStyle(color: AppColors.accent, fontSize: 13),
+            notConnected &&
+                    conn.phase != DeviceConnectionPhase.connected &&
+                    conn.phase != DeviceConnectionPhase.transferring &&
+                    conn.phase != DeviceConnectionPhase.waitingForCard &&
+                    conn.phase != DeviceConnectionPhase.writing &&
+                    conn.phase != DeviceConnectionPhase.verifying &&
+                    conn.phase != DeviceConnectionPhase.writeSuccess
+                ? '未连接 · 请先连接 SoundPola 设备'
+                : '$phaseLabel'
+                    '${device!.batteryLevel != null || conn.batteryLevel != null ? ' · 电量 ${conn.batteryLevel ?? device!.batteryLevel}%' : ''}',
+            style: TextStyle(
+              color: notConnected ? AppColors.warning : AppColors.accent,
+              fontSize: 13,
+            ),
           ),
           const SizedBox(height: 10),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton(
               onPressed: onSwitch,
-              child: const Text('切换设备'),
+              child: const Text('选择 / 切换设备'),
             ),
           ),
         ],
@@ -459,18 +472,28 @@ class _ProgressCard extends StatelessWidget {
     required this.cardUid,
     required this.message,
     required this.collected,
+    required this.noDevice,
   });
 
   final WriteJobStatus? jobStatus;
   final String? cardUid;
   final String? message;
   final bool collected;
+  final bool noDevice;
 
   @override
   Widget build(BuildContext context) {
-    final label = collected
-        ? '写入完成'
-        : (jobStatus?.label ?? '尚未开始');
+    final statusLabel = collected
+        ? '写入成功'
+        : noDevice && jobStatus == null
+            ? '未连接'
+            : (jobStatus?.label ?? '待发送');
+    final hint = collected
+        ? WriteJobStatus.success.appHint
+        : noDevice && jobStatus == null
+            ? '请先连接 SoundPola 设备'
+            : (message ?? jobStatus?.appHint ?? '选择录音后，将写入任务发送至已连接设备');
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -482,7 +505,7 @@ class _ProgressCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            label,
+            statusLabel,
             style: TextStyle(
               color: collected || jobStatus == WriteJobStatus.success
                   ? AppColors.accent
@@ -493,22 +516,20 @@ class _ProgressCard extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
+          const SizedBox(height: 6),
+          Text(
+            hint,
+            style: const TextStyle(color: AppColors.textSecondary, height: 1.4),
+          ),
           if (cardUid != null && cardUid!.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
               '声卡 UID · ${_shortUid(cardUid!)}',
               style: const TextStyle(
-                color: AppColors.textSecondary,
+                color: AppColors.textTertiary,
                 fontFamily: 'Courier',
                 fontSize: 12,
               ),
-            ),
-          ],
-          if (message != null && message!.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              message!,
-              style: const TextStyle(color: AppColors.textSecondary, height: 1.4),
             ),
           ],
         ],
@@ -519,67 +540,5 @@ class _ProgressCard extends StatelessWidget {
   static String _shortUid(String uid) {
     if (uid.length <= 12) return uid;
     return '${uid.substring(0, 6)}…${uid.substring(uid.length - 4)}';
-  }
-}
-
-class _ConfirmPanel extends StatelessWidget {
-  const _ConfirmPanel({
-    required this.item,
-    required this.deviceName,
-    required this.cardUid,
-    required this.busy,
-    required this.onConfirm,
-  });
-
-  final SoundMemory item;
-  final String deviceName;
-  final String cardUid;
-  final bool busy;
-  final VoidCallback onConfirm;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface2,
-        borderRadius: BorderRadius.circular(AppRadii.card),
-        border: Border.all(color: AppColors.accent.withValues(alpha: 0.35)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '确认永久写入',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w700,
-              fontSize: 16,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text('声音：${item.title}',
-              style: const TextStyle(color: AppColors.textSecondary)),
-          Text('录制：${item.recordedAt.toLocal()}',
-              style: const TextStyle(color: AppColors.textSecondary)),
-          Text('目标设备：$deviceName',
-              style: const TextStyle(color: AppColors.textSecondary)),
-          Text(
-            '声卡 UID · ${_ProgressCard._shortUid(cardUid)}',
-            style: const TextStyle(color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            '写入后不可更换声音。一枚 NFC 声卡永久绑定一段声音。',
-            style: TextStyle(color: AppColors.warning, height: 1.4, fontSize: 13),
-          ),
-          const SizedBox(height: 14),
-          PrimaryButton(
-            text: busy ? '写入中…' : '确认写入',
-            onPressed: busy ? null : onConfirm,
-          ),
-        ],
-      ),
-    );
   }
 }

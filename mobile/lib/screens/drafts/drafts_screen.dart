@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../cloud/cloud_media_client.dart';
 import '../../cloud/cloud_media_config.dart';
@@ -13,6 +14,7 @@ import '../../data/bay_disc_store.dart';
 import '../../data/disc_rarity.dart';
 import '../../data/session.dart';
 import '../../data/sound_repository.dart';
+import '../../router/app_routes.dart';
 import '../../services/auth_service.dart';
 import '../../services/audio_playback_service.dart';
 import '../../services/chain_service.dart';
@@ -1231,7 +1233,7 @@ class _DraftsScreenState extends State<DraftsScreen>
                                         PressMachineMode.readyToRelease
                                     ? '松开以插入顶部插口'
                                     : '向上拖至顶部插口封存')
-                                : '长按中央声卡，拖至顶部插口封存',
+                                : '点开声卡可发送至设备；或长按拖至顶部插口用手机 NFC 封存',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: dragging
@@ -1244,6 +1246,27 @@ class _DraftsScreenState extends State<DraftsScreen>
                           ),
                         ),
                       ),
+                      if (!dragging &&
+                          !_trayLocked &&
+                          tray.isNotEmpty &&
+                          selected < tray.length)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(28, 0, 28, 4),
+                          child: Center(
+                            child: TextButton(
+                              onPressed: () => context.push(
+                                AppRoutes.pressHardwarePath(tray[selected].id),
+                              ),
+                              child: const Text(
+                                '发送至设备写入',
+                                style: TextStyle(
+                                  color: AppColors.accent,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       if (_showCarousel)
                         Expanded(
                           child: Padding(
@@ -1819,24 +1842,51 @@ class _DraftDetailScreenState extends State<DraftDetailScreen> {
                     MetaRow(label: '声片编号', value: item.discId!),
                 ],
                 const SizedBox(height: AppSpacing.block),
-                PrimaryButton(
-                  text: '返回暂存台写入',
-                  onPressed: widget.onBack,
-                ),
-                const SizedBox(height: AppSpacing.tight),
-                const Text(
-                  '请在 Drafts 页将卡片拖入设备，完成 NFC 封存。',
-                  style: TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 12,
+                if (!_editing) ...[
+                  PrimaryButton(
+                    text: '发送至设备写入',
+                    onPressed: () =>
+                        context.push(AppRoutes.pressHardwarePath(widget.id)),
                   ),
-                ),
-                const SizedBox(height: AppSpacing.item),
-                SecondaryButton(
-                  text: '删除声音',
-                  danger: true,
-                  onPressed: _confirmDelete,
-                ),
+                  const SizedBox(height: AppSpacing.tight),
+                  const Text(
+                    'APP 发送写入任务后，请在设备端放入空白 Sound Piece 完成写入与校验。',
+                    style: TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.item),
+                  SecondaryButton(
+                    text: '编辑声音信息',
+                    onPressed: () => setState(() => _editing = true),
+                  ),
+                  const SizedBox(height: AppSpacing.item),
+                  SecondaryButton(
+                    text: '删除',
+                    danger: true,
+                    onPressed: _confirmDelete,
+                  ),
+                ] else ...[
+                  PrimaryButton(
+                    text: '保存',
+                    onPressed: _saveEdit,
+                  ),
+                  const SizedBox(height: AppSpacing.item),
+                  SecondaryButton(
+                    text: '取消编辑',
+                    onPressed: () {
+                      final item = SoundRepository.instance.get(widget.id);
+                      setState(() {
+                        _editing = false;
+                        _titleCtrl.text = item?.title ?? '';
+                        _descCtrl.text = item?.description ?? '';
+                        _category = item?.category;
+                      });
+                    },
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.section),
               ],
             ),

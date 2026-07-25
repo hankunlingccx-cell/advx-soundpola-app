@@ -60,22 +60,44 @@ extension WriteJobStatusX on WriteJobStatus {
 
   String get label => switch (this) {
         WriteJobStatus.created => '已创建',
-        WriteJobStatus.connecting => '正在连接',
-        WriteJobStatus.transferring => '正在传输',
-        WriteJobStatus.transferred => '已传到设备',
+        WriteJobStatus.connecting => '未连接',
+        WriteJobStatus.transferring => '正在发送',
+        WriteJobStatus.transferred => '设备已接收',
         WriteJobStatus.waitingForCard => '等待放入声卡',
         WriteJobStatus.writing => '正在写入',
         WriteJobStatus.verifying => '正在校验',
         WriteJobStatus.success => '写入成功',
-        WriteJobStatus.connectionFailed => '连接失败',
-        WriteJobStatus.transferFailed => '传输失败',
-        WriteJobStatus.cardNotDetected => '未检测到声卡',
-        WriteJobStatus.cardAlreadyBound => '声卡已绑定',
+        WriteJobStatus.connectionFailed => '未连接',
+        WriteJobStatus.transferFailed => '写入失败',
+        WriteJobStatus.cardNotDetected => '写入失败',
+        WriteJobStatus.cardAlreadyBound => '写入失败',
         WriteJobStatus.writeFailed => '写入失败',
-        WriteJobStatus.verifyFailed => '校验失败',
-        WriteJobStatus.cancelled => '已取消',
-        WriteJobStatus.timeout => '超时',
-        WriteJobStatus.unknown => '结果未知',
+        WriteJobStatus.verifyFailed => '写入失败',
+        WriteJobStatus.cancelled => '写入失败',
+        WriteJobStatus.timeout => '写入失败',
+        WriteJobStatus.unknown => '写入失败',
+      };
+
+  /// APP 侧状态提示（写入在设备端完成，此处仅同步进度）。
+  String get appHint => switch (this) {
+        WriteJobStatus.created => '请确认已连接设备后发送写入任务',
+        WriteJobStatus.connecting => '请先连接 SoundPola 设备',
+        WriteJobStatus.transferring => '正在向设备发送写入请求',
+        WriteJobStatus.transferred => '请求已发送，请前往设备继续操作',
+        WriteJobStatus.waitingForCard => '请在设备中放入一枚空白 Sound Piece',
+        WriteJobStatus.writing => '设备正在写入，请勿移走声卡',
+        WriteJobStatus.verifying => '正在验证声卡绑定结果',
+        WriteJobStatus.success => '声音已写入并加入收藏',
+        WriteJobStatus.connectionFailed => '请先连接 SoundPola 设备',
+        WriteJobStatus.transferFailed ||
+        WriteJobStatus.cardNotDetected ||
+        WriteJobStatus.cardAlreadyBound ||
+        WriteJobStatus.writeFailed ||
+        WriteJobStatus.verifyFailed ||
+        WriteJobStatus.cancelled ||
+        WriteJobStatus.timeout ||
+        WriteJobStatus.unknown =>
+          '写入未完成，可重新发送或重试',
       };
 }
 

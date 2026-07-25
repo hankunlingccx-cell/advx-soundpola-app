@@ -257,12 +257,12 @@ class MockSoundPolaDeviceService implements SoundPolaDeviceService {
       _emitProg(HardwareWriteProgress(
         jobId: job.jobId,
         status: WriteJobStatus.connectionFailed,
-        message: '设备未连接',
+        message: WriteJobStatus.connectionFailed.appHint,
       ));
       _emitConn(DeviceConnectionState(
         phase: DeviceConnectionPhase.writeFailed,
         deviceId: job.deviceId,
-        message: '设备未连接',
+        message: WriteJobStatus.connectionFailed.appHint,
       ));
       return;
     }
@@ -275,26 +275,29 @@ class MockSoundPolaDeviceService implements SoundPolaDeviceService {
     _emitProg(HardwareWriteProgress(
       jobId: job.jobId,
       status: WriteJobStatus.transferring,
+      message: WriteJobStatus.transferring.appHint,
     ));
     // Instant transfer ack for mock — still event-driven, not a timed fake success.
     _emitProg(HardwareWriteProgress(
       jobId: job.jobId,
       status: WriteJobStatus.transferred,
+      message: WriteJobStatus.transferred.appHint,
     ));
     _emitProg(HardwareWriteProgress(
       jobId: job.jobId,
       status: WriteJobStatus.waitingForCard,
-      message: '请将声卡放入设备',
+      message: WriteJobStatus.waitingForCard.appHint,
     ));
     _emitConn(DeviceConnectionState(
       phase: DeviceConnectionPhase.waitingForCard,
       deviceId: job.deviceId,
       batteryLevel: _conn.batteryLevel,
-      message: '请将声卡放入设备',
+      message: WriteJobStatus.waitingForCard.appHint,
     ));
   }
 
-  /// Mock-only: operator / UI triggers card detection (never auto).
+  /// Mock-only: device detects a card. Blank cards are confirmed on-device
+  /// (APP never confirms write); already-bound cards fail immediately.
   void mockDetectCard({String? cardUid, bool alreadyBound = false}) {
     final job = _activeJob;
     if (job == null || job.status != WriteJobStatus.waitingForCard) return;
@@ -303,7 +306,7 @@ class MockSoundPolaDeviceService implements SoundPolaDeviceService {
         jobId: job.jobId,
         status: WriteJobStatus.cardAlreadyBound,
         cardUid: cardUid ?? 'UID-BOUND',
-        message: '声卡已绑定其他声音',
+        message: WriteJobStatus.cardAlreadyBound.appHint,
       ));
       _emitConn(DeviceConnectionState(
         phase: DeviceConnectionPhase.writeFailed,
@@ -315,14 +318,50 @@ class MockSoundPolaDeviceService implements SoundPolaDeviceService {
     final uid = cardUid ??
         'UID-${List.generate(4, (_) => _rng.nextInt(256).toRadixString(16).padLeft(2, '0')).join().toUpperCase()}';
     _activeJob = job.copyWith(cardUid: uid);
+    // Device-side confirm → write → verify (APP only observes).
+    unawaited(_runDeviceSideWrite(job.jobId, uid));
+  }
+
+  Future<void> _runDeviceSideWrite(String jobId, String cardUid) async {
+    final job = _activeJob;
+    if (job == null || job.jobId != jobId) return;
     _emitProg(HardwareWriteProgress(
-      jobId: job.jobId,
-      status: WriteJobStatus.waitingForCard,
-      cardUid: uid,
-      message: '已检测到声卡，请确认写入',
+      jobId: jobId,
+      status: WriteJobStatus.writing,
+      cardUid: cardUid,
+      message: WriteJobStatus.writing.appHint,
+    ));
+    _emitConn(DeviceConnectionState(
+      phase: DeviceConnectionPhase.writing,
+      deviceId: job.deviceId,
+      batteryLevel: _conn.batteryLevel,
+    ));
+    _emitProg(HardwareWriteProgress(
+      jobId: jobId,
+      status: WriteJobStatus.verifying,
+      cardUid: cardUid,
+      message: WriteJobStatus.verifying.appHint,
+    ));
+    _emitConn(DeviceConnectionState(
+      phase: DeviceConnectionPhase.verifying,
+      deviceId: job.deviceId,
+      batteryLevel: _conn.batteryLevel,
+    ));
+    _emitProg(HardwareWriteProgress(
+      jobId: jobId,
+      status: WriteJobStatus.success,
+      cardUid: cardUid,
+      message: WriteJobStatus.success.appHint,
+    ));
+    _emitConn(DeviceConnectionState(
+      phase: DeviceConnectionPhase.writeSuccess,
+      deviceId: job.deviceId,
+      batteryLevel: _conn.batteryLevel,
     ));
   }
 
+  /// Kept for transport API compatibility; real devices confirm on-device.
+  /// Mock: if a card UID is already set, continues the write pipeline.
   @override
   Future<void> confirmWrite(String jobId) async {
     final job = _activeJob;
@@ -335,41 +374,10 @@ class MockSoundPolaDeviceService implements SoundPolaDeviceService {
     if (job.status != WriteJobStatus.waitingForCard) {
       throw StateError('invalid status ${job.status}');
     }
-    _emitProg(HardwareWriteProgress(
-      jobId: jobId,
-      status: WriteJobStatus.writing,
-      cardUid: job.cardUid,
-    ));
-    _emitConn(DeviceConnectionState(
-      phase: DeviceConnectionPhase.writing,
-      deviceId: job.deviceId,
-      batteryLevel: _conn.batteryLevel,
-    ));
-    _emitProg(HardwareWriteProgress(
-      jobId: jobId,
-      status: WriteJobStatus.verifying,
-      cardUid: job.cardUid,
-    ));
-    _emitConn(DeviceConnectionState(
-      phase: DeviceConnectionPhase.verifying,
-      deviceId: job.deviceId,
-      batteryLevel: _conn.batteryLevel,
-    ));
-    // Success only after explicit verify event chain (still synchronous mock).
-    _emitProg(HardwareWriteProgress(
-      jobId: jobId,
-      status: WriteJobStatus.success,
-      cardUid: job.cardUid,
-      message: '写入并校验成功',
-    ));
-    _emitConn(DeviceConnectionState(
-      phase: DeviceConnectionPhase.writeSuccess,
-      deviceId: job.deviceId,
-      batteryLevel: _conn.batteryLevel,
-    ));
+    await _runDeviceSideWrite(jobId, job.cardUid!);
   }
 
-  /// Mock-only failure injection after card detected.
+  /// Mock-only failure injection while a job is active on device.
   void mockFailWrite({WriteJobStatus status = WriteJobStatus.writeFailed}) {
     final job = _activeJob;
     if (job == null) return;
@@ -377,12 +385,12 @@ class MockSoundPolaDeviceService implements SoundPolaDeviceService {
       jobId: job.jobId,
       status: status,
       cardUid: job.cardUid,
-      message: status.label,
+      message: status.appHint,
     ));
     _emitConn(DeviceConnectionState(
       phase: DeviceConnectionPhase.writeFailed,
       deviceId: job.deviceId,
-      message: status.label,
+      message: status.appHint,
     ));
   }
 
