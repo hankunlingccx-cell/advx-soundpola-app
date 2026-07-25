@@ -75,7 +75,7 @@ class VisualQualityProfile {
   static const high = VisualQualityProfile(
     tier: VisualQuality.high,
     bloom: true,
-    particleCount: 8,
+    particleCount: 12,
     resolutionScale: 1.0,
     targetFps: 60,
   );
@@ -83,16 +83,16 @@ class VisualQualityProfile {
   static const medium = VisualQualityProfile(
     tier: VisualQuality.medium,
     bloom: false,
-    particleCount: 5,
-    resolutionScale: 0.85,
+    particleCount: 7,
+    resolutionScale: 0.9,
     targetFps: 60,
   );
 
   static const low = VisualQualityProfile(
     tier: VisualQuality.low,
     bloom: false,
-    particleCount: 2,
-    resolutionScale: 0.65,
+    particleCount: 3,
+    resolutionScale: 0.72,
     targetFps: 45,
   );
 
@@ -100,7 +100,7 @@ class VisualQualityProfile {
     tier: VisualQuality.medium,
     bloom: false,
     particleCount: 3,
-    resolutionScale: 0.85,
+    resolutionScale: 0.9,
     targetFps: 24,
   );
 

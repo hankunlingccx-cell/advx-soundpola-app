@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -45,7 +44,7 @@ extension PressMachineModeX on PressMachineMode {
       this != PressMachineMode.idle && this != PressMachineMode.empty;
 
   double get slotGlow => switch (this) {
-        PressMachineMode.idle || PressMachineMode.empty => 0.18,
+        PressMachineMode.idle || PressMachineMode.empty => 0.2,
         PressMachineMode.receiving => 0.55,
         PressMachineMode.readyToRelease => 0.95,
         PressMachineMode.inserting => 0.8,
@@ -57,18 +56,15 @@ extension PressMachineModeX on PressMachineMode {
       };
 
   double get slotExtend => switch (this) {
-        PressMachineMode.idle || PressMachineMode.empty => 2,
-        PressMachineMode.receiving => 8,
-        PressMachineMode.readyToRelease => 14,
-        PressMachineMode.inserting => 10,
-        PressMachineMode.loaded => 4,
-        PressMachineMode.found || PressMachineMode.pressing => 6,
-        PressMachineMode.complete => 8,
-        PressMachineMode.interrupted || PressMachineMode.alreadyBound => 4,
+        PressMachineMode.idle || PressMachineMode.empty => 0,
+        PressMachineMode.receiving => 6,
+        PressMachineMode.readyToRelease => 12,
+        PressMachineMode.inserting => 8,
+        _ => 4,
       };
 }
 
-/// 白色陶瓷 × 浅银金属的 iOS 式精密写入机。
+/// 白色陶瓷精密写入机（Widget 组合，避免 CustomPaint 子树撑破导致纯白块）。
 class PressMachine extends StatelessWidget {
   const PressMachine({
     super.key,
@@ -77,6 +73,7 @@ class PressMachine extends StatelessWidget {
     this.guideFlash = 0,
     this.slotKey,
     this.loadedTitle,
+    this.maxHeight = 156,
   });
 
   final PressMachineMode mode;
@@ -84,6 +81,7 @@ class PressMachine extends StatelessWidget {
   final double guideFlash;
   final GlobalKey? slotKey;
   final String? loadedTitle;
+  final double maxHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -97,99 +95,185 @@ class PressMachine extends StatelessWidget {
             loadedTitle!.isNotEmpty) {
           line2 = loadedTitle!;
         }
-        final breathPulse = 0.75 + 0.25 * breath.value;
-        final slotGlow = mode == PressMachineMode.idle
-            ? mode.slotGlow * breathPulse
+
+        final glow = mode == PressMachineMode.idle
+            ? mode.slotGlow * (0.75 + 0.25 * breath.value)
             : mode.slotGlow;
 
         return LayoutBuilder(
           builder: (context, constraints) {
-            final w = constraints.maxWidth;
-            final h = constraints.maxHeight;
-            final bodyW = math.min(w * 0.88, 328.0);
-            final bodyH = math.min(h * 0.92, 168.0);
+            final maxW = constraints.maxWidth.isFinite
+                ? constraints.maxWidth
+                : 320.0;
+            final maxH = constraints.maxHeight.isFinite
+                ? constraints.maxHeight
+                : maxHeight;
+            final bodyW = math.min(maxW * 0.9, 300.0);
+            final bodyH = math.min(maxH - mode.slotExtend - 4, maxHeight)
+                .clamp(120.0, maxHeight);
 
             return Center(
               child: SizedBox(
                 width: bodyW,
-                height: bodyH + mode.slotExtend + 8,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  alignment: Alignment.topCenter,
+                height: bodyH + mode.slotExtend + 4,
+                child: Column(
                   children: [
-                    // 悬浮阴影
-                    Positioned(
-                      left: 18,
-                      right: 18,
-                      bottom: 2,
-                      height: 18,
-                      child: DecoratedBox(
+                    Expanded(
+                      child: Container(
+                        width: bodyW,
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(40),
+                          borderRadius: BorderRadius.circular(24),
+                          gradient: const LinearGradient(
+                            begin: Alignment(-0.7, -1),
+                            end: Alignment(0.6, 1),
+                            colors: [
+                              Color(0xFFFFFFFF),
+                              Color(0xFFF2F3F1),
+                              Color(0xFFE3E6E3),
+                            ],
+                          ),
+                          border: Border.all(
+                            color: AppColors.silver,
+                            width: 1.6,
+                          ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.45),
-                              blurRadius: 28,
-                              spreadRadius: -4,
-                              offset: const Offset(0, 10),
+                              color: Colors.black.withValues(alpha: 0.4),
+                              blurRadius: 22,
+                              offset: const Offset(0, 12),
+                            ),
+                            BoxShadow(
+                              color: Colors.white.withValues(alpha: 0.55),
+                              blurRadius: 0,
+                              offset: const Offset(0, -0.8),
+                              spreadRadius: -0.5,
                             ),
                           ],
                         ),
-                      ),
-                    ),
-                    Positioned(
-                      top: 0,
-                      width: bodyW,
-                      height: bodyH,
-                      child: CustomPaint(
-                        painter: _CeramicBodyPainter(
-                          mode: mode,
-                          slotGlow: slotGlow,
-                          breath: breath.value,
-                          guideFlash: guideFlash,
-                        ),
-                        child: Stack(
+                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                        child: Column(
                           children: [
-                            Positioned(
-                              left: bodyW * 0.18,
-                              right: bodyW * 0.18,
-                              top: bodyH * 0.16,
-                              height: bodyH * 0.38,
-                              child: _GlassScreen(line1: line1, line2: line2),
-                            ),
-                            Positioned(
-                              left: bodyW * 0.09,
-                              top: bodyH * 0.22,
-                              child: _BezelLamps(
-                                mode: mode,
-                                breath: breath.value,
+                            Expanded(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(14),
+                                  color: const Color(0xFFEEF0EE),
+                                  border: Border.all(
+                                    color: const Color(0xFFC8CEC9),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.06),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 1),
+                                    ),
+                                  ],
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 8,
+                                ),
+                                child: Row(
+                                  children: [
+                                    _BezelLamps(
+                                      mode: mode,
+                                      breath: breath.value,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: _GlassScreen(
+                                        line1: line1,
+                                        line2: line2,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    _BezelLamps(
+                                      mode: mode,
+                                      breath: breath.value,
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                            Positioned(
-                              right: bodyW * 0.09,
-                              top: bodyH * 0.22,
-                              child: _BezelLamps(
-                                mode: mode,
-                                breath: breath.value,
-                              ),
+                            const SizedBox(height: 8),
+                            // 对位标记
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  width: 10,
+                                  height: 1.2,
+                                  color: AppColors.silverDeep,
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  width: 1.2,
+                                  height: 8,
+                                  color: AppColors.silverDeep,
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  width: 10,
+                                  height: 1.2,
+                                  color: AppColors.silverDeep,
+                                ),
+                              ],
                             ),
                           ],
                         ),
                       ),
                     ),
-                    Positioned(
-                      left: bodyW * 0.2,
-                      right: bodyW * 0.2,
-                      top: bodyH - 12,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        curve: Curves.easeOutCubic,
-                        key: slotKey,
-                        height: 18 + mode.slotExtend,
-                        child: CustomPaint(
-                          painter: _SilverSlotPainter(
-                            glow: slotGlow,
-                            breath: breath.value,
+                    // 银色插槽（开口朝下）
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOutCubic,
+                      key: slotKey,
+                      width: bodyW * 0.58,
+                      height: 16 + mode.slotExtend,
+                      margin: const EdgeInsets.only(top: 2),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(6),
+                        gradient: const LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Color(0xFFF4F5F4),
+                            Color(0xFFC9CECC),
+                            Color(0xFFA8AFA8),
+                          ],
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.accent.withValues(
+                              alpha: 0.15 + 0.35 * glow,
+                            ),
+                            blurRadius: 8,
+                            spreadRadius: glow > 0.5 ? 1 : 0,
+                          ),
+                        ],
+                      ),
+                      padding: const EdgeInsets.all(2.5),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(4),
+                          color: AppColors.slotInterior,
+                          border: Border.all(
+                            color: Color.lerp(
+                              const Color(0xFF3A4240),
+                              AppColors.accent,
+                              glow * 0.5,
+                            )!,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Container(
+                          height: 2,
+                          margin: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(1),
+                            color: AppColors.accent.withValues(
+                              alpha: 0.2 + 0.55 * glow,
+                            ),
                           ),
                         ),
                       ),
@@ -214,19 +298,21 @@ class _GlassScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      width: double.infinity,
       decoration: BoxDecoration(
         color: AppColors.glassDark,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF2A3230), width: 1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF2C3432)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 8,
+            blurRadius: 6,
             offset: const Offset(0, 2),
           ),
         ],
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      alignment: Alignment.center,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -239,22 +325,20 @@ class _GlassScreen extends StatelessWidget {
               fontFamily: 'Courier',
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              letterSpacing: 0.2,
               color: AppColors.highlight,
               height: 1.15,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           Text(
             line2,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               fontFamily: 'Courier',
               fontSize: 9.5,
-              letterSpacing: 0.15,
-              color: AppColors.accent.withValues(alpha: 0.92),
+              color: AppColors.accent,
               height: 1.2,
             ),
           ),
@@ -283,6 +367,7 @@ class _BezelLamps extends StatelessWidget {
     };
 
     return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(4, (i) {
         final on = i < lit;
         final pulse = on && i == lit - 1 ? 0.7 + 0.3 * breath : 1.0;
@@ -294,277 +379,21 @@ class _BezelLamps extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: on
-                  ? AppColors.accent.withValues(alpha: 0.85 * pulse)
-                  : const Color(0xFFD6DAD7),
-              border: Border.all(
-                color: AppColors.silverDeep.withValues(alpha: 0.7),
-                width: 0.8,
-              ),
+                  ? AppColors.accent.withValues(alpha: 0.9 * pulse)
+                  : const Color(0xFFD5D9D6),
+              border: Border.all(color: AppColors.silverDeep, width: 0.7),
               boxShadow: on
                   ? [
                       BoxShadow(
-                        color: AppColors.accent.withValues(alpha: 0.35 * pulse),
-                        blurRadius: 5,
+                        color: AppColors.accent.withValues(alpha: 0.4 * pulse),
+                        blurRadius: 4,
                       ),
                     ]
-                  : [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.08),
-                        blurRadius: 1,
-                        offset: const Offset(0, 0.5),
-                      ),
-                    ],
+                  : null,
             ),
           ),
         );
       }),
     );
   }
-}
-
-class _CeramicBodyPainter extends CustomPainter {
-  _CeramicBodyPainter({
-    required this.mode,
-    required this.slotGlow,
-    required this.breath,
-    required this.guideFlash,
-  });
-
-  final PressMachineMode mode;
-  final double slotGlow;
-  final double breath;
-  final double guideFlash;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final r = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      const Radius.circular(26),
-    );
-
-    // 陶瓷白主壳：左上受光
-    canvas.drawRRect(
-      r,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          Offset(size.width * 0.15, 0),
-          Offset(size.width * 0.85, size.height),
-          const [
-            Color(0xFFFFFFFF),
-            Color(0xFFF2F3F1),
-            Color(0xFFE4E7E4),
-          ],
-          const [0.0, 0.45, 1.0],
-        ),
-    );
-
-    // 银色中框环
-    canvas.drawRRect(
-      r.deflate(1.2),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.2
-        ..shader = ui.Gradient.linear(
-          Offset.zero,
-          Offset(0, size.height),
-          [
-            AppColors.highlight,
-            AppColors.silver,
-            AppColors.silverDeep,
-          ],
-        ),
-    );
-
-    // 顶部窄高光
-    final highlightPath = Path()
-      ..addRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(10, 3, size.width - 20, size.height * 0.22),
-          const Radius.circular(18),
-        ),
-      );
-    canvas.drawPath(
-      highlightPath,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          const Offset(0, 0),
-          Offset(0, size.height * 0.22),
-          [
-            Colors.white.withValues(alpha: 0.55),
-            Colors.white.withValues(alpha: 0),
-          ],
-        ),
-    );
-
-    // 内嵌浅灰白玻璃面板
-    final panel = RRect.fromRectAndRadius(
-      Rect.fromLTWH(
-        size.width * 0.07,
-        size.height * 0.09,
-        size.width * 0.86,
-        size.height * 0.55,
-      ),
-      const Radius.circular(14),
-    );
-    canvas.drawRRect(
-      panel,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          Offset(size.width * 0.5, size.height * 0.09),
-          Offset(size.width * 0.5, size.height * 0.64),
-          [
-            const Color(0xFFF7F8F7).withValues(alpha: 0.95),
-            const Color(0xFFE8EBE9).withValues(alpha: 0.9),
-          ],
-        ),
-    );
-    // 内凹浅阴影
-    canvas.drawRRect(
-      panel,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2
-        ..color = const Color(0xFFC5CBC8),
-    );
-    canvas.drawRRect(
-      panel.deflate(2),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..color = Colors.white.withValues(alpha: 0.65),
-    );
-
-    // 插槽上方细小对位标记
-    final markY = size.height * 0.72;
-    final cx = size.width * 0.5;
-    final markPaint = Paint()
-      ..color = AppColors.silverDeep.withValues(alpha: 0.7)
-      ..strokeWidth = 1.2
-      ..strokeCap = StrokeCap.round;
-    canvas.drawLine(Offset(cx - 18, markY), Offset(cx - 8, markY), markPaint);
-    canvas.drawLine(Offset(cx + 8, markY), Offset(cx + 18, markY), markPaint);
-    canvas.drawLine(
-      Offset(cx, markY - 4),
-      Offset(cx, markY + 4),
-      markPaint,
-    );
-
-    // 极少螺丝（银灰）
-    _drawScrew(canvas, Offset(size.width * 0.1, size.height * 0.12));
-    _drawScrew(canvas, Offset(size.width * 0.9, size.height * 0.12));
-
-    if (guideFlash > 0.02 || mode.isActive) {
-      final alpha = guideFlash > 0.02
-          ? guideFlash * 0.4
-          : (0.06 + 0.16 * slotGlow);
-      canvas.drawLine(
-        Offset(cx, size.height * 0.68),
-        Offset(cx, size.height + 4),
-        Paint()
-          ..color = AppColors.accent.withValues(alpha: alpha)
-          ..strokeWidth = 1
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.2),
-      );
-    }
-  }
-
-  void _drawScrew(Canvas canvas, Offset c) {
-    canvas.drawCircle(
-      c,
-      3.2,
-      Paint()
-        ..shader = ui.Gradient.radial(
-          c,
-          3.2,
-          [AppColors.highlight, AppColors.silver],
-        ),
-    );
-    canvas.drawCircle(
-      c,
-      3.2,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.7
-        ..color = AppColors.silverDeep,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _CeramicBodyPainter old) =>
-      old.mode != mode ||
-      old.slotGlow != slotGlow ||
-      old.breath != breath ||
-      old.guideFlash != guideFlash;
-}
-
-class _SilverSlotPainter extends CustomPainter {
-  _SilverSlotPainter({required this.glow, required this.breath});
-
-  final double glow;
-  final double breath;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      const Radius.circular(7),
-    );
-
-    // 银色金属包边
-    canvas.drawRRect(
-      outer,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          Offset.zero,
-          Offset(0, size.height),
-          [
-            AppColors.highlight,
-            AppColors.silver,
-            AppColors.silverDeep,
-          ],
-        ),
-    );
-
-    final inner = outer.deflate(2.2);
-    canvas.drawRRect(
-      inner,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          Offset.zero,
-          Offset(0, size.height),
-          [
-            const Color(0xFF1A1E1C),
-            Color.lerp(
-              AppColors.slotInterior,
-              AppColors.accent.withValues(alpha: 0.2),
-              glow * 0.5,
-            )!,
-          ],
-        ),
-    );
-
-    canvas.drawRRect(
-      inner,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..color = Color.lerp(
-          const Color(0xFF3A4240),
-          AppColors.accent,
-          glow * 0.45,
-        )!,
-    );
-
-    final bandY = size.height * (0.4 + 0.15 * breath);
-    canvas.drawRect(
-      Rect.fromLTWH(size.width * 0.12, bandY - 1, size.width * 0.76, 2),
-      Paint()
-        ..color = AppColors.accent.withValues(alpha: 0.15 + 0.4 * glow)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _SilverSlotPainter old) =>
-      old.glow != glow || old.breath != breath;
 }

@@ -43,7 +43,7 @@ class DraftTrayCarousel extends StatefulWidget {
 }
 
 class _DraftTrayCarouselState extends State<DraftTrayCarousel> {
-  static const _viewportFraction = 0.60;
+  static const _viewportFraction = 0.72;
   late final PageController _controller;
   double _page = 0;
 
@@ -166,8 +166,8 @@ class _DraftCardPlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 188,
-      height: 248,
+      width: 176,
+      height: 228,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         color: AppColors.ceramic.withValues(alpha: 0.18),
@@ -244,8 +244,8 @@ class DraftTrayCard extends StatelessWidget {
         onLongPressEnd: onLongPressEnd,
         child: AnimatedContainer(
           duration: AppMotion.fast,
-          width: 188,
-          height: 248,
+          width: 176,
+          height: 228,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
             gradient: LinearGradient(
@@ -279,9 +279,9 @@ class DraftTrayCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Center(
-                child: _CircularPlayVisual(
+                  child: _CircularPlayVisual(
                   item: item,
-                  size: 118,
+                  size: 108,
                   playingOverride: playingOverride,
                   progressOverride: progressOverride,
                 ),

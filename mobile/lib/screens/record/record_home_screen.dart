@@ -106,21 +106,15 @@ class _RecordHomeScreenState extends State<RecordHomeScreen> {
                       child: Column(
                         children: [
                           const Expanded(
+                            flex: 5,
                             child: SoundVisualCanvas(seed: 8801, active: false),
                           ),
-                          Container(
-                            height: 20,
-                            width: 2,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(1),
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  AppColors.accent.withValues(alpha: 0.18),
-                                  AppColors.accent.withValues(alpha: 0.05),
-                                ],
-                              ),
+                          // Hairline energy thread — visual link, not a divider.
+                          SizedBox(
+                            height: 28,
+                            width: 12,
+                            child: CustomPaint(
+                              painter: _StandbyLinkPainter(),
                             ),
                           ),
                           RecordFab(
@@ -167,4 +161,28 @@ class _RecordHomeScreenState extends State<RecordHomeScreen> {
       ),
     );
   }
+}
+
+/// Hairline energy thread + rising motes between visualization and Record FAB.
+class _StandbyLinkPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final paint = Paint()
+      ..color = AppColors.accent.withValues(alpha: 0.14)
+      ..strokeWidth = 0.8
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(cx, 0), Offset(cx, size.height), paint);
+    for (var i = 0; i < 2; i++) {
+      final y = size.height * (0.25 + i * 0.4);
+      canvas.drawCircle(
+        Offset(cx, y),
+        1.0,
+        Paint()..color = AppColors.accent.withValues(alpha: 0.22 - i * 0.06),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

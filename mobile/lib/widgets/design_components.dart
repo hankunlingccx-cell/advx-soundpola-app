@@ -1,4 +1,7 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../data/disc_rarity.dart';
 import '../data/sound_repository.dart';
@@ -312,18 +315,25 @@ class AccountAvatarButton extends StatelessWidget {
               label: '账户',
               button: true,
               child: compact
-                  ? Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: AppColors.device,
-                        border: Border.all(color: AppColors.structure),
-                      ),
-                      child: Icon(
-                        loggedIn ? Icons.person : Icons.person_outline,
-                        size: 16,
-                        color: AppColors.textTertiary,
+                  ? ClipOval(
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                        child: Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withValues(alpha: 0.14),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.28),
+                            ),
+                          ),
+                          child: Icon(
+                            loggedIn ? Icons.person : Icons.person_outline,
+                            size: 17,
+                            color: AppColors.textPrimary.withValues(alpha: 0.9),
+                          ),
+                        ),
                       ),
                     )
                   : Container(
@@ -638,76 +648,116 @@ class BottomNavBar extends StatelessWidget {
   final ValueChanged<int> onSelect;
 
   static const _tabs = [
-    (Icons.fiber_manual_record_outlined, Icons.fiber_manual_record, 'Record'),
-    (Icons.inventory_2_outlined, Icons.inventory_2, 'Drafts'),
-    (Icons.album_outlined, Icons.album, 'Collection'),
+    (Icons.mic_none_rounded, Icons.mic_rounded, 'Record'),
+    (Icons.inbox_outlined, Icons.inbox_rounded, 'Drafts'),
+    (Icons.album_outlined, Icons.album_rounded, 'Collection'),
   ];
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: AppColors.bottomNav,
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: AppSizes.bottomNav,
-          child: DecoratedBox(
-            decoration: const BoxDecoration(
-              border: Border(
-                top: BorderSide(color: AppColors.structure, width: 0.8),
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: Container(
+              height: 64,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.22),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
               ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 children: List.generate(_tabs.length, (index) {
                   final active = selected == index;
                   final tab = _tabs[index];
                   return Expanded(
-                    child: GestureDetector(
+                    child: _NavItem(
+                      label: tab.$3,
+                      icon: active ? tab.$2 : tab.$1,
+                      active: active,
                       onTap: () => onSelect(index),
-                      behavior: HitTestBehavior.opaque,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          // 当前项上方短小状态刻度
-                          Container(
-                            width: active ? 16 : 0,
-                            height: 2,
-                            margin: const EdgeInsets.only(bottom: 6),
-                            decoration: BoxDecoration(
-                              color: AppColors.accent,
-                              borderRadius: BorderRadius.circular(1),
-                            ),
-                          ),
-                          Icon(
-                            active ? tab.$2 : tab.$1,
-                            size: 18,
-                            color: active
-                                ? AppColors.accent
-                                : AppColors.textTertiary,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            tab.$3,
-                            style: TextStyle(
-                              color: active
-                                  ? AppColors.accent
-                                  : AppColors.textTertiary,
-                              fontSize: 11,
-                              fontWeight:
-                                  active ? FontWeight.w600 : FontWeight.w400,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                        ],
-                      ),
                     ),
                   );
                 }),
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavItem extends StatefulWidget {
+  const _NavItem({
+    required this.label,
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  State<_NavItem> createState() => _NavItemState();
+}
+
+class _NavItemState extends State<_NavItem> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTap: () {
+        HapticFeedback.selectionClick();
+        widget.onTap();
+      },
+      child: AnimatedScale(
+        scale: _pressed ? 0.92 : 1,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOutCubic,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              widget.icon,
+              size: 22,
+              color: widget.active
+                  ? AppColors.accent
+                  : AppColors.structure,
+            ),
+            const SizedBox(height: 3),
+            Text(
+              widget.label,
+              style: TextStyle(
+                color: widget.active
+                    ? AppColors.accent
+                    : AppColors.structure,
+                fontSize: 11,
+                fontWeight: widget.active ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ],
         ),
       ),
     );

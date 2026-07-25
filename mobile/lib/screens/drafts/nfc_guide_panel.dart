@@ -28,6 +28,7 @@ class NfcGuidePanel extends StatelessWidget {
     this.soundTitle,
     this.progress = 0,
     this.chaining = false,
+    this.failReason,
     this.onStartDetect,
     this.onCancelWrite,
     this.onRetrieve,
@@ -36,6 +37,7 @@ class NfcGuidePanel extends StatelessWidget {
     this.onViewCollection,
     this.onContinue,
     this.onStartRecord,
+    this.onSimulate,
     this.autoListening = false,
   });
 
@@ -44,6 +46,7 @@ class NfcGuidePanel extends StatelessWidget {
   final String? soundTitle;
   final double progress;
   final bool chaining;
+  final String? failReason;
   final VoidCallback? onStartDetect;
   final VoidCallback? onCancelWrite;
   final VoidCallback? onRetrieve;
@@ -52,24 +55,56 @@ class NfcGuidePanel extends StatelessWidget {
   final VoidCallback? onViewCollection;
   final VoidCallback? onContinue;
   final VoidCallback? onStartRecord;
+  final VoidCallback? onSimulate;
   /// 系统已自动监听 NFC 时，主按钮改为「取消写入」。
   final bool autoListening;
 
   @override
   Widget build(BuildContext context) {
     final dim = phase == NfcGuidePhase.dimmed;
+    final idle = phase == NfcGuidePhase.howto ||
+        phase == NfcGuidePhase.dimmed ||
+        phase == NfcGuidePhase.empty;
+    final fill = idle ? 0.08 : 0.16;
+
     return AnimatedOpacity(
       duration: AppMotion.fast,
-      opacity: dim ? 0.28 : 1,
+      opacity: dim ? 0.4 : 1,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: AnimatedSwitcher(
-          duration: AppMotion.normal,
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          child: KeyedSubtree(
-            key: ValueKey(phase),
-            child: _buildBody(context),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(26),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+            child: AnimatedContainer(
+              duration: AppMotion.normal,
+              curve: Curves.easeOutCubic,
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: fill),
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: idle ? 0.14 : 0.28),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.28),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: AnimatedSwitcher(
+                duration: AppMotion.normal,
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                child: KeyedSubtree(
+                  key: ValueKey(phase),
+                  child: _buildBody(context),
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -95,8 +130,10 @@ class NfcGuidePanel extends StatelessWidget {
           onContinue: onContinue,
         ),
       NfcGuidePhase.interrupted => _InterruptedBody(
+          reason: failReason,
           onRetry: onRetry,
           onRetrieve: onRetrieve,
+          onSimulate: onSimulate,
         ),
       NfcGuidePhase.alreadyBound => _BoundBody(onDetectOther: onDetectOther),
       NfcGuidePhase.empty => _EmptyBody(onStartRecord: onStartRecord),
@@ -117,11 +154,11 @@ class _SectionHead extends StatelessWidget {
       children: [
         Text(
           code,
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'Courier',
-            color: AppColors.accent,
+            color: AppColors.accent.withValues(alpha: 0.95),
             fontSize: 11,
-            letterSpacing: 1.2,
+            letterSpacing: 0.8,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -131,7 +168,8 @@ class _SectionHead extends StatelessWidget {
           style: const TextStyle(
             color: AppColors.textPrimary,
             fontSize: 16,
-            fontWeight: FontWeight.w500,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.2,
           ),
         ),
       ],
@@ -501,28 +539,45 @@ class _CompleteBody extends StatelessWidget {
 }
 
 class _InterruptedBody extends StatelessWidget {
-  const _InterruptedBody({this.onRetry, this.onRetrieve});
+  const _InterruptedBody({
+    this.reason,
+    this.onRetry,
+    this.onRetrieve,
+    this.onSimulate,
+  });
 
+  final String? reason;
   final VoidCallback? onRetry;
   final VoidCallback? onRetrieve;
+  final VoidCallback? onSimulate;
 
   @override
   Widget build(BuildContext context) {
+    final text = (reason != null && reason!.trim().isNotEmpty)
+        ? reason!.trim()
+        : '请重新贴近实体声片，并在写入过程中保持位置不动。';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionHead(code: 'PRESS INTERRUPTED', title: '写入未完成'),
         const SizedBox(height: 8),
-        const Text(
-          '请重新贴近实体声片，\n并在写入过程中保持位置不动。',
-          style: TextStyle(
-            color: AppColors.textTertiary,
+        Text(
+          text,
+          maxLines: 4,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
             fontSize: 13,
             height: 1.45,
           ),
         ),
         const SizedBox(height: 14),
         PrimaryButton(text: '重新检测', onPressed: onRetry),
+        if (onSimulate != null) ...[
+          const SizedBox(height: 8),
+          SecondaryButton(text: '模拟写入（开发）', onPressed: onSimulate),
+        ],
         const SizedBox(height: 8),
         SecondaryButton(text: '取回声音', onPressed: onRetrieve),
       ],

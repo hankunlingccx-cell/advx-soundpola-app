@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -70,6 +71,7 @@ class _DraftsScreenState extends State<DraftsScreen>
   bool _autoListening = false;
   bool _chaining = false;
   bool _nfcBusy = false;
+  String? _failReason;
 
   late final AnimationController _breath;
   final GlobalKey _slotKey = GlobalKey();
@@ -121,7 +123,7 @@ class _DraftsScreenState extends State<DraftsScreen>
       return NfcGuidePhase.dimmed;
     }
     return switch (_flow) {
-      _FlowPhase.idle => NfcGuidePhase.howto,
+      _FlowPhase.idle => NfcGuidePhase.howto, // 仅作折叠提示，布局中不展开面板
       _FlowPhase.waitingNfc => NfcGuidePhase.waiting,
       _FlowPhase.found => NfcGuidePhase.found,
       _FlowPhase.pressing => NfcGuidePhase.pressing,
@@ -130,6 +132,22 @@ class _DraftsScreenState extends State<DraftsScreen>
       _FlowPhase.alreadyBound => NfcGuidePhase.alreadyBound,
     };
   }
+
+  bool get _isSelecting =>
+      _flow == _FlowPhase.idle &&
+      _dragPhase != _DragPhase.inserting &&
+      _dragPhase != _DragPhase.retrieving;
+
+  /// NFC 面板：仅插入后，或空队列引导。
+  bool get _showNfcPanel =>
+      _flow != _FlowPhase.idle || _allDrafts.isEmpty;
+
+  bool get _showCarousel =>
+      _isSelecting &&
+      _trayItems.isNotEmpty &&
+      (_dragPhase == _DragPhase.idle ||
+          _dragPhase == _DragPhase.dragging ||
+          _dragPhase == _DragPhase.snapping);
 
   bool _canPress(SoundMemory item) =>
       item.status == SoundStatus.drafted ||
@@ -371,8 +389,24 @@ class _DraftsScreenState extends State<DraftsScreen>
 
   // ─── NFC ────────────────────────────────────────────
 
-  Future<void> _startNfcDetect({bool auto = false}) async {
-    if (_loadedItem == null || _nfcBusy) return;
+  Future<void> _failPress(String reason) async {
+    await NfcService.instance.stopSession(error: reason);
+    _nfcBusy = false;
+    if (!mounted) return;
+    setState(() {
+      _failReason = reason;
+      _flow = _FlowPhase.interrupted;
+      _machineMode = PressMachineMode.interrupted;
+      _autoListening = false;
+    });
+  }
+
+  Future<void> _startNfcDetect() async {
+    if (_loadedItem == null) return;
+    if (_nfcBusy) {
+      await NfcService.instance.stopSession();
+      _nfcBusy = false;
+    }
     if (!AuthService.instance.isLoggedIn) {
       widget.onLogin();
       return;
@@ -380,7 +414,7 @@ class _DraftsScreenState extends State<DraftsScreen>
 
     final status = await NfcService.instance.checkStatus();
     if (status != NfcDeviceStatus.available) {
-      // 开发机 / 无 NFC：模拟检测写入，保证流程可走通
+      // 无 NFC / 调试机：走模拟写入，保证流程可验证
       if (kDebugMode || status == NfcDeviceStatus.unavailable) {
         await _simulatePress();
         return;
@@ -403,7 +437,8 @@ class _DraftsScreenState extends State<DraftsScreen>
     }
 
     setState(() {
-      _autoListening = auto;
+      _autoListening = true;
+      _failReason = null;
       _flow = _FlowPhase.waitingNfc;
       _machineMode = PressMachineMode.loaded;
     });
@@ -411,23 +446,17 @@ class _DraftsScreenState extends State<DraftsScreen>
     _nfcBusy = true;
     try {
       await NfcService.instance.startSession(
-        alertMessage: '将手机背面靠近声片',
-        onDiscovered: _onTagDiscovered,
+        alertMessage: '将未绑定的声片贴近手机背面',
+        onDiscovered: _onDetectTag,
       );
     } catch (e) {
-      _nfcBusy = false;
-      if (mounted) {
-        setState(() {
-          _flow = _FlowPhase.interrupted;
-          _machineMode = PressMachineMode.interrupted;
-          _autoListening = false;
-        });
-      }
+      await _failPress(_friendlyNfcError(e));
     }
   }
 
-  Future<void> _onTagDiscovered(NfcTag tag) async {
-    if (_loadedItem == null) return;
+  /// 第一阶段：只识别声片，立即结束会话（避免标签句柄过期）。
+  Future<void> _onDetectTag(NfcTag tag) async {
+    if (_loadedItem == null || !_nfcBusy) return;
     try {
       final binding = await NfcService.instance.readBinding(tag);
       if (binding != null) {
@@ -439,24 +468,22 @@ class _DraftsScreenState extends State<DraftsScreen>
           _flow = _FlowPhase.alreadyBound;
           _machineMode = PressMachineMode.alreadyBound;
           _autoListening = false;
+          _failReason = null;
         });
         return;
       }
 
-      if (!await NfcService.instance.canWriteTag(tag)) {
-        if (mounted) {
-          setState(() {
-            _flow = _FlowPhase.interrupted;
-            _machineMode = PressMachineMode.interrupted;
-          });
-        }
+      final writable = await NfcService.instance.canWriteTag(tag);
+      if (!writable) {
+        await _failPress('声片不可写入，或不是空白 SoundPola 声片。请换一枚未绑定声片。');
         return;
       }
 
-      var factory = await NfcService.instance.readFactoryProfile(tag);
-      factory ??= DiscFactoryProfile.demoFromTagId(
-        NfcService.instance.tagIdHex(tag),
-      );
+      final factory = await NfcService.instance.readFactoryProfile(tag);
+      if (factory == null) {
+        await _failPress('未识别到声片出厂信息。');
+        return;
+      }
       if (factory.bound) {
         await NfcService.instance.stopSession();
         _nfcBusy = false;
@@ -469,16 +496,6 @@ class _DraftsScreenState extends State<DraftsScreen>
         return;
       }
 
-      HapticFeedback.mediumImpact();
-      if (mounted) {
-        setState(() {
-          _flow = _FlowPhase.found;
-          _machineMode = PressMachineMode.found;
-        });
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 420));
-      if (!mounted) return;
-
       PressSession.set(
         tagId: NfcService.instance.tagIdHex(tag),
         disc: factory.discId,
@@ -488,77 +505,148 @@ class _DraftsScreenState extends State<DraftsScreen>
         demo: factory.demo,
       );
 
-      await _writeAndSeal(tag, factory);
-    } catch (_) {
-      await NfcService.instance.stopSession(error: '写入失败');
+      await NfcService.instance.stopSession(message: '声片已识别，请再次贴近以写入');
       _nfcBusy = false;
-      if (mounted) {
-        setState(() {
-          _flow = _FlowPhase.interrupted;
-          _machineMode = PressMachineMode.interrupted;
-          _autoListening = false;
-        });
-      }
+
+      HapticFeedback.mediumImpact();
+      if (!mounted) return;
+      setState(() {
+        _flow = _FlowPhase.found;
+        _machineMode = PressMachineMode.found;
+        _autoListening = false;
+      });
+
+      // 短暂停顿后开启第二段写入会话（需再次贴近）
+      await Future<void>.delayed(const Duration(milliseconds: 480));
+      if (!mounted || _loadedItem == null) return;
+      if (_flow != _FlowPhase.found) return;
+      await _startNfcWrite();
+    } catch (e) {
+      await _failPress(_friendlyNfcError(e));
     }
   }
 
-  Future<void> _writeAndSeal(NfcTag tag, DiscFactoryProfile factory) async {
+  /// 第二阶段：新会话写入，贴近后立刻写，不再拖延。
+  Future<void> _startNfcWrite() async {
     final item = _loadedItem;
-    if (item == null) return;
+    final discId = PressSession.discId;
+    final rarity = PressSession.rarity;
+    if (item == null || discId == null || rarity == null) {
+      await _failPress('写入会话丢失，请重新检测声片。');
+      return;
+    }
 
     setState(() {
       _flow = _FlowPhase.pressing;
       _machineMode = PressMachineMode.pressing;
-      _pressProgress = 0.08;
+      _pressProgress = 0.1;
+      _autoListening = true;
     });
 
-    // 分段进度（真实写入前后），禁止无限转圈
-    for (final p in [0.22, 0.38, 0.52]) {
-      await Future<void>.delayed(const Duration(milliseconds: 120));
-      if (!mounted) return;
-      setState(() => _pressProgress = p);
-    }
+    _nfcBusy = true;
+    final completer = Completer<bool>();
 
     try {
-      await NfcService.instance.writeBinding(
-        tag: tag,
-        soundId: item.id,
-        discId: factory.discId,
-        title: item.title,
-        rarity: factory.rarity,
-        series: factory.series,
-        factory: factory.copyWith(bound: true),
+      await NfcService.instance.startSession(
+        alertMessage: '请保持贴近，正在写入…',
+        invalidateAfterFirstRead: false,
+        onDiscovered: (tag) async {
+          if (completer.isCompleted) return;
+          try {
+            // 再次确认未绑定
+            final binding = await NfcService.instance.readBinding(tag);
+            if (binding != null) {
+              await NfcService.instance.stopSession();
+              if (!completer.isCompleted) completer.completeError(StateError('声片已绑定'));
+              return;
+            }
+
+            if (mounted) setState(() => _pressProgress = 0.35);
+
+            final factory = DiscFactoryProfile(
+              discId: discId,
+              rarity: rarity,
+              series: PressSession.series ?? 'Unknown',
+              signature: PressSession.factorySignature ??
+                  DiscFactoryProfile.computeSignature(
+                    discId: discId,
+                    rarity: rarity,
+                    series: PressSession.series ?? 'Unknown',
+                    demo: PressSession.factoryDemo,
+                  ),
+              bound: true,
+              demo: PressSession.factoryDemo,
+            );
+
+            Future<void> doWrite() => NfcService.instance.writeBinding(
+                  tag: tag,
+                  soundId: item.id,
+                  discId: discId,
+                  title: item.title,
+                  rarity: rarity,
+                  series: PressSession.series,
+                  factory: factory,
+                );
+
+            try {
+              await doWrite();
+            } catch (e) {
+              // 常见：贴合不稳导致 IOException，同会话立即重试一次
+              final blob = e.toString().toLowerCase();
+              if (blob.contains('ioexception') || blob.contains('tag')) {
+                await Future<void>.delayed(const Duration(milliseconds: 120));
+                await doWrite();
+              } else {
+                rethrow;
+              }
+            }
+            await NfcService.instance.stopSession(message: '写入成功');
+            if (!completer.isCompleted) completer.complete(true);
+          } catch (e) {
+            await NfcService.instance.stopSession(error: '写入失败');
+            if (!completer.isCompleted) completer.completeError(e);
+          }
+        },
       );
-      await NfcService.instance.stopSession(message: '写入成功');
-    } catch (_) {
-      await NfcService.instance.stopSession(error: '写入失败');
-      _nfcBusy = false;
-      if (mounted) {
-        setState(() {
-          _flow = _FlowPhase.interrupted;
-          _machineMode = PressMachineMode.interrupted;
-        });
-      }
+
+      // 进度动画与等待写入并行
+      unawaited(() async {
+        for (final p in [0.45, 0.58, 0.7]) {
+          await Future<void>.delayed(const Duration(milliseconds: 160));
+          if (!mounted || completer.isCompleted) return;
+          if (_flow == _FlowPhase.pressing) {
+            setState(() => _pressProgress = p);
+          }
+        }
+      }());
+
+      await completer.future.timeout(const Duration(seconds: 40));
+    } on TimeoutException {
+      await _failPress('写入超时。请保持声片贴近 NFC 区域后重试。');
+      return;
+    } catch (e) {
+      await _failPress(_friendlyNfcError(e));
       return;
     }
 
-    for (final p in [0.72, 0.88, 1.0]) {
-      await Future<void>.delayed(const Duration(milliseconds: 90));
-      if (!mounted) return;
+    _nfcBusy = false;
+    if (!mounted) return;
+
+    for (final p in [0.85, 1.0]) {
       setState(() => _pressProgress = p);
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      if (!mounted) return;
     }
 
-    final assetId = 'asset_${item.id}';
     SoundRepository.instance.markCollected(
       item.id,
-      factory.discId,
-      assetId,
+      discId,
+      'asset_${item.id}',
       nfcTagId: PressSession.tagIdHex,
-      discRarity: factory.rarity,
-      discSeries: factory.series,
+      discRarity: rarity,
+      discSeries: PressSession.series,
     );
 
-    _nfcBusy = false;
     PressSession.clear();
     HapticFeedback.mediumImpact();
     if (!mounted) return;
@@ -568,22 +656,75 @@ class _DraftsScreenState extends State<DraftsScreen>
       _chaining = true;
       _loadedId = null;
       _autoListening = false;
+      _failReason = null;
     });
-    // 资产生成中提示短暂后可视为已可查看
     Future<void>.delayed(const Duration(milliseconds: 1600), () {
       if (mounted) setState(() => _chaining = false);
     });
   }
 
+  String _friendlyNfcError(Object e) {
+    String code = '';
+    String message = '';
+    if (e is PlatformException) {
+      code = e.code;
+      message = e.message ?? e.details?.toString() ?? '';
+    } else if (e is TimeoutException) {
+      return '写入超时。请保持声片贴近 NFC 区域后重试。';
+    } else if (e is StateError) {
+      message = e.message;
+    } else {
+      message = e.toString();
+    }
+
+    // 去掉堆栈，只留首行/短消息
+    message = message
+        .split('\n')
+        .firstWhere((l) => l.trim().isNotEmpty, orElse: () => message)
+        .trim();
+    if (message.length > 120) {
+      message = '${message.substring(0, 120)}…';
+    }
+
+    final blob = '$code $message'.toLowerCase();
+    if (blob.contains('already') || message.contains('已绑定')) {
+      return '这枚声片已经封存过声音，请更换未绑定声片。';
+    }
+    if (blob.contains('防伪') || blob.contains('authentic')) {
+      return '声片防伪校验失败，请使用正版声片。';
+    }
+    if (blob.contains('不可写入') || blob.contains('not writable')) {
+      return '声片当前不可写入，请确认是空白 SoundPola 声片。';
+    }
+    if (blob.contains('ioexception') ||
+        blob.contains('tag was lost') ||
+        blob.contains('tag is out') ||
+        (blob.contains('ndef') && blob.contains('fail')) ||
+        code == 'IOException') {
+      return '写入时声片连接中断。请紧贴手机背面保持不动，然后点「重新检测」。';
+    }
+    if (blob.contains('timeout') || blob.contains('超时')) {
+      return '写入超时。请保持声片贴近后重试。';
+    }
+    if (blob.contains('session') || blob.contains('会话')) {
+      return 'NFC 会话已结束，请重新检测声片。';
+    }
+    // 默认：绝不把堆栈甩到 UI
+    return '写入未完成。请保持声片贴近手机背面后重试。';
+  }
+
   Future<void> _simulatePress() async {
     final item = _loadedItem;
     if (item == null) return;
+    await NfcService.instance.stopSession();
+    _nfcBusy = false;
     HapticFeedback.mediumImpact();
     setState(() {
+      _failReason = null;
       _flow = _FlowPhase.found;
       _machineMode = PressMachineMode.found;
     });
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await Future<void>.delayed(const Duration(milliseconds: 400));
     if (!mounted) return;
     setState(() {
       _flow = _FlowPhase.pressing;
@@ -591,12 +732,13 @@ class _DraftsScreenState extends State<DraftsScreen>
       _pressProgress = 0;
     });
     for (var i = 1; i <= 12; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 90));
+      await Future<void>.delayed(const Duration(milliseconds: 70));
       if (!mounted) return;
       setState(() => _pressProgress = i / 12);
     }
     final discId = NfcService.instance.generateDiscId('DEMO');
-    final rarity = DiscRarity.values[item.visualSeed % DiscRarity.values.length];
+    final rarity =
+        DiscRarity.values[item.visualSeed % DiscRarity.values.length];
     SoundRepository.instance.markCollected(
       item.id,
       discId,
@@ -612,6 +754,7 @@ class _DraftsScreenState extends State<DraftsScreen>
       _chaining = true;
       _loadedId = null;
       _loadedItem = item;
+      _failReason = null;
     });
     Future<void>.delayed(const Duration(milliseconds: 1600), () {
       if (mounted) setState(() => _chaining = false);
@@ -624,8 +767,14 @@ class _DraftsScreenState extends State<DraftsScreen>
     if (!mounted) return;
     setState(() {
       _autoListening = false;
-      _flow = _FlowPhase.waitingNfc;
-      _machineMode = PressMachineMode.loaded;
+      if (_flow == _FlowPhase.pressing || _flow == _FlowPhase.found) {
+        _flow = _FlowPhase.waitingNfc;
+        _machineMode = PressMachineMode.loaded;
+        _pressProgress = 0;
+      } else {
+        _flow = _FlowPhase.waitingNfc;
+        _machineMode = PressMachineMode.loaded;
+      }
     });
   }
 
@@ -681,6 +830,8 @@ class _DraftsScreenState extends State<DraftsScreen>
         final dragging = _dragPhase == _DragPhase.dragging ||
             _dragPhase == _DragPhase.inserting ||
             _dragPhase == _DragPhase.retrieving;
+        final screenH = MediaQuery.sizeOf(context).height;
+        final machineMaxH = (screenH * 0.22).clamp(118.0, 150.0);
 
         return ColoredBox(
           color: AppColors.bgPrimary,
@@ -693,143 +844,181 @@ class _DraftsScreenState extends State<DraftsScreen>
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // 标题
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 10, 16, 4),
+                      padding: const EdgeInsets.fromLTRB(20, 10, 16, 2),
                       child: AnimatedOpacity(
                         duration: AppMotion.fast,
-                        opacity: dragging ? 0.32 : 1,
+                        opacity: dragging ? 0.35 : 1,
                         child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            Expanded(
+                            const Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'SOUND DRAFTS · $countLabel',
-                                    style: const TextStyle(
+                                    'Drafts',
+                                    style: TextStyle(
                                       color: AppColors.textPrimary,
                                       fontSize: 34,
-                                      fontWeight: FontWeight.w500,
-                                      letterSpacing: -0.6,
-                                      height: 1.1,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: -0.7,
+                                      height: 1.05,
                                     ),
                                   ),
-                                  const SizedBox(height: 4),
-                                  const Text(
+                                  SizedBox(height: 3),
+                                  Text(
                                     '待封存的声音',
                                     style: TextStyle(
-                                      color: AppColors.textTertiary,
-                                      fontSize: 13,
+                                      color: AppColors.textSecondary,
+                                      fontSize: 14,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
+                            Container(
+                              margin: const EdgeInsets.only(right: 10),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.18),
+                                ),
+                              ),
+                              child: Text(
+                                countLabel,
+                                style: const TextStyle(
+                                  fontFamily: 'Courier',
+                                  color: AppColors.textPrimary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                             if (!loggedIn)
-                              _CompactAccountButton(
-                                icon: Icons.person_outline,
-                                onTap: widget.onLogin,
-                              )
+                              _FrostAccountButton(onTap: widget.onLogin)
                             else
                               const AccountAvatarButton(compact: true),
                           ],
                         ),
                       ),
                     ),
-                    if (!loggedIn && _flow == _FlowPhase.idle)
+                    if (!loggedIn && _isSelecting)
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
                         child: LoginHintCard(onLogin: widget.onLogin),
                       ),
-                    // 拟物设备
-                    Expanded(
-                      flex: 28,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
+
+                    // 写入设备（动态高度，不抢满屏）
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      child: SizedBox(
+                        height: machineMaxH + 20,
                         child: PressMachine(
                           mode: _machineMode,
                           breath: _breath,
                           slotKey: _slotKey,
                           loadedTitle: _loadedItem?.title,
+                          maxHeight: machineMaxH,
                         ),
                       ),
                     ),
-                    // NFC 指引区
-                    Expanded(
-                      flex: 34,
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.only(top: 4, bottom: 4),
-                        child: NfcGuidePanel(
-                          phase: _guidePhase,
-                          breath: _breath,
-                          soundTitle: _loadedItem?.title,
-                          progress: _pressProgress,
-                          chaining: _chaining,
-                          autoListening: _autoListening,
-                          onStartDetect: () => _startNfcDetect(),
-                          onCancelWrite: _cancelNfc,
-                          onRetrieve: _retrieveSound,
-                          onRetry: () => _startNfcDetect(),
-                          onDetectOther: () => _startNfcDetect(),
-                          onViewCollection: widget.onOpenCollection,
-                          onContinue: _continueAfterComplete,
-                          onStartRecord: widget.onStartRecord,
+
+                    // Selecting：短提示；插入后 / 空队列：NFC 面板
+                    if (_showNfcPanel)
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
+                          child: NfcGuidePanel(
+                            phase: _allDrafts.isEmpty && _flow == _FlowPhase.idle
+                                ? NfcGuidePhase.empty
+                                : _guidePhase,
+                            breath: _breath,
+                            soundTitle: _loadedItem?.title,
+                            progress: _pressProgress,
+                            chaining: _chaining,
+                            failReason: _failReason,
+                            autoListening: _autoListening,
+                            onStartDetect: _startNfcDetect,
+                            onCancelWrite: _cancelNfc,
+                            onRetrieve: _retrieveSound,
+                            onRetry: _startNfcDetect,
+                            onDetectOther: _startNfcDetect,
+                            onViewCollection: widget.onOpenCollection,
+                            onContinue: _continueAfterComplete,
+                            onStartRecord: widget.onStartRecord,
+                            onSimulate: kDebugMode ? _simulatePress : null,
+                          ),
+                        ),
+                      )
+                    else ...[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 10, 24, 4),
+                        child: AnimatedOpacity(
+                          duration: AppMotion.fast,
+                          opacity: dragging ? 0.95 : 1,
+                          child: Text(
+                            dragging
+                                ? (_machineMode ==
+                                        PressMachineMode.readyToRelease
+                                    ? '松开以插入设备'
+                                    : '向上拖入写入插槽')
+                                : '长按中央声卡，向上拖入设备封存',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: dragging
+                                  ? AppColors.accent
+                                  : AppColors.textSecondary,
+                              fontSize: 13,
+                              height: 1.35,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                    // 卡片轮播
-                    Expanded(
-                      flex: 30,
-                      child: AnimatedOpacity(
-                        duration: AppMotion.fast,
-                        opacity: (_flow != _FlowPhase.idle &&
-                                _flow != _FlowPhase.complete)
-                            ? 0.35
-                            : 1,
-                        child: tray.isEmpty
-                            ? const SizedBox.shrink()
-                            : DraftTrayCarousel(
-                                items: tray,
-                                selectedIndex: selected,
-                                onIndexChanged: (i) =>
-                                    setState(() => _selectedIndex = i),
-                                onOpenDetail: (id) {
-                                  if (_trayLocked) return;
-                                  widget.onOpenDetail(id);
-                                },
-                                onLongPressCenter: _onLongPressCenter,
-                                onLongPressMove: _onLongPressMove,
-                                onLongPressEnd: _onLongPressEnd,
-                                dimmed: dragging,
-                                locked: _trayLocked,
-                                placeholderIndex:
-                                    (_dragPhase == _DragPhase.dragging ||
-                                            _dragPhase == _DragPhase.snapping)
-                                        ? _dragIndex
-                                        : null,
-                              ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
+                      if (_showCarousel)
+                        Expanded(
+                          child: DraftTrayCarousel(
+                            items: tray,
+                            selectedIndex: selected,
+                            onIndexChanged: (i) =>
+                                setState(() => _selectedIndex = i),
+                            onOpenDetail: (id) {
+                              if (_trayLocked) return;
+                              widget.onOpenDetail(id);
+                            },
+                            onLongPressCenter: _onLongPressCenter,
+                            onLongPressMove: _onLongPressMove,
+                            onLongPressEnd: _onLongPressEnd,
+                            dimmed: dragging,
+                            locked: _trayLocked &&
+                                _dragPhase != _DragPhase.dragging,
+                            placeholderIndex:
+                                (_dragPhase == _DragPhase.dragging ||
+                                        _dragPhase == _DragPhase.snapping)
+                                    ? _dragIndex
+                                    : null,
+                          ),
+                        ),
+                    ],
+
+                    const SizedBox(height: 4),
                   ],
                 ),
                 if ((_dragPhase == _DragPhase.dragging ||
                         _dragPhase == _DragPhase.snapping ||
                         _dragPhase == _DragPhase.inserting ||
                         _dragPhase == _DragPhase.retrieving) &&
-                    _dragGlobal != null &&
-                    (_dragIndex != null ||
-                        _dragPhase == _DragPhase.retrieving ||
-                        _dragPhase == _DragPhase.inserting))
+                    _dragGlobal != null)
                   _DragLayer(
                     item: _dragIndex != null && _dragIndex! < tray.length
                         ? tray[_dragIndex!]
-                        : (_loadedItem ??
-                            (_dragIndex != null &&
-                                    _dragIndex! < _allDrafts.length
-                                ? _allDrafts[_dragIndex!]
-                                : null)),
+                        : _loadedItem,
                     globalPosition: _dragGlobal!,
                     scale: _dragScale,
                     angle: _dragAngle,
@@ -845,25 +1034,35 @@ class _DraftsScreenState extends State<DraftsScreen>
   }
 }
 
-class _CompactAccountButton extends StatelessWidget {
-  const _CompactAccountButton({required this.icon, required this.onTap});
+class _FrostAccountButton extends StatelessWidget {
+  const _FrostAccountButton({required this.onTap});
 
-  final IconData icon;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        width: 32,
-        height: 32,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: AppColors.device,
-          border: Border.all(color: AppColors.structure),
+      child: ClipOval(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: 0.14),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.28),
+              ),
+            ),
+            child: Icon(
+              Icons.person_outline,
+              size: 17,
+              color: AppColors.textPrimary.withValues(alpha: 0.9),
+            ),
+          ),
         ),
-        child: Icon(icon, size: 16, color: AppColors.textTertiary),
       ),
     );
   }
@@ -891,7 +1090,7 @@ class _DragLayer extends StatelessWidget {
     if (item == null) return const SizedBox.shrink();
     final origin = stageGlobal?.topLeft ?? Offset.zero;
     final local = globalPosition - origin;
-    const cardH = 248.0;
+    const cardH = 228.0;
     final clipTop = insertProgress * cardH;
 
     return Positioned.fill(
@@ -900,8 +1099,8 @@ class _DragLayer extends StatelessWidget {
           clipBehavior: Clip.none,
           children: [
             Positioned(
-              left: local.dx - 94,
-              top: local.dy - 124,
+              left: local.dx - 88,
+              top: local.dy - 114,
               child: Transform.rotate(
                 angle: angle,
                 child: Transform.scale(

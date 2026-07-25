@@ -266,6 +266,7 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
+      extendBody: false,
       body: IndexedStack(
         index: _tab,
         children: [

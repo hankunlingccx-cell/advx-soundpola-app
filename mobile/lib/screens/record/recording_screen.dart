@@ -270,7 +270,13 @@ class _RecordingScreenState extends State<RecordingScreen> {
                   ),
                 ),
                 TimerText(seconds: _seconds),
-                const SizedBox(height: AppSpacing.block),
+                const SizedBox(height: AppSpacing.item),
+                SizedBox(
+                  height: 18,
+                  width: 10,
+                  child: CustomPaint(painter: _RecordEnergyLinkPainter()),
+                ),
+                const SizedBox(height: AppSpacing.item),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -300,4 +306,22 @@ class _RecordingScreenState extends State<RecordingScreen> {
       ),
     );
   }
+}
+
+class _RecordEnergyLinkPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    canvas.drawLine(
+      Offset(cx, 0),
+      Offset(cx, size.height),
+      Paint()
+        ..color = AppColors.accent.withValues(alpha: 0.12)
+        ..strokeWidth = 0.7
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
