@@ -1084,13 +1084,17 @@ App
 
 定位：开发与验收用旁路页面，不进入底部三 Tab；入口在 Account「Sound Lab 声音实验室」。
 
-**用户流程**：点选 1–4 段声音 →「按节拍轮播试听」→ 分析主声音 BPM，生成轮播计划，按拍点轮流切换播放所选音频。可选导出作品。无需拖拽 / 手动改拍。
+**用户流程**：点选 1–4 段声音 →「随机节拍轮播试听」→ 按所选内容特征随机生成轮播计划并试听。每次试听 seed 不同。
 
-**「生成节拍」含义**：不是叠加 kick/snare 鼓点，而是按节拍网格轮播用户选中的声音（`sourceIndex` 轮转，每拍一切换）。
+**「生成节拍」**：按节拍网格轮播所选音频（非鼓点 one-shot）。生成前先对每段声音截取**音量最高的有效片段**（`HotClip`，滑窗 RMS / gatedRms），轮播切片落在该片段内。本地算法再根据 onset / 能量 / 时长等随机决定疏密、风格与切源顺序。
 
-音源仅限：当前录音 / Drafts / Collection。
+**接 AI API（改这一处）**：`mobile/lib/lab/beat_ai_api_config.dart`
+- 填 `endpointUrl`（完整 URL）
+- 设 `enabled = true`
+- 可选 `apiKey`
+也可 `--dart-define=BEAT_AI_API_URL=…` / `BEAT_AI_API_ENABLED=true`。未启用或失败时回退本地随机。
 
-**API**：`BeatGenerationApiGateway`（`mobile/lib/lab/beat_generation_api.dart`）。请求 FeatureSummary（含 sourceCount），响应 BeatPlan（events：timeMs / sourceIndex / playDurationMs / sliceOffsetMs）。默认本地回退；后端就绪后 `RemoteBeatGenerationApi(enabled: true)` → `POST /api/v1/lab/beat-plan`。
+契约：POST FeatureSummary（含 sourceCount）→ BeatPlan（timeMs / sourceIndex / playDurationMs / sliceOffsetMs）。
 
 实现：`mobile/lib/lab/`、`mobile/lib/screens/lab/sound_lab_screen.dart`。
 

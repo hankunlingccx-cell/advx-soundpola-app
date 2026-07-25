@@ -197,6 +197,26 @@ class LabController extends ChangeNotifier {
           ? RecordingSession.featureTimeline
           : null;
 
+      statusMessage = '截取各段最高音量片段…';
+      notifyListeners();
+
+      final hotClips = <HotClip>[];
+      for (final n in canvas) {
+        final tl = n.source.id == 'session_current'
+            ? RecordingSession.featureTimeline
+            : null;
+        final clip = await BeatAnalyzer.findHottestClip(
+          durationMs: n.source.durationMs,
+          audioPath: n.source.audioPath,
+          featuresPath: n.source.featuresPath,
+          timeline: tl,
+        );
+        hotClips.add(clip);
+      }
+
+      statusMessage = '分析节拍…';
+      notifyListeners();
+
       final base = await BeatAnalyzer.analyze(
         sourceSoundId: primary.source.id,
         durationMs: primary.source.durationMs,
@@ -221,14 +241,22 @@ class LabController extends ChangeNotifier {
         sourceCount: canvas.length,
         sourceDurationsMs:
             canvas.map((n) => n.source.durationMs).toList(growable: false),
+        sourceHotClips: hotClips,
       );
 
-      statusMessage = '生成轮播计划…';
+      statusMessage = '随机生成轮播计划…';
       notifyListeners();
 
-      final seed = primary.source.coverSeed == 0
-          ? primary.source.id.hashCode & 0x7fffffff
-          : primary.source.coverSeed;
+      // 每次试听：内容指纹 + 时间熵 → 不同随机节拍
+      final contentKey = canvas.map((n) => n.source.id).join('|');
+      final seed = Object.hash(
+            contentKey,
+            primary.source.coverSeed,
+            DateTime.now().microsecondsSinceEpoch,
+            featureSummary!.onsetsMs.length,
+            hotClips.map((c) => c.startMs).join(','),
+          ) &
+          0x7fffffff;
 
       beatPlan = await _api.generate(summary: featureSummary!, seed: seed);
 

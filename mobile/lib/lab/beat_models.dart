@@ -361,6 +361,33 @@ class SilenceRange {
       );
 }
 
+/// 单段声音中音量最高的有效片段（轮播前截取）。
+class HotClip {
+  const HotClip({
+    required this.startMs,
+    required this.durationMs,
+    this.peakEnergy = 0,
+  });
+
+  final int startMs;
+  final int durationMs;
+  final double peakEnergy;
+
+  int get endMs => startMs + durationMs;
+
+  Map<String, dynamic> toJson() => {
+        'startMs': startMs,
+        'durationMs': durationMs,
+        'peakEnergy': peakEnergy,
+      };
+
+  factory HotClip.fromJson(Map<String, dynamic> j) => HotClip(
+        startMs: (j['startMs'] as num?)?.round() ?? 0,
+        durationMs: (j['durationMs'] as num?)?.round() ?? 500,
+        peakEnergy: (j['peakEnergy'] as num?)?.toDouble() ?? 0,
+      );
+}
+
 /// Structured audio features for Codex / local BeatPlanner (never full PCM).
 class FeatureSummary {
   FeatureSummary({
@@ -376,6 +403,7 @@ class FeatureSummary {
     this.sourceSoundId = '',
     this.sourceCount = 1,
     this.sourceDurationsMs = const [],
+    this.sourceHotClips = const [],
   });
 
   final int durationMs;
@@ -395,6 +423,9 @@ class FeatureSummary {
   /// 各选中声音时长，与画布顺序一致。
   final List<int> sourceDurationsMs;
 
+  /// 各选中声音的最高音量有效片段（与画布顺序一致）。
+  final List<HotClip> sourceHotClips;
+
   Map<String, dynamic> toJson() => {
         'durationMs': durationMs,
         'estimatedBpm': estimatedBpm,
@@ -408,5 +439,6 @@ class FeatureSummary {
         'sourceSoundId': sourceSoundId,
         'sourceCount': sourceCount,
         'sourceDurationsMs': sourceDurationsMs,
+        'sourceHotClips': sourceHotClips.map((e) => e.toJson()).toList(),
       };
 }

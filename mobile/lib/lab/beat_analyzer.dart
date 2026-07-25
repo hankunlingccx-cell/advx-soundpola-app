@@ -505,4 +505,157 @@ class BeatAnalyzer {
       return null;
     }
   }
+
+  /// 截取音量最高的有效片段（轮播前对每段声音调用）。
+  ///
+  /// 优先用 AudioDrive 时间线的 gatedRms；WAV 则用 PCM RMS 滑窗。
+  /// 窗口默认约 0.8–2.0s，落在整段能量峰值处。
+  static Future<HotClip> findHottestClip({
+    required int durationMs,
+    String? audioPath,
+    String? featuresPath,
+    AudioFeatureTimeline? timeline,
+    int? preferredWindowMs,
+  }) async {
+    final dur = durationMs.clamp(200, 180000);
+    final windowMs = (preferredWindowMs ?? _defaultHotWindow(dur))
+        .clamp(200, math.min(dur, 4000));
+
+    AudioFeatureTimeline? tl = timeline;
+    if (tl == null && featuresPath != null) {
+      final f = File(featuresPath);
+      if (await f.exists()) {
+        try {
+          tl = AudioFeatureTimeline.decode(await f.readAsBytes());
+        } catch (_) {}
+      }
+    }
+
+    if (audioPath != null && audioPath.toLowerCase().endsWith('.wav')) {
+      final decoded = await _tryDecodeWav(audioPath);
+      if (decoded != null && decoded.$1.isNotEmpty) {
+        return _hottestFromPcm(
+          pcm: decoded.$1,
+          sampleRate: decoded.$2,
+          windowMs: windowMs,
+        );
+      }
+    }
+
+    if (tl != null && tl.samples.isNotEmpty) {
+      return _hottestFromTimeline(tl, windowMs: windowMs, durationMs: dur);
+    }
+
+    // 无特征时：取中间一段作为保守有效区
+    final start = math.max(0, (dur - windowMs) ~/ 2);
+    return HotClip(startMs: start, durationMs: windowMs, peakEnergy: 0.4);
+  }
+
+  static int _defaultHotWindow(int durationMs) {
+    if (durationMs <= 1200) return math.max(200, durationMs);
+    if (durationMs <= 4000) return 800;
+    if (durationMs <= 15000) return 1200;
+    return 2000;
+  }
+
+  static HotClip _hottestFromTimeline(
+    AudioFeatureTimeline tl, {
+    required int windowMs,
+    required int durationMs,
+  }) {
+    final samples = tl.samples;
+    if (samples.isEmpty) {
+      return HotClip(startMs: 0, durationMs: windowMs);
+    }
+
+    final hop = math.max(25, windowMs ~/ 20);
+    var bestStart = 0;
+    var bestScore = -1.0;
+    final lastT = math.max(windowMs, durationMs);
+
+    for (var start = 0; start + windowMs <= lastT; start += hop) {
+      final end = start + windowMs;
+      var sum = 0.0;
+      var n = 0;
+      var peak = 0.0;
+      for (final s in samples) {
+        if (s.timeMs < start) continue;
+        if (s.timeMs >= end) break;
+        final v = s.features.gatedRms;
+        sum += v;
+        n++;
+        if (v > peak) peak = v;
+      }
+      if (n == 0) continue;
+      // 均值 + 峰值加权，偏向持续响亮且有冲刺的段落
+      final score = (sum / n) * 0.7 + peak * 0.3;
+      if (score > bestScore) {
+        bestScore = score;
+        bestStart = start;
+      }
+    }
+
+    // 向两侧扩展到仍高于峰值 45% 的连续区，避免切得过碎
+    final expandThr = bestScore * 0.45;
+    var left = bestStart;
+    var right = bestStart + windowMs;
+    while (left > 0) {
+      final e = tl.sampleAt(left).gatedRms;
+      if (e < expandThr) break;
+      left = math.max(0, left - hop);
+    }
+    while (right < durationMs) {
+      final e = tl.sampleAt(right).gatedRms;
+      if (e < expandThr) break;
+      right = math.min(durationMs, right + hop);
+    }
+    final clipDur = math.max(windowMs, right - left).clamp(200, durationMs);
+    final start = left.clamp(0, math.max(0, durationMs - clipDur));
+    return HotClip(
+      startMs: start,
+      durationMs: clipDur,
+      peakEnergy: bestScore.clamp(0.0, 1.0),
+    );
+  }
+
+  static HotClip _hottestFromPcm({
+    required List<double> pcm,
+    required int sampleRate,
+    required int windowMs,
+  }) {
+    final win = math.max(1, (windowMs / 1000 * sampleRate).round());
+    final hop = math.max(1, win ~/ 20);
+    if (pcm.length <= win) {
+      return HotClip(
+        startMs: 0,
+        durationMs: ((pcm.length / sampleRate) * 1000).round().clamp(200, windowMs),
+        peakEnergy: 1,
+      );
+    }
+
+    var bestI = 0;
+    var bestScore = -1.0;
+    for (var i = 0; i + win <= pcm.length; i += hop) {
+      var sum = 0.0;
+      var peak = 0.0;
+      for (var j = i; j < i + win; j++) {
+        final a = pcm[j].abs();
+        sum += a;
+        if (a > peak) peak = a;
+      }
+      final mean = sum / win;
+      final score = mean * 0.7 + peak * 0.3;
+      if (score > bestScore) {
+        bestScore = score;
+        bestI = i;
+      }
+    }
+
+    final startMs = ((bestI / sampleRate) * 1000).round();
+    return HotClip(
+      startMs: startMs,
+      durationMs: windowMs,
+      peakEnergy: bestScore.clamp(0.0, 1.0),
+    );
+  }
 }

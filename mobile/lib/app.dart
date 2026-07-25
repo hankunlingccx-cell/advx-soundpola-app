@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'cloud/cloud_media_config.dart';
 import 'data/sound_repository.dart';
+import 'lab/beat_ai_api_config.dart';
 import 'router/app_router.dart';
 import 'services/auth_service.dart';
 import 'services/deep_link_service.dart';
@@ -40,6 +41,7 @@ class _SoundpolaAppState extends State<SoundpolaApp> {
       ),
     );
     await CloudMediaConfig.init();
+    await BeatAiApiConfig.init();
     await AuthService.instance.init();
     await SoundRepository.instance.init();
     await DeepLinkService.instance.init(_router);
