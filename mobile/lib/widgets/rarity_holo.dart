@@ -41,12 +41,12 @@ class RarityHoloStyle {
   final bool hasSecondaryRim;
   final bool hasOuterPrism;
 
-  static const _silver = Color(0xFFB8C4C0);
-  static const _mint = Color(0xFF63E0CB);
-  static const _blue = Color(0xFF56B8FF);
-  static const _violet = Color(0xFF8A74FF);
-  static const _pink = Color(0xFFF27BB5);
-  static const _goldHint = Color(0xFFE8D5A3);
+  static const _silver = Color(0xFFC8D4D0);
+  static const _mint = Color(0xFF4DFFD6);
+  static const _blue = Color(0xFF3DB8FF);
+  static const _violet = Color(0xFF9B6BFF);
+  static const _pink = Color(0xFFFF5CA8);
+  static const _goldHint = Color(0xFFFFE08A);
 
   static RarityHoloStyle of(DiscRarity? rarity) {
     final r = rarity ?? DiscRarity.n;
@@ -56,8 +56,8 @@ class RarityHoloStyle {
           spectrum: [_silver, _mint, _silver],
           accent: _silver,
           secondaryAccent: _mint,
-          intensity: 0.9,
-          bandStrength: 0.55,
+          intensity: 1.1,
+          bandStrength: 0.9,
           sweepSeconds: 5.0,
           bandCount: 1,
           rimWidth: 1.2,
@@ -70,8 +70,8 @@ class RarityHoloStyle {
           spectrum: [_mint, Color(0xFF7AEFDD), _blue, _mint],
           accent: _mint,
           secondaryAccent: _blue,
-          intensity: 1.05,
-          bandStrength: 0.7,
+          intensity: 1.25,
+          bandStrength: 1.05,
           sweepSeconds: 3.8,
           bandCount: 2,
           rimWidth: 1.4,
@@ -84,8 +84,8 @@ class RarityHoloStyle {
           spectrum: [_mint, _blue, _violet, _blue, _mint],
           accent: _blue,
           secondaryAccent: _violet,
-          intensity: 1.2,
-          bandStrength: 0.82,
+          intensity: 1.4,
+          bandStrength: 1.15,
           sweepSeconds: 3.0,
           bandCount: 2,
           rimWidth: 1.6,
@@ -98,8 +98,8 @@ class RarityHoloStyle {
           spectrum: [_mint, _blue, _violet, _pink, _goldHint, _mint],
           accent: _pink,
           secondaryAccent: _violet,
-          intensity: 1.35,
-          bandStrength: 0.95,
+          intensity: 1.55,
+          bandStrength: 1.25,
           sweepSeconds: 2.4,
           bandCount: 3,
           rimWidth: 1.85,
@@ -146,61 +146,82 @@ class RarityHoloSheenPainter extends CustomPainter {
     final rect = Offset.zero & size;
     final c = Offset(size.width / 2, size.height / 2);
     final r = size.shortestSide / 2;
-    final strength = (style.intensity * intensityScale).clamp(0.55, 1.4);
+    final strength = (style.intensity * intensityScale).clamp(0.7, 1.5);
     final travel = t;
 
-    // 仅扫光带：白高光芯 + 两侧镭射色散（不铺整面色洗）
+    // 仅扫光带：彩色色散在两侧，白高光芯居中（不铺整面）
     for (var i = 0; i < style.bandCount; i++) {
       final hueA = style.spectrum[i % style.spectrum.length];
       final hueB = style.spectrum[(i + 1) % style.spectrum.length];
       final lag = i / math.max(1, style.bandCount);
       final u = (travel + lag * 0.26) % 1.0;
       final mid = -1.4 + u * 2.8;
-      final halfW = 0.18 + i * 0.03; // 窄带，像掠过高光
-      final sheen = (0.22 + 0.18 * strength).clamp(0.18, 0.42);
-      final tint = (style.bandStrength * strength * 0.55).clamp(0.22, 0.7);
+      final halfW = 0.26 + i * 0.04;
+      // 色散要够显：srcOver 直接上色，不受浅底洗掉
+      final tint = (style.bandStrength * strength * 0.85).clamp(0.55, 0.95);
+      final sheen = (0.1 + 0.08 * strength).clamp(0.1, 0.22);
 
-      // 白高光芯（贴合陶瓷高光）
+      // 1) 彩色扫带（主可见层）— 只在窄带内
       canvas.drawCircle(
         c,
         r,
         Paint()
-          ..blendMode = BlendMode.softLight
+          ..blendMode = BlendMode.srcOver
           ..shader = LinearGradient(
             begin: Alignment(mid - halfW, mid - halfW),
             end: Alignment(mid + halfW, mid + halfW),
             colors: [
               Colors.transparent,
-              Colors.white.withValues(alpha: sheen * 0.35),
-              Colors.white.withValues(alpha: sheen),
-              Colors.white.withValues(alpha: sheen * 0.35),
+              hueA.withValues(alpha: tint * 0.7),
+              hueA.withValues(alpha: tint),
+              hueB.withValues(alpha: tint),
+              hueB.withValues(alpha: tint * 0.7),
               Colors.transparent,
             ],
-            stops: const [0.0, 0.35, 0.5, 0.65, 1.0],
+            stops: const [0.0, 0.18, 0.38, 0.62, 0.82, 1.0],
           ).createShader(rect),
       );
 
-      // 高光两侧色散：镭射色只出现在扫带里
+      // 2) screen 再提亮色散，贴图深浅都能看清
       canvas.drawCircle(
         c,
         r,
         Paint()
           ..blendMode = BlendMode.screen
           ..shader = LinearGradient(
-            begin: Alignment(mid - halfW * 1.15, mid - halfW * 1.15),
-            end: Alignment(mid + halfW * 1.15, mid + halfW * 1.15),
+            begin: Alignment(mid - halfW * 1.1, mid - halfW * 1.1),
+            end: Alignment(mid + halfW * 1.1, mid + halfW * 1.1),
             colors: [
               Colors.transparent,
               hueA.withValues(alpha: tint * 0.85),
-              Colors.white.withValues(alpha: sheen * 0.55),
-              hueB.withValues(alpha: tint),
+              hueB.withValues(alpha: tint * 0.95),
               Colors.transparent,
             ],
-            stops: const [0.0, 0.28, 0.5, 0.72, 1.0],
+            stops: const [0.0, 0.3, 0.7, 1.0],
           ).createShader(rect),
       );
 
-      // 再加一层更窄的彩色棱镜芯，增强“箔感”
+      // 3) 窄白高光芯 — 叠在色带中央，像箔片反光（压低以免冲掉色）
+      canvas.drawCircle(
+        c,
+        r,
+        Paint()
+          ..blendMode = BlendMode.softLight
+          ..shader = LinearGradient(
+            begin: Alignment(mid - halfW * 0.32, mid - halfW * 0.32),
+            end: Alignment(mid + halfW * 0.32, mid + halfW * 0.32),
+            colors: [
+              Colors.transparent,
+              Colors.white.withValues(alpha: sheen * 0.45),
+              Colors.white.withValues(alpha: sheen),
+              Colors.white.withValues(alpha: sheen * 0.45),
+              Colors.transparent,
+            ],
+            stops: const [0.0, 0.32, 0.5, 0.68, 1.0],
+          ).createShader(rect),
+      );
+
+      // 4) R+：plus 棱镜芯，色更跳
       if (style.rarity.index >= DiscRarity.r.index) {
         canvas.drawCircle(
           c,
@@ -208,49 +229,49 @@ class RarityHoloSheenPainter extends CustomPainter {
           Paint()
             ..blendMode = BlendMode.plus
             ..shader = LinearGradient(
-              begin: Alignment(mid - halfW * 0.55, mid - halfW * 0.55),
-              end: Alignment(mid + halfW * 0.55, mid + halfW * 0.55),
+              begin: Alignment(mid - halfW * 0.75, mid - halfW * 0.75),
+              end: Alignment(mid + halfW * 0.75, mid + halfW * 0.75),
               colors: [
                 Colors.transparent,
-                hueA.withValues(alpha: tint * 0.45),
-                hueB.withValues(alpha: tint * 0.55),
+                hueA.withValues(alpha: tint * 0.65),
+                hueB.withValues(alpha: tint * 0.75),
                 Colors.transparent,
               ],
-              stops: const [0.0, 0.38, 0.62, 1.0],
+              stops: const [0.0, 0.32, 0.68, 1.0],
             ).createShader(rect),
         );
       }
     }
 
-    // SR+：外缘只在扫光掠过时亮一截，不做整环染色
+    // SR+：外缘扫光掠过时亮一截色散，不做整环染色
     if (style.hasOuterPrism) {
       final rimTravel = (travel * 0.92) % 1.0;
       final rimMid = -1.2 + rimTravel * 2.4;
       final hue = style.accent;
       final hue2 = style.secondaryAccent;
-      final rimA = (0.35 + 0.25 * strength).clamp(0.3, 0.7);
+      final rimA = (0.55 + 0.35 * strength).clamp(0.5, 0.95);
       canvas.drawCircle(
         c,
         r * 0.93,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = r * (style.rarity == DiscRarity.ssr ? 0.07 : 0.05)
-          ..blendMode = BlendMode.screen
+          ..strokeWidth = r * (style.rarity == DiscRarity.ssr ? 0.08 : 0.055)
+          ..blendMode = BlendMode.srcOver
           ..shader = LinearGradient(
-            begin: Alignment(rimMid - 0.55, rimMid - 0.55),
-            end: Alignment(rimMid + 0.55, rimMid + 0.55),
+            begin: Alignment(rimMid - 0.5, rimMid - 0.5),
+            end: Alignment(rimMid + 0.5, rimMid + 0.5),
             colors: [
               Colors.transparent,
-              hue.withValues(alpha: rimA * 0.7),
-              Colors.white.withValues(alpha: rimA * 0.5),
+              hue.withValues(alpha: rimA * 0.75),
+              Colors.white.withValues(alpha: rimA * 0.35),
               hue2.withValues(alpha: rimA),
               Colors.transparent,
             ],
-            stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
+            stops: const [0.0, 0.28, 0.5, 0.72, 1.0],
           ).createShader(rect)
           ..maskFilter = MaskFilter.blur(
             BlurStyle.normal,
-            style.rarity == DiscRarity.ssr ? 1.6 : 1.0,
+            style.rarity == DiscRarity.ssr ? 1.4 : 0.9,
           ),
       );
     }
@@ -354,12 +375,49 @@ void paintRarityHoloOverlay({
 }) {
   final style = RarityHoloStyle.of(rarity);
   final strength =
-      (style.intensity * (0.7 + 0.35 * elevatedBoost)).clamp(0.55, 1.3);
+      (style.intensity * (0.75 + 0.4 * elevatedBoost)).clamp(0.7, 1.4);
   final rect = Rect.fromCircle(center: center, radius: radius);
   final mid = -1.15 + phase.clamp(0.0, 1.0) * 2.3;
-  final halfW = 0.2;
-  final sheen = (0.2 + 0.16 * strength).clamp(0.16, 0.38);
-  final tint = (style.bandStrength * strength * 0.5).clamp(0.2, 0.65);
+  final halfW = 0.22;
+  final tint = (style.bandStrength * strength * 0.85).clamp(0.55, 0.95);
+  final sheen = (0.1 + 0.08 * strength).clamp(0.1, 0.22);
+
+  canvas.drawCircle(
+    center,
+    radius,
+    Paint()
+      ..blendMode = BlendMode.srcOver
+      ..shader = LinearGradient(
+        begin: Alignment(mid - halfW, mid - halfW),
+        end: Alignment(mid + halfW, mid + halfW),
+        colors: [
+          Colors.transparent,
+          style.accent.withValues(alpha: tint * 0.75),
+          style.accent.withValues(alpha: tint),
+          style.secondaryAccent.withValues(alpha: tint),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.2, 0.42, 0.72, 1.0],
+      ).createShader(rect),
+  );
+
+  canvas.drawCircle(
+    center,
+    radius,
+    Paint()
+      ..blendMode = BlendMode.screen
+      ..shader = LinearGradient(
+        begin: Alignment(mid - halfW * 1.05, mid - halfW * 1.05),
+        end: Alignment(mid + halfW * 1.05, mid + halfW * 1.05),
+        colors: [
+          Colors.transparent,
+          style.accent.withValues(alpha: tint * 0.8),
+          style.secondaryAccent.withValues(alpha: tint * 0.9),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.3, 0.7, 1.0],
+      ).createShader(rect),
+  );
 
   canvas.drawCircle(
     center,
@@ -367,39 +425,16 @@ void paintRarityHoloOverlay({
     Paint()
       ..blendMode = BlendMode.softLight
       ..shader = LinearGradient(
-        begin: Alignment(mid - halfW, mid - halfW),
-        end: Alignment(mid + halfW, mid + halfW),
+        begin: Alignment(mid - halfW * 0.32, mid - halfW * 0.32),
+        end: Alignment(mid + halfW * 0.32, mid + halfW * 0.32),
         colors: [
           Colors.transparent,
-          Colors.white.withValues(alpha: sheen * 0.4),
           Colors.white.withValues(alpha: sheen),
-          Colors.white.withValues(alpha: sheen * 0.4),
           Colors.transparent,
         ],
-        stops: const [0.0, 0.35, 0.5, 0.65, 1.0],
+        stops: const [0.0, 0.5, 1.0],
       ).createShader(rect),
   );
-
-  if (style.bandCount >= 1) {
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..blendMode = BlendMode.screen
-        ..shader = LinearGradient(
-          begin: Alignment(mid - halfW * 1.1, mid - halfW * 1.1),
-          end: Alignment(mid + halfW * 1.1, mid + halfW * 1.1),
-          colors: [
-            Colors.transparent,
-            style.accent.withValues(alpha: tint * 0.85),
-            Colors.white.withValues(alpha: sheen * 0.5),
-            style.secondaryAccent.withValues(alpha: tint),
-            Colors.transparent,
-          ],
-          stops: const [0.0, 0.28, 0.5, 0.72, 1.0],
-        ).createShader(rect),
-    );
-  }
 }
 
 /// 等级描边色：主 rim + 可选次 rim。

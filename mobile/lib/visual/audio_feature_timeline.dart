@@ -5,7 +5,7 @@ import '../audio/audio_features.dart';
 
 /// Deterministic renderer version — bump when bake algorithm changes.
 /// Old packages keep their stored frames and this string for provenance.
-const kSoundVisualRendererVersion = 'soundpola_visual_v1';
+const kSoundVisualRendererVersion = 'soundpola_sphere_v1';
 
 /// Default bake settings (Collection / Memory playback).
 const kVisualBakeFps = 12;

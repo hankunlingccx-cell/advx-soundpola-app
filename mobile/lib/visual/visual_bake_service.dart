@@ -1,10 +1,10 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
+import '../audio/audio_features.dart';
 import '../data/sound_repository.dart';
 import '../widgets/sound_visual.dart';
 import 'audio_feature_timeline.dart';

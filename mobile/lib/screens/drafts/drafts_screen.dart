@@ -19,8 +19,11 @@ import '../../services/nfc_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
+import '../../widgets/indexed_visual_player.dart';
 import '../../widgets/sound_visual.dart';
 import '../../widgets/sp_category_picker.dart';
+import '../../visual/audio_feature_timeline.dart';
+import '../../visual/visual_bake_service.dart';
 import 'draft_tray_carousel.dart';
 import 'nfc_guide_panel.dart';
 import 'press_machine.dart';
@@ -1478,6 +1481,7 @@ class _DraftDetailScreenState extends State<DraftDetailScreen> {
   late final TextEditingController _titleCtrl;
   late final TextEditingController _descCtrl;
   String? _category;
+  final ValueNotifier<int> _positionMs = ValueNotifier(0);
 
   @override
   void initState() {
@@ -1486,11 +1490,32 @@ class _DraftDetailScreenState extends State<DraftDetailScreen> {
     _titleCtrl = TextEditingController(text: item?.title ?? '');
     _descCtrl = TextEditingController(text: item?.description ?? '');
     _category = item?.category;
+    _player.addListener(_onPlayer);
+    SoundRepository.instance.addListener(_onRepo);
+  }
+
+  void _onRepo() {
+    if (mounted) setState(() {});
+  }
+
+  void _onPlayer() {
+    final item = SoundRepository.instance.get(widget.id);
+    final path = item?.audioPath;
+    if (path != null && _player.currentPath == path) {
+      _positionMs.value = _player.position.inMilliseconds;
+      final playing = _player.isPlaying;
+      if (playing != _playing && mounted) {
+        setState(() => _playing = playing);
+      }
+    }
   }
 
   @override
   void dispose() {
+    _player.removeListener(_onPlayer);
+    SoundRepository.instance.removeListener(_onRepo);
     _player.stop();
+    _positionMs.dispose();
     _titleCtrl.dispose();
     _descCtrl.dispose();
     super.dispose();
@@ -1624,12 +1649,32 @@ class _DraftDetailScreenState extends State<DraftDetailScreen> {
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            SoundVisualCanvas(
-                              seed: item.visualSeed,
-                              mode: _playing
-                                  ? SoundVisualMode.playback
-                                  : SoundVisualMode.complete,
-                            ),
+                            if (item.hasIndexedVisual)
+                              Positioned.fill(
+                                child: IndexedVisualPlayer(
+                                  item: item,
+                                  positionMsListenable: _positionMs,
+                                ),
+                              )
+                            else if (item.coverPath != null)
+                              Positioned.fill(
+                                child: Image.file(
+                                  File(item.coverPath!),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, e, st) =>
+                                      SoundVisualCanvas(
+                                    seed: item.visualSeed,
+                                    mode: SoundVisualMode.complete,
+                                  ),
+                                ),
+                              )
+                            else
+                              SoundVisualCanvas(
+                                seed: item.visualSeed,
+                                mode: _playing
+                                    ? SoundVisualMode.playback
+                                    : SoundVisualMode.complete,
+                              ),
                             Icon(
                               _playing
                                   ? Icons.pause_circle_outline
@@ -1643,6 +1688,25 @@ class _DraftDetailScreenState extends State<DraftDetailScreen> {
                     ),
                   ),
                 ),
+                if (item.visualBakeStatus == VisualBakeStatus.processingVisual ||
+                    item.visualBakeStatus == VisualBakeStatus.indexing) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    '正在生成可视化帧流…',
+                    style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                  ),
+                ],
+                if (item.visualBakeStatus == VisualBakeStatus.failed) ...[
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () =>
+                        VisualBakeService.instance.retry(item.id),
+                    child: const Text(
+                      '重新生成可视化',
+                      style: TextStyle(color: AppColors.accent),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.item),
                 if (_editing) ...[
                   SpTextField(

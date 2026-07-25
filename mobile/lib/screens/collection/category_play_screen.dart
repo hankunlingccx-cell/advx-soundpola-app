@@ -11,6 +11,7 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
 import '../../widgets/empty_state_panel.dart';
+import '../../widgets/indexed_visual_player.dart';
 import '../../widgets/sound_nft_card.dart';
 import '../../widgets/sound_visual.dart';
 import '../../widgets/sp_category_picker.dart';
@@ -58,6 +59,7 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
   Timer? _simTimer;
   bool _simPlaying = false;
   double _simProgress = 0;
+  final ValueNotifier<int> _positionMs = ValueNotifier(0);
 
   SoundMemory? get _current =>
       _items.isEmpty ? null : _items[_index.clamp(0, _items.length - 1)];
@@ -87,16 +89,25 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
     super.initState();
     _reloadItems();
     _player.addListener(_onPlayerChanged);
+    SoundRepository.instance.addListener(_onRepoChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _prefetchNeighbors(_index);
     });
   }
 
+  void _onRepoChanged() {
+    if (!mounted) return;
+    _reloadItems();
+    setState(() {});
+  }
+
   @override
   void dispose() {
     _simTimer?.cancel();
     _player.removeListener(_onPlayerChanged);
+    SoundRepository.instance.removeListener(_onRepoChanged);
+    _positionMs.dispose();
     _player.softStop();
     super.dispose();
   }
@@ -127,6 +138,11 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
     if (!mounted) return;
     final item = _current;
     final path = item?.audioPath;
+    if (path != null &&
+        path.isNotEmpty &&
+        _player.currentPath == path) {
+      _positionMs.value = _player.position.inMilliseconds;
+    }
     final justFinished = path != null &&
         path.isNotEmpty &&
         _player.currentPath == path &&
@@ -394,17 +410,24 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
                     duration: AppMotion.slow,
                     child: KeyedSubtree(
                       key: ValueKey('viz-${item.id}-$_playing'),
-                      child: SoundVisualCanvas(
-                        seed: item.visualSeed,
-                        mode: _playing
-                            ? SoundVisualMode.playback
-                            : SoundVisualMode.complete,
-                        active: _playing,
-                        dark: true,
-                        amplitude: _playing ? 0.55 : 0.2,
-                        showProgressRing: true,
-                        progress: _progress,
-                      ),
+                      child: item.hasIndexedVisual
+                          ? IndexedVisualPlayer(
+                              item: item,
+                              positionMsListenable: _positionMs,
+                              showProgressRing: true,
+                              progress: _progress,
+                            )
+                          : SoundVisualCanvas(
+                              seed: item.visualSeed,
+                              mode: _playing
+                                  ? SoundVisualMode.playback
+                                  : SoundVisualMode.complete,
+                              active: _playing,
+                              dark: true,
+                              amplitude: _playing ? 0.55 : 0.2,
+                              showProgressRing: true,
+                              progress: _progress,
+                            ),
                     ),
                   ),
                 ),

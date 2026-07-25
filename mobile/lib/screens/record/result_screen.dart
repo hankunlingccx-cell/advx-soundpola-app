@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../data/session.dart';
 import '../../data/sound_repository.dart';
@@ -5,6 +7,9 @@ import '../../services/audio_playback_service.dart';
 import '../../services/location_capture_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
+import '../../visual/audio_feature_timeline.dart';
+import '../../visual/sound_package_store.dart';
+import '../../visual/visual_bake_service.dart';
 import '../../widgets/design_components.dart';
 import '../../widgets/sound_visual.dart';
 import '../../widgets/sp_category_picker.dart';
@@ -31,8 +36,9 @@ class _ResultScreenState extends State<ResultScreen> {
   final _nameCtrl = TextEditingController(text: '未命名声音');
   final _descCtrl = TextEditingController();
   String? _category;
-  final _seed = DateTime.now().millisecondsSinceEpoch % 10000;
+  late final int _seed;
   bool _playing = false;
+  bool _saving = false;
   final _player = AudioPlaybackService.instance;
   String _locationLabel = LocationCaptureService.unsetLabel;
   bool _locating = true;
@@ -40,6 +46,9 @@ class _ResultScreenState extends State<ResultScreen> {
   @override
   void initState() {
     super.initState();
+    _seed = RecordingSession.visualSeed != 0
+        ? RecordingSession.visualSeed
+        : DateTime.now().millisecondsSinceEpoch % 10000;
     _player.addListener(_onPlayerChanged);
     _resolveLocation();
   }
@@ -88,7 +97,7 @@ class _ResultScreenState extends State<ResultScreen> {
     if (picked != null) setState(() => _category = picked);
   }
 
-  void _save() {
+  Future<void> _save() async {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -102,8 +111,11 @@ class _ResultScreenState extends State<ResultScreen> {
       );
       return;
     }
-    SoundRepository.instance.addDraft(
-      SoundMemory(
+    if (_saving) return;
+    setState(() => _saving = true);
+
+    try {
+      final memory = SoundMemory(
         title: name,
         category: _category!,
         description: _descCtrl.text.trim(),
@@ -111,15 +123,54 @@ class _ResultScreenState extends State<ResultScreen> {
         visualSeed: _seed,
         audioPath: widget.audioPath,
         locationLabel: _locationLabel,
-      ),
-    );
-    RecordingSession.clear();
-    widget.onSaved();
+        visualBakeStatus: VisualBakeStatus.processingVisual,
+        rendererVersion: kSoundVisualRendererVersion,
+      );
+
+      final timeline = RecordingSession.featureTimeline ??
+          AudioFeatureTimeline();
+      final paths = await SoundPackageStore.instance.materialize(
+        soundId: memory.id,
+        sourceAudioPath: widget.audioPath,
+        timeline: timeline,
+      );
+
+      final packaged = memory.copyWith(
+        audioPath: paths.audioPath,
+        packageDir: paths.dirPath,
+        audioFeaturesPath: paths.featuresPath,
+        visualMjpgPath: paths.mjpgPath,
+        visualIdxPath: paths.idxPath,
+        visualManifestPath: paths.manifestPath,
+        coverPath: paths.coverPath,
+        visualBakeStatus: VisualBakeStatus.processingVisual,
+      );
+
+      SoundRepository.instance.addDraft(packaged);
+      RecordingSession.clear();
+
+      // Offline bake — does not block navigation.
+      unawaited(VisualBakeService.instance.bakeSound(packaged.id));
+
+      if (!mounted) return;
+      widget.onSaved();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('保存失败：$e')),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
+    final estBytes = SoundPackageStore.estimateVisualBytes(
+      durationSec: widget.durationSec,
+    );
+    final estMb = (estBytes / (1024 * 1024)).toStringAsFixed(1);
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
       appBar: AppBar(title: const Text('录音结果')),
@@ -171,6 +222,11 @@ class _ResultScreenState extends State<ResultScreen> {
               '${_locating ? '定位中…' : _locationLabel}',
               style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
             ),
+            const SizedBox(height: 4),
+            Text(
+              '可视化帧约 $estMb MB（512² · 12fps · 离线生成）',
+              style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+            ),
             const SizedBox(height: AppSpacing.section),
             SpTextField(
               controller: _nameCtrl,
@@ -203,23 +259,27 @@ class _ResultScreenState extends State<ResultScreen> {
             const SizedBox(height: AppSpacing.item),
             SpTextField(
               controller: _descCtrl,
-              label: '描述（选填）',
-              hint: '记录这段声音背后的故事……',
+              label: '描述（可选）',
+              maxLength: 80,
               maxLines: 3,
-              maxLength: 200,
             ),
-            const SizedBox(height: AppSpacing.block),
-            const MetaRow(label: '声片稀有度', value: '待揭晓'),
-            const SizedBox(height: 6),
-            const Text(
-              '稀有度由实体声片决定，写入声片时揭晓',
-              style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+            const SizedBox(height: AppSpacing.section),
+            PrimaryButton(
+              text: _saving ? '正在保存…' : '保存至 Drafts',
+              onPressed: _save,
+              enabled: !_saving,
             ),
             const SizedBox(height: AppSpacing.item),
-            SecondaryButton(text: '重新录制', onPressed: widget.onReRecord),
-            const SizedBox(height: AppSpacing.tight),
-            PrimaryButton(text: '保存至 Drafts', onPressed: _save),
-            const SizedBox(height: AppSpacing.section),
+            TextButton(
+              onPressed: _saving
+                  ? null
+                  : () {
+                      RecordingSession.clear();
+                      widget.onReRecord();
+                    },
+              child: const Text('重新录音', style: TextStyle(color: AppColors.accent)),
+            ),
+            const SizedBox(height: AppSpacing.block),
           ],
         ),
       ),

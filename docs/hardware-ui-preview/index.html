@@ -1089,43 +1089,6 @@
         </footer>
       </section>
 
-      <!-- 08c JAM -->
-      <section class="ui" data-id="08c">
-        <header class="top-rail">
-          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
-          <div class="mods">
-            <span class="mod"><i class="lamp on"></i>PHONE</span>
-            <span class="mod"><i class="lamp on"></i>NET</span>
-            <span class="mod"><i class="lamp err"></i>NFC</span>
-            <span class="mod"><i class="lamp"></i>HOLO</span>
-            <span>23:45</span>
-          </div>
-        </header>
-        <main class="stage err-tone">
-          <div class="code">EXCEPTION / <span>08</span></div>
-          <div class="headline xs">声卡未能正常送出</div>
-          <ul class="exc-list">
-            <li>请勿再次投入声卡</li>
-            <li>当前任务已经保存</li>
-            <li>保持设备开启</li>
-            <li>点击“获取帮助”</li>
-          </ul>
-          <div class="actions">
-            <span class="btn err">获取帮助</span>
-          </div>
-        </main>
-        <footer class="guide">
-          <div class="guide-row">
-            <span class="dir warn">机械卡滞 · 投入口已锁</span>
-            <span>需要维护</span>
-          </div>
-          <div class="tray">
-            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
-            <div class="slot locked" style="border-color:var(--err);background:rgba(255,98,108,.15)"></div>
-          </div>
-        </footer>
-      </section>
-
     </div>
   </div>
   <div class="screen-label" id="label">01 · 待机：等待一段声音 · 480×320</div>
@@ -1151,7 +1114,6 @@
     <div class="group">Exception</div>
     <button data-id="08a">08 已绑定冲突</button>
     <button data-id="08b">08 凭证延迟</button>
-    <button data-id="08c">08 卡滞</button>
   </nav>
 
   <script>
@@ -1172,7 +1134,6 @@
       "07d": "请取走声卡",
       "08a": "异常 · 已绑定冲突",
       "08b": "异常 · 凭证延迟",
-      "08c": "异常 · 机械卡滞",
     };
 
     const nav = document.getElementById("nav");

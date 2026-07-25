@@ -84,7 +84,6 @@ class AudioFeatureAnalyzer {
 const _emitHz = 40.0;
 const _ringSize = 128;
 const _specBins = AudioFeatures.spectrumBinCount;
-const _targetPeak = 0.82;
 const _minGain = 0.8;
 const _maxGain = 10.0;
 
@@ -261,15 +260,18 @@ void _analyzerMain(SendPort ready) {
           noiseFloor = _lerp(noiseFloor, instRms, 0.08);
         }
 
-        // Fast-attack / slow-release peak tracker (PixMusic-like AGC)
+        // Fast-attack / slow-release peak tracker (PixMusic SPHERE AGC)
         if (instRms > trackedPeak) {
-          trackedPeak = _lerp(trackedPeak, instRms, 0.45);
+          trackedPeak = trackedPeak * 0.5 + instRms * 0.5;
         } else {
-          trackedPeak = _lerp(trackedPeak, instRms, 0.008);
+          trackedPeak = trackedPeak * 0.995 + instRms * 0.005;
         }
-        final denom = math.max(noiseFloor * 2.0, trackedPeak);
-        final targetGain = (_targetPeak / denom).clamp(_minGain, _maxGain);
-        agcGain = _lerp(agcGain, targetGain, 0.12);
+        final denom = math.max(noiseFloor * 1.5, trackedPeak);
+        // Map PixMusic-style gain (≈230/peak) into our 0–1 feature space.
+        final targetGain =
+            ((230.0 / math.max(denom * 255.0, 1.0)) * 0.55)
+                .clamp(_minGain, _maxGain);
+        agcGain = _lerp(agcGain, targetGain, 0.18);
 
         final boosted = (instRms * agcGain).clamp(0.0, 1.5);
 
@@ -345,11 +347,11 @@ void _analyzerMain(SendPort ready) {
           return s / n;
         }
 
-        final sBass = bandAvg(0, 4);
-        final sLowMid = bandAvg(4, 8);
-        final sMid = bandAvg(8, 14);
-        final sHighMid = bandAvg(14, 19);
-        final sTreble = bandAvg(19, _specBins);
+        final sBass = bandAvg(0, 16);
+        final sLowMid = bandAvg(16, 36);
+        final sMid = bandAvg(36, 64);
+        final sHighMid = bandAvg(64, 96);
+        final sTreble = bandAvg(96, _specBins);
 
         // Blend spectrum shape with envelope dynamics (speech still drives mid)
         final bassT =

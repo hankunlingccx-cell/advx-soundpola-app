@@ -436,7 +436,7 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 关闭 / 取消入口。
 
-实时声音可视化：Isolate 做 DC／RMS／自适应噪声底／快速攻击缓慢释放 AGC／soft gate／多时间尺度包络／调制频谱分箱／flux／onset，输出统一 `AudioFeatures`（含 bass…treble、spectrum 局部采样）；CustomPainter 只读快照，仅用 `drawCircle`。右上象限：多峰轮廓＋12–18 条线束按 `streamIndex` 对数采样频谱局部驱动（内层偏 bass／lowMid，外层偏 highMid／treble）；偶／奇反向交叠、`layerCross`、中心桥接；整体半径变化≤动态约 20%。待机用低强度确定性 idleDrive（8–14s 漂移）。禁止整图 scale、硬切噪声门、随机彩点。调试态可开关 AGC／频段 HUD。
+实时声音可视化：伪 3D 几何球体（SPHERE）。经纬网格约 24×28 采样点，球面分布圆／方／菱／斜线／九宫格等多种符号；持续旋转＋透视前后层级。Isolate 输出 `AudioFeatures`（128-bin spectrum、PixMusic 式快攻慢释 AGC）；CustomPainter 只读快照。局部频谱映射驱动单元尺寸，整体半径仅作轻度律动。待机确定性 idleEnergy 缓慢旋转。支持拖转／惯性／双击恢复自转／双指缩放 0.8–1.3。禁止万花筒镜像、整图 scale、随机闪烁。
 
 录音计时。
 
@@ -454,19 +454,19 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 06 录音结果
 
-自动生成的声音视觉主图。
+试听、命名、分类、描述、重新录制。
 
-播放 / 暂停、进度和时长。
+保存时将音频与 AudioDrive 特征时间序列写入 `sounds/{id}/`；后台以同一 `visualSeed`＋特征离屏确定性重绘，输出 12fps Indexed-MJPEG（`visual.mjpg`＋`visual.idx`＋`visual_manifest.json`）与 `cover.jpg`。状态：`processing_visual` → `indexing` → `ready`／`failed`（失败保留音频并可重试，不删录音）。
+
+播放（Draft 详情／分类 Memory）优先按音频时间轴索引解码已留存 JPEG 帧；算法升级后旧记录仍用原帧流（`rendererVersion`）。
 
 自动信息：日期、时间、地点。
 
 名称：必填，建议 20 字以内。
 
-分类：必选，单选；由用户自定义。选择器展示已创建过的分类名称，并可新建分类（本版不提供删除分类）。
+分类：必选；用户自定义，可新建（本版不提供删除分类）。
 
-描述：选填，建议 200 字以内。
-
-“重新录制”。
+描述：选填。
 
 “保存至 Drafts”。
 
@@ -668,7 +668,7 @@ NFC 已成功时只允许重试上链。
 
 18.1 顶部播放区
 
-视觉主体：当前选中声音的对称圆点粒子场可视化（SoundVisualCanvas，可带进度环），占页面上部主要空间并尽量放大；播放时随音频变化，点击切换播放／暂停。不在主视觉区重复展示标题／稀有度角标／时长文案，也不再叠放大号贴图声卡（贴图仅出现在横向堆叠，与 Collection 跑道一致）。
+视觉主体：当前选中声音的几何球体可视化（SoundVisualCanvas，可带进度环），占页面上部主要空间并尽量放大；播放时随音频变化，点击切换播放／暂停。不在主视觉区重复展示标题／稀有度角标／时长文案，也不再叠放大号贴图声卡（贴图仅出现在横向堆叠，与 Collection 跑道一致）。
 
 下方横向堆叠使用跑道贴图，整体尺寸小于可视化主体，仅作切换导航。
 
@@ -831,6 +831,13 @@ App 经局域网原始 TCP Socket 向设备 `POST /pair`（不用 package:http�
 状态码：200 成功；401 二维码过期／已用；403 设备未开配对；400 参数无效；超时／无响应视为不在同一网络。
 
 界面状态：loading →（权限）→ scanning → sending → success；失败可重扫。nonce 一次性且约 3 分钟 TTL；仅配对界面受理；局域网明文 HTTP 为 MVP 可接受，后续可加 TLS。
+
+硬件端 Memory Terminal HMI（权威：`hadwareui.md` + `docs/hardware-ui-preview/index.html`）：
+
+- 分辨率 480×320；三层结构：顶部状态轨（PHONE／NET／NFC／HOLO）→ 中央任务舞台 → 底部 IN／NFC／OUT 机械引导托盘。
+- 无模式选择：手机发声写入，或投已绑定卡显影；事件自动推进。
+- 状态：01 待机 → 02／02b 接收就绪 → 03 等待空白卡 → 04 识别 → 05／05b 写入校验 → 07 完成出卡取卡；或 06a／b／c 显影；异常仅 08a 已绑定冲突、08b 凭证延迟（已取消机械卡滞用户页）。
+- LCD 黑白青工业语言，禁止声音可视化；球体／全息光谱仅全息装置。与 App Drafts 写入机拟物 UI 视觉分离、任务衔接。
 
 智能戒指的连接、电量和录音触发设置。
 
@@ -1088,7 +1095,9 @@ Account 首页。
 
 全站深色主题（#000000 + #63E0CB），对齐 designstyle.md V2。
 
-声音视觉：四象限严格镜像多层声场（右上象限多峰轮廓＋线束曲面 → 水平／垂直镜像；仅 drawCircle）；近似六瓣视觉感（非六次旋转）。音频管线：Isolate AGC（快攻慢释）＋自适应噪声底＋soft gate＋多频段／spectrum 局部映射＋非对称包络；可视化禁止整图 scale，整体半径≤约 20% 动态；CustomPainter + RepaintBoundary；High/Medium/Low 动态画质。录音钮：实心青圆＋黑点，录音变圆角方停止符。
+声音视觉：伪 3D 几何球体 SPHERE（经纬点阵＋多几何符号＋透视排序）；Isolate AGC（快攻慢释）＋ 128-bin spectrum 局部映射；CustomPainter + RepaintBoundary；High/Medium/Low 动态降密。录音钮：实心青圆＋黑点，录音变圆角方停止符。
+
+可视化留存：录音中记录 AudioDrive 时间序列；保存后离屏确定性 bake → Indexed-MJPEG（512²／12fps／q≈80）＋idx＋manifest＋cover；播放按 audioPositionMs 随机访问帧；`rendererVersion=soundpola_sphere_v1`。
 
 三 Tab：Record / Drafts / Collection；Press / 分类声片播放页 / Account 不进底栏。
 
@@ -1098,11 +1107,11 @@ Account 首页。
 
 账号密码注册 / 登录（本地账号库 + 安全 session）；登录后映射签发 Cloud Media UserToken（SecureStorage，一次下发长期持有）。
 
-Press：multipart 上传源音频 → 轮询至 READY（FAILED 可 retry）→ NFC 写入 `contentId` + `nfc_url`（兼容 Trigger）→ 本地仍模拟 NFT 上链。
+Press：multipart 上传源音频 → 轮询至 READY（FAILED 可 retry）→ NFC 写入 `contentId` + `nfc_url`（兼容 Trigger）→ 本地仍模拟 NFT 上链；可选经已配对 Memory Terminal 硬件完成物理写入／出卡（HMI 见 `hadwareui.md`）。
 
 Drafts 保持本地优先；Collection 登录后同步 READY 内容；列表按分类胶囊双列瀑布流；点击跑道进入 `/collection/category/:categoryId` 分类声片播放页（贴图环形进度 + 横向堆叠 + 完整记忆／声片／NFT）；取消独立 Memory 路由；长按声卡可拖入其他分类调整展示分类。
 
-稀有度分级镭射（`RarityHoloStyle` / `RarityHoloOverlay`）：N 银灰弱扫、R 薄荷＋冷蓝、SR 青蓝紫棱镜＋双带、SSR 全光谱绚烂＋粉紫描边／强光晕／独占微粒视差；扫光为左上→右下对角平移，仅在高光扫带上叠色散（非整圆染色）；已接入 Collection 胶囊、分类堆叠、NFT 卡与鉴定揭晓。
+稀有度分级镭射（`RarityHoloStyle` / `RarityHoloOverlay`）：N 银灰弱扫、R 薄荷＋冷蓝、SR 青蓝紫棱镜＋双带、SSR 全光谱绚烂＋粉紫描边／强光晕／独占微粒视差；扫光为左上→右下对角平移，仅在高光扫带上叠色散（非整圆染色；色带 srcOver＋screen 提亮，白芯压窄以免冲色）；已接入 Collection 胶囊、分类堆叠、NFT 卡与鉴定揭晓。
 
 统一空状态：`EmptyStatePanel` 覆盖 Record 权限阻断／过短、Drafts 三类空态、Collection 空／待封存／同步中／未登录、分类空、Press 无声音等；同步失败与空收藏分离。
 

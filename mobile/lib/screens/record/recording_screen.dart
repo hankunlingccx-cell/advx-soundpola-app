@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../data/session.dart';
 import '../../services/audio_recording_service.dart';
 import '../../services/permission_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
+import '../../visual/audio_feature_timeline.dart';
 import '../../widgets/audio_drive_debug.dart';
 import '../../widgets/design_components.dart';
 import '../../widgets/empty_state_panel.dart';
@@ -39,7 +41,8 @@ class _RecordingScreenState extends State<RecordingScreen> {
   String? _levelHint;
   String? _tooShortPath;
   int _tooShortDuration = 0;
-  static const _visualSeed = 8801;
+  int _visualSeed = DateTime.now().millisecondsSinceEpoch % 900000 + 1000;
+  AudioFeatureTimeline? _shortTimeline;
   static const _minDurationSec = 3;
   /// Debug HUD for AGC calibration (kDebugMode only).
   bool _showAudioDebug = kDebugMode;
@@ -70,7 +73,8 @@ class _RecordingScreenState extends State<RecordingScreen> {
       return;
     }
     try {
-      await _recorder.start();
+      _visualSeed = DateTime.now().millisecondsSinceEpoch % 900000 + 1000;
+      await _recorder.start(visualSeed: _visualSeed);
       if (!mounted) return;
       setState(() {
         _starting = false;
@@ -147,6 +151,24 @@ class _RecordingScreenState extends State<RecordingScreen> {
     setState(() => _paused = !_paused);
   }
 
+  void _completeWith(
+    String path,
+    int durationSec, {
+    int? seed,
+    AudioFeatureTimeline? timeline,
+  }) {
+    RecordingSession.set(
+      path: path,
+      duration: durationSec,
+      seed: seed ?? _visualSeed,
+      timeline: timeline ??
+          AudioFeatureTimeline(
+            samples: List.from(_recorder.featureTimeline.samples),
+          ),
+    );
+    widget.onComplete(path, durationSec);
+  }
+
   Future<void> _finish() async {
     if (_busy || !_ready) return;
     setState(() => _busy = true);
@@ -161,10 +183,17 @@ class _RecordingScreenState extends State<RecordingScreen> {
           _ready = false;
           _tooShortPath = result.path;
           _tooShortDuration = result.durationSec;
+          _visualSeed = result.visualSeed;
+          _shortTimeline = result.timeline;
         });
         return;
       }
-      widget.onComplete(result.path, result.durationSec);
+      _completeWith(
+        result.path,
+        result.durationSec,
+        seed: result.visualSeed,
+        timeline: result.timeline,
+      );
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -179,7 +208,12 @@ class _RecordingScreenState extends State<RecordingScreen> {
   Future<void> _keepShortRecording() async {
     final path = _tooShortPath;
     if (path == null) return;
-    widget.onComplete(path, _tooShortDuration);
+    _completeWith(
+      path,
+      _tooShortDuration,
+      seed: _visualSeed,
+      timeline: _shortTimeline,
+    );
   }
 
   Future<void> _rerunAfterShort() async {

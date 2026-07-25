@@ -51,7 +51,8 @@ class AudioFeatures {
   /// Compact 0–1 spectrum bins (log-ish), length [spectrumBinCount].
   final List<double> spectrum;
 
-  static const spectrumBinCount = 24;
+  /// Frequency bin count for sphere mapping (PixMusic-style density).
+  static const spectrumBinCount = 128;
   static const silent = AudioFeatures();
 
   double sampleSpectrumLog(double u) {
@@ -181,8 +182,8 @@ class VisualQualityProfile {
 
   static const high = VisualQualityProfile(
     tier: VisualQuality.high,
-    bloom: true,
-    particleCount: 12,
+    bloom: false,
+    particleCount: 672,
     resolutionScale: 1.0,
     targetFps: 60,
   );
@@ -190,25 +191,25 @@ class VisualQualityProfile {
   static const medium = VisualQualityProfile(
     tier: VisualQuality.medium,
     bloom: false,
-    particleCount: 7,
-    resolutionScale: 0.9,
+    particleCount: 480,
+    resolutionScale: 1.0,
     targetFps: 60,
   );
 
   static const low = VisualQualityProfile(
     tier: VisualQuality.low,
     bloom: false,
-    particleCount: 3,
-    resolutionScale: 0.72,
+    particleCount: 320,
+    resolutionScale: 0.95,
     targetFps: 45,
   );
 
   static const idle = VisualQualityProfile(
     tier: VisualQuality.medium,
     bloom: false,
-    particleCount: 3,
-    resolutionScale: 0.9,
-    targetFps: 24,
+    particleCount: 480,
+    resolutionScale: 1.0,
+    targetFps: 30,
   );
 
   static VisualQualityProfile forTier(VisualQuality t) => switch (t) {
