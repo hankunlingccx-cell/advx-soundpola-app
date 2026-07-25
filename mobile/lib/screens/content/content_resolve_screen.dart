@@ -137,7 +137,14 @@ class _ContentResolveScreenState extends State<ContentResolveScreen> {
 
   void _goMemory(String id) {
     if (!mounted) return;
-    context.pushReplacement(AppRoutes.memoryPath(id));
+    final item = SoundRepository.instance.get(id);
+    if (item == null) {
+      context.go(AppRoutes.mainTab(2));
+      return;
+    }
+    context.pushReplacement(
+      AppRoutes.categoryPlayPath(item.category, soundId: id),
+    );
   }
 
   @override

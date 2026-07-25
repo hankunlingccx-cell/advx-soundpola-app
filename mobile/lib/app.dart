@@ -75,10 +75,14 @@ class _SoundpolaAppState extends State<SoundpolaApp> {
         home: const Scaffold(
           backgroundColor: Color(0xFF000000),
           body: Center(
-            child: SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF63E0CB)),
+            child: Text(
+              'SoundPola',
+              style: TextStyle(
+                color: Color(0xFFF4F7F6),
+                fontSize: 28,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.6,
+              ),
             ),
           ),
         ),

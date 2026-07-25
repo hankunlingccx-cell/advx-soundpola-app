@@ -1,12 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../cloud/cloud_media_models.dart';
 import '../services/visual_shape_service.dart';
+import 'disc_rarity.dart';
 
 enum SoundStatus {
   drafted,
@@ -18,6 +17,9 @@ enum SoundStatus {
   chainReady,
   collected,
 }
+
+/// Drafts 空列表原因：初始 / 全部封存 / 全部删除。
+enum DraftsEmptyKind { firstUse, allPressed, cleared }
 
 class SoundMemory {
   SoundMemory({
@@ -32,12 +34,14 @@ class SoundMemory {
     this.status = SoundStatus.drafted,
     int? visualSeed,
     this.discId,
+    this.discRarity,
+    this.discSeries,
     this.assetId,
     this.audioPath,
     this.nfcTagId,
     this.pressedAt,
     this.chainedAt,
-    this.networkLabel = 'Injective inEVM Testnet',
+    this.networkLabel = 'SoundPola Chain (模拟)',
     this.contractLabel,
     this.tokenId,
     this.txHash,
@@ -66,6 +70,9 @@ class SoundMemory {
   final SoundStatus status;
   final int visualSeed;
   final String? discId;
+  /// 由实体声片出厂决定；Draft 阶段为 null（待揭晓）。
+  final DiscRarity? discRarity;
+  final String? discSeries;
   final String? assetId;
   final String? audioPath;
   final String? nfcTagId;
@@ -82,8 +89,14 @@ class SoundMemory {
   final String? cloudState;
   /// Remote URL of the 3D visual JSON (cloud-produced, re-fetchable).
   final String? visualUrl;
-  /// Local cached path of the visual JSON: `<appDocs>/visuals/vis_<contentId>.json`.
+  /// Local cached path of the visual JSON.
   final String? visualPath;
+
+  /// Draft / 未绑定时展示「待揭晓」。
+  bool get rarityPending => discRarity == null;
+
+  String get rarityDisplayLabel =>
+      discRarity?.headline ?? '待揭晓';
 
   SoundMemory copyWith({
     String? title,
@@ -91,6 +104,8 @@ class SoundMemory {
     String? description,
     SoundStatus? status,
     String? discId,
+    DiscRarity? discRarity,
+    String? discSeries,
     String? assetId,
     String? audioPath,
     String? nfcTagId,
@@ -118,6 +133,8 @@ class SoundMemory {
       status: status ?? this.status,
       visualSeed: visualSeed,
       discId: discId ?? this.discId,
+      discRarity: discRarity ?? this.discRarity,
+      discSeries: discSeries ?? this.discSeries,
       assetId: assetId ?? this.assetId,
       audioPath: audioPath ?? this.audioPath,
       nfcTagId: nfcTagId ?? this.nfcTagId,
@@ -134,85 +151,23 @@ class SoundMemory {
       visualPath: visualPath ?? this.visualPath,
     );
   }
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'category': category,
-        'description': description,
-        'durationSec': durationSec,
-        'recordedAt': recordedAt.toIso8601String(),
-        'locationLabel': locationLabel,
-        'deviceLabel': deviceLabel,
-        'status': status.name,
-        'visualSeed': visualSeed,
-        if (discId != null) 'discId': discId,
-        if (assetId != null) 'assetId': assetId,
-        if (audioPath != null) 'audioPath': audioPath,
-        if (nfcTagId != null) 'nfcTagId': nfcTagId,
-        if (pressedAt != null) 'pressedAt': pressedAt!.toIso8601String(),
-        if (chainedAt != null) 'chainedAt': chainedAt!.toIso8601String(),
-        'networkLabel': networkLabel,
-        if (contractLabel != null) 'contractLabel': contractLabel,
-        if (tokenId != null) 'tokenId': tokenId,
-        if (txHash != null) 'txHash': txHash,
-        if (contentId != null) 'contentId': contentId,
-        if (nfcUrl != null) 'nfcUrl': nfcUrl,
-        if (cloudState != null) 'cloudState': cloudState,
-        if (visualUrl != null) 'visualUrl': visualUrl,
-        if (visualPath != null) 'visualPath': visualPath,
-      };
-
-  factory SoundMemory.fromJson(Map<String, dynamic> json) {
-    SoundStatus parseStatus(String? name) {
-      for (final s in SoundStatus.values) {
-        if (s.name == name) return s;
-      }
-      return SoundStatus.drafted;
-    }
-    return SoundMemory(
-      id: json['id'] as String?,
-      title: json['title'] as String? ?? '',
-      category: json['category'] as String? ?? '其他',
-      description: json['description'] as String? ?? '',
-      durationSec: (json['durationSec'] as num?)?.toInt() ?? 0,
-      recordedAt: DateTime.tryParse(json['recordedAt'] as String? ?? ''),
-      locationLabel: json['locationLabel'] as String? ?? '地点未记录',
-      deviceLabel: json['deviceLabel'] as String? ?? 'Mobile Device',
-      status: parseStatus(json['status'] as String?),
-      visualSeed: (json['visualSeed'] as num?)?.toInt(),
-      discId: json['discId'] as String?,
-      assetId: json['assetId'] as String?,
-      audioPath: json['audioPath'] as String?,
-      nfcTagId: json['nfcTagId'] as String?,
-      pressedAt: json['pressedAt'] != null
-          ? DateTime.tryParse(json['pressedAt'] as String)
-          : null,
-      chainedAt: json['chainedAt'] != null
-          ? DateTime.tryParse(json['chainedAt'] as String)
-          : null,
-      networkLabel: json['networkLabel'] as String? ?? 'Injective inEVM Testnet',
-      contractLabel: json['contractLabel'] as String?,
-      tokenId: json['tokenId'] as String?,
-      txHash: json['txHash'] as String?,
-      contentId: json['contentId'] as String?,
-      nfcUrl: json['nfcUrl'] as String?,
-      cloudState: json['cloudState'] as String?,
-      visualUrl: json['visualUrl'] as String?,
-      visualPath: json['visualPath'] as String?,
-    );
-  }
 }
 
-const soundCategories = [
-  '自然',
-  '城市',
-  '人声',
-  '日常',
-  '旅行',
-  '特别时刻',
-  '其他',
-];
+/// 分类名称最长字数（用户自建）。
+const int kCategoryNameMaxLength = 12;
+
+/// Collection 按分类聚合的一组收藏（瀑布流胶囊单元）。
+class CollectionGroup {
+  const CollectionGroup({
+    required this.category,
+    required this.items,
+  });
+
+  final String category;
+  final List<SoundMemory> items;
+
+  int get count => items.length;
+}
 
 String formatDuration(int sec) {
   final m = sec ~/ 60;
@@ -230,103 +185,206 @@ String formatRecordedAt(DateTime dt) {
 }
 
 class SoundRepository extends ChangeNotifier {
-  SoundRepository._();
+  SoundRepository._() {
+    _seedCategoriesFromSounds();
+    _loadPersistedCategories();
+  }
   static final SoundRepository instance = SoundRepository._();
 
-  static const _prefsKey = 'sp_sounds_v1';
+  /// Kept for App boot compatibility (l branch persistence path).
+  Future<void> init() async {}
 
-  final List<SoundMemory> _sounds = [];
-  bool _loaded = false;
-  Timer? _saveDebounce;
+  static const _prefsCategoriesKey = 'user_categories';
 
-  bool get isLoaded => _loaded;
+  /// 本会话内草稿清空原因（用于「清空 / 全部封存」文案；展示一次后消费）。
+  DraftsEmptyKind? draftsEmptyKind;
+  bool _everHadDrafts = true; // 演示数据含草稿；真实空账号可改为 false
 
-  Future<void> init() async {
-    if (_loaded) return;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey);
-      if (raw != null && raw.isNotEmpty) {
-        final list = jsonDecode(raw);
-        if (list is List) {
-          for (final entry in list) {
-            if (entry is Map) {
-              try {
-                _sounds.add(SoundMemory.fromJson(
-                  entry.map((k, v) => MapEntry(k.toString(), v)),
-                ));
-              } catch (_) {}
-            }
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('SoundRepository load error: $e');
-    }
-    _loaded = true;
-    unawaited(_pruneOrphanRecordings());
-    unawaited(_pruneOrphanVisuals());
-    notifyListeners();
-  }
+  /// 用户已创建／已使用的分类名（顺序：声音出现顺序，再追加持久化自建名）。
+  final List<String> _categories = [];
 
-  void _schedulePersist() {
-    _saveDebounce?.cancel();
-    _saveDebounce = Timer(const Duration(milliseconds: 400), _persistNow);
-  }
+  bool get everHadDrafts => _everHadDrafts;
+  bool get hasCollectionAssets => collection.isNotEmpty;
+  int get draftCount => drafts.length;
 
-  Future<void> _persistNow() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final payload = jsonEncode(_sounds.map((s) => s.toJson()).toList());
-      await prefs.setString(_prefsKey, payload);
-    } catch (e) {
-      debugPrint('SoundRepository persist error: $e');
-    }
-  }
+  /// 可供选择的分类列表（用户自定义）。
+  List<String> get categories => List.unmodifiable(_categories);
 
-  Future<void> _pruneOrphanRecordings() async {
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      final rec = Directory('${dir.path}/recordings');
-      if (!await rec.exists()) return;
-      final referenced = _sounds
-          .map((s) => s.audioPath)
-          .whereType<String>()
-          .toSet();
-      final now = DateTime.now();
-      await for (final entity in rec.list()) {
-        if (entity is! File) continue;
-        if (referenced.contains(entity.path)) continue;
-        try {
-          final stat = await entity.stat();
-          if (now.difference(stat.modified).inHours < 1) continue;
-          await entity.delete();
-        } catch (_) {}
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _pruneOrphanVisuals() async {
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      final vis = Directory('${dir.path}/visuals');
-      if (!await vis.exists()) return;
-      final referenced = _sounds
-          .map((s) => s.visualPath)
-          .whereType<String>()
-          .toSet();
-      final now = DateTime.now();
-      await for (final entity in vis.list()) {
-        if (entity is! File) continue;
-        if (referenced.contains(entity.path)) continue;
-        try {
-          final stat = await entity.stat();
-          if (now.difference(stat.modified).inHours < 1) continue;
-          await entity.delete();
-        } catch (_) {}
-      }
-    } catch (_) {}
-  }
+  final List<SoundMemory> _sounds = [
+    SoundMemory(
+      title: '雨落窗台',
+      category: '自然',
+      description: '午后忽然下起小雨。',
+      durationSec: 28,
+      locationLabel: '杭州 · 西湖',
+      visualSeed: 1201,
+    ),
+    SoundMemory(
+      title: '地铁报站',
+      category: '城市',
+      durationSec: 12,
+      locationLabel: '上海',
+      status: SoundStatus.writeFailed,
+      visualSeed: 3340,
+    ),
+    SoundMemory(
+      title: '凌晨的风',
+      category: '自然',
+      description: 'NFC 已写入，等待上链',
+      durationSec: 18,
+      locationLabel: '大理',
+      status: SoundStatus.chainFailed,
+      discId: 'SP-2026-0312-C2',
+      discRarity: DiscRarity.sr,
+      discSeries: 'Genesis-01',
+      visualSeed: 4412,
+    ),
+    SoundMemory(
+      title: '散场前的合唱',
+      category: '特别时刻',
+      description: '没有拍舞台，只留下身边一起唱的声音。',
+      durationSec: 46,
+      locationLabel: '首尔 · 汉江',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0718-A3',
+      discRarity: DiscRarity.ssr,
+      discSeries: 'Genesis-01',
+      assetId: '0x8f2a…c91',
+      visualSeed: 7788,
+    ),
+    SoundMemory(
+      title: '妈妈说早点回来',
+      category: '人声',
+      description: '电话里很短的一句。',
+      durationSec: 9,
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0702-B1',
+      discRarity: DiscRarity.r,
+      discSeries: 'Genesis-01',
+      assetId: '0x11cd…90e',
+      visualSeed: 5521,
+    ),
+    SoundMemory(
+      title: '夜市炒板栗',
+      category: '城市',
+      durationSec: 22,
+      locationLabel: '成都 · 宽窄巷',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0611-D4',
+      discRarity: DiscRarity.n,
+      discSeries: 'Everyday-02',
+      assetId: '0x3ab1…e02',
+      visualSeed: 2109,
+    ),
+    SoundMemory(
+      title: '路口红绿灯',
+      category: '城市',
+      durationSec: 15,
+      locationLabel: '东京',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0520-E1',
+      discRarity: DiscRarity.sr,
+      discSeries: 'City-03',
+      assetId: '0x77c0…a14',
+      visualSeed: 8831,
+    ),
+    SoundMemory(
+      title: '海浪拍岸',
+      category: '自然',
+      durationSec: 40,
+      locationLabel: '厦门 · 环岛路',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0418-N2',
+      discRarity: DiscRarity.r,
+      discSeries: 'Nature-01',
+      assetId: '0x90fe…b33',
+      visualSeed: 3012,
+    ),
+    SoundMemory(
+      title: '山间蝉鸣',
+      category: '自然',
+      durationSec: 33,
+      locationLabel: '莫干山',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0801-N7',
+      discRarity: DiscRarity.ssr,
+      discSeries: 'Nature-01',
+      assetId: '0x12aa…d80',
+      visualSeed: 6644,
+    ),
+    SoundMemory(
+      title: '开箱胶带声',
+      category: '日常',
+      durationSec: 8,
+      locationLabel: '杭州 · 余杭',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0303-F2',
+      discRarity: DiscRarity.n,
+      discSeries: 'Everyday-02',
+      assetId: '0x55d1…c07',
+      visualSeed: 1455,
+    ),
+    SoundMemory(
+      title: '煮咖啡的咕嘟',
+      category: '日常',
+      durationSec: 19,
+      locationLabel: '杭州 · 西湖区',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0228-F5',
+      discRarity: DiscRarity.n,
+      discSeries: 'Everyday-02',
+      assetId: '0xabe2…119',
+      visualSeed: 9201,
+    ),
+    SoundMemory(
+      title: '火车过隧道',
+      category: '旅行',
+      durationSec: 27,
+      locationLabel: '瑞士',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0912-T1',
+      discRarity: DiscRarity.sr,
+      discSeries: 'Travel-04',
+      assetId: '0x44f9…882',
+      visualSeed: 4770,
+    ),
+    SoundMemory(
+      title: '机场登机广播',
+      category: '旅行',
+      durationSec: 14,
+      locationLabel: '浦东 T2',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0915-T3',
+      discRarity: DiscRarity.r,
+      discSeries: 'Travel-04',
+      assetId: '0x6c01…fe4',
+      visualSeed: 5882,
+    ),
+    SoundMemory(
+      title: '旅店窗外雨',
+      category: '旅行',
+      durationSec: 36,
+      locationLabel: '京都',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-1002-T8',
+      discRarity: DiscRarity.ssr,
+      discSeries: 'Travel-04',
+      assetId: '0xd3a0…651',
+      visualSeed: 2399,
+    ),
+    SoundMemory(
+      title: '朋友的笑声',
+      category: '人声',
+      durationSec: 11,
+      locationLabel: '上海 · 咖啡馆',
+      status: SoundStatus.collected,
+      discId: 'SP-2026-0709-B3',
+      discRarity: DiscRarity.r,
+      discSeries: 'Genesis-01',
+      assetId: '0x81bc…330',
+      visualSeed: 7110,
+    ),
+  ];
 
   List<SoundMemory> get sounds => List.unmodifiable(_sounds);
 
@@ -335,6 +393,79 @@ class SoundRepository extends ChangeNotifier {
 
   List<SoundMemory> get collection =>
       _sounds.where((s) => s.status == SoundStatus.collected).toList();
+
+  /// 按分类分组；顺序跟随 [categories]，未知分类靠后。
+  List<CollectionGroup> get collectionGroups {
+    final items = collection;
+    final byCategory = <String, List<SoundMemory>>{};
+    for (final item in items) {
+      byCategory.putIfAbsent(item.category, () => []).add(item);
+    }
+    for (final list in byCategory.values) {
+      list.sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
+    }
+
+    final groups = <CollectionGroup>[];
+    for (final name in _categories) {
+      final list = byCategory.remove(name);
+      if (list != null && list.isNotEmpty) {
+        groups.add(CollectionGroup(category: name, items: list));
+      }
+    }
+    for (final entry in byCategory.entries) {
+      if (entry.value.isNotEmpty) {
+        groups.add(CollectionGroup(category: entry.key, items: entry.value));
+      }
+    }
+    return groups;
+  }
+
+  void _seedCategoriesFromSounds() {
+    final seen = <String>{};
+    for (final s in _sounds) {
+      final name = s.category.trim();
+      if (name.isEmpty || !seen.add(name)) continue;
+      _categories.add(name);
+    }
+  }
+
+  Future<void> _loadPersistedCategories() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getStringList(_prefsCategoriesKey) ?? const [];
+    var changed = false;
+    for (final raw in stored) {
+      final name = raw.trim();
+      if (name.isEmpty || _categories.contains(name)) continue;
+      _categories.add(name);
+      changed = true;
+    }
+    await _persistCategories();
+    if (changed) notifyListeners();
+  }
+
+  Future<void> _persistCategories() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_prefsCategoriesKey, _categories);
+  }
+
+  /// 规范化并加入分类表；已存在则原样返回。失败返回 null。
+  Future<String?> addCategory(String raw) async {
+    final name = raw.trim();
+    if (name.isEmpty || name.length > kCategoryNameMaxLength) return null;
+    if (_categories.contains(name)) return name;
+    _categories.add(name);
+    await _persistCategories();
+    notifyListeners();
+    return name;
+  }
+
+  void _ensureCategoryPresent(String raw) {
+    final name = raw.trim();
+    if (name.isEmpty || _categories.contains(name)) return;
+    if (name.length > kCategoryNameMaxLength) return;
+    _categories.add(name);
+    _persistCategories();
+  }
 
   SoundMemory? get(String id) {
     try {
@@ -353,18 +484,30 @@ class SoundRepository extends ChangeNotifier {
   }
 
   void addDraft(SoundMemory memory) {
+    draftsEmptyKind = null;
+    _everHadDrafts = true;
+    _ensureCategoryPresent(memory.category);
     _sounds.insert(0, memory.copyWith(status: SoundStatus.drafted));
     notifyListeners();
-    _schedulePersist();
   }
 
   void update(String id, SoundMemory Function(SoundMemory) transform) {
     final index = _sounds.indexWhere((s) => s.id == id);
     if (index >= 0) {
       _sounds[index] = transform(_sounds[index]);
+      _ensureCategoryPresent(_sounds[index].category);
       notifyListeners();
-      _schedulePersist();
     }
+  }
+
+  /// 调整收藏展示分类（不改变链上资产）。
+  void updateCategory(String id, String category) {
+    final name = category.trim();
+    if (name.isEmpty || !_categories.contains(name)) return;
+    update(id, (s) {
+      if (s.category == name) return s;
+      return s.copyWith(category: name);
+    });
   }
 
   bool delete(String id) {
@@ -376,6 +519,7 @@ class SoundRepository extends ChangeNotifier {
     }
     final index = _sounds.indexWhere((s) => s.id == id);
     if (index < 0) return false;
+    final wasDraft = item.status != SoundStatus.collected;
     _sounds.removeAt(index);
     if (item.audioPath != null) {
       unawaited(_deleteFile(item.audioPath!));
@@ -383,8 +527,10 @@ class SoundRepository extends ChangeNotifier {
     if (item.visualPath != null) {
       unawaited(_deleteFile(item.visualPath!));
     }
+    if (wasDraft && drafts.isEmpty) {
+      draftsEmptyKind = DraftsEmptyKind.cleared;
+    }
     notifyListeners();
-    _schedulePersist();
     return true;
   }
 
@@ -395,6 +541,13 @@ class SoundRepository extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// 消费一次性空态提示（清空 / 全部封存），之后恢复为常规空态。
+  void consumeDraftsEmptyKind() {
+    if (draftsEmptyKind == null) return;
+    draftsEmptyKind = null;
+    notifyListeners();
+  }
+
   void markCollected(
     String id,
     String discId,
@@ -403,6 +556,8 @@ class SoundRepository extends ChangeNotifier {
     String? contentId,
     String? nfcUrl,
     String? cloudState,
+    DiscRarity? discRarity,
+    String? discSeries,
   }) {
     final now = DateTime.now();
     update(
@@ -413,20 +568,38 @@ class SoundRepository extends ChangeNotifier {
         assetId: assetId,
         nfcTagId: nfcTagId ?? s.nfcTagId,
         pressedAt: s.pressedAt ?? now,
+        chainedAt: now,
+        contractLabel: s.contractLabel ?? '0xSoundPola…mock',
+        tokenId: s.tokenId ?? id.substring(0, id.length.clamp(0, 8)),
+        txHash: s.txHash ?? assetId,
         contentId: contentId ?? s.contentId,
         nfcUrl: nfcUrl ?? s.nfcUrl,
         cloudState: cloudState ?? s.cloudState ?? 'READY',
+        discRarity: discRarity ?? s.discRarity,
+        discSeries: discSeries ?? s.discSeries,
       ),
     );
+    if (drafts.isEmpty) {
+      draftsEmptyKind = DraftsEmptyKind.allPressed;
+    }
   }
 
-  void markChainFailed(String id, {String? discId, String? nfcTagId}) {
+  void markChainFailed(
+    String id,
+    String discId, {
+    String? nfcTagId,
+    DiscRarity? discRarity,
+    String? discSeries,
+  }) {
     update(
       id,
       (s) => s.copyWith(
         status: SoundStatus.chainFailed,
-        discId: discId ?? s.discId,
+        discId: discId,
         nfcTagId: nfcTagId ?? s.nfcTagId,
+        pressedAt: s.pressedAt ?? DateTime.now(),
+        discRarity: discRarity ?? s.discRarity,
+        discSeries: discSeries ?? s.discSeries,
       ),
     );
   }
@@ -434,6 +607,7 @@ class SoundRepository extends ChangeNotifier {
   void markWriteFailed(String id) {
     update(id, (s) => s.copyWith(status: SoundStatus.writeFailed));
   }
+
 
   /// 后台管道：开始上传，进入处理中。
   void markUploading(String id) {
@@ -540,41 +714,41 @@ class SoundRepository extends ChangeNotifier {
         (s) => s.contentId == item.contentId,
       );
       final durationSec = ((item.durationMs ?? 0) / 1000).round().clamp(1, 30);
-      final readyAt = DateTime.tryParse(item.readyAt ?? '') ?? DateTime.now();
-      final fallbackTitle = item.displayLabel.isNotEmpty
-          ? item.displayLabel
-          : '云端收藏 · ${formatRecordedAt(readyAt)}';
       if (existingIndex >= 0) {
         final cur = _sounds[existingIndex];
         _sounds[existingIndex] = cur.copyWith(
           status: SoundStatus.collected,
-          title: cur.title.isNotEmpty ? cur.title : fallbackTitle,
+          title: cur.title.isNotEmpty ? cur.title : item.displayLabel,
           nfcUrl: item.nfcUrl ?? cur.nfcUrl,
-          visualUrl: item.visualUrl ?? cur.visualUrl,
           cloudState: item.state.wire,
+          assetId: cur.assetId ?? item.contentId,
           discId: cur.discId ?? 'CLOUD-${item.contentId.substring(0, 8)}',
+          chainedAt: cur.chainedAt ?? DateTime.now(),
         );
       } else {
         _sounds.insert(
           0,
           SoundMemory(
             id: 'cloud_${item.contentId}',
-            title: fallbackTitle,
+            title: item.displayLabel.isNotEmpty
+                ? item.displayLabel
+                : '云端声音 ${item.contentId.substring(0, 8)}',
             category: '其他',
             durationSec: durationSec,
-            recordedAt: readyAt,
             status: SoundStatus.collected,
             contentId: item.contentId,
             nfcUrl: item.nfcUrl,
-            visualUrl: item.visualUrl,
             cloudState: item.state.wire,
+            assetId: item.contentId,
             discId: 'CLOUD-${item.contentId.substring(0, 8)}',
+            chainedAt: DateTime.tryParse(item.readyAt ?? '') ?? DateTime.now(),
             networkLabel: 'Cloud Media',
           ),
         );
+        _ensureCategoryPresent('其他');
       }
     }
-    for (final s in _sounds) {
+    for (final s in List<SoundMemory>.from(_sounds)) {
       if (s.visualUrl != null && s.visualPath == null && s.contentId != null) {
         unawaited(VisualShapeService.instance
             .cacheFromUrl(
@@ -587,6 +761,5 @@ class SoundRepository extends ChangeNotifier {
       }
     }
     notifyListeners();
-    _schedulePersist();
   }
 }

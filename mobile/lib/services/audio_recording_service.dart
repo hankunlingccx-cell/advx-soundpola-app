@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+
 import '../audio/audio_feature_analyzer.dart';
 import '../audio/audio_features.dart';
 
@@ -24,6 +26,10 @@ class AudioRecordingService {
   AudioFeatureAnalyzer? _analyzer;
   ValueNotifier<AudioFeatures>? get featuresNotifier => _analyzer?.features;
 
+  /// Normalized 0–1 amplitude at amp-callback rate (~20ms) for fast visual shape.
+  final ValueNotifier<double> liveVolume = ValueNotifier(0.0);
+
+  /// 已成功调用 start，可暂停／完成。
   bool get isRecording => _startedAt != null;
   bool _paused = false;
   bool get isPaused => _paused;
@@ -35,7 +41,7 @@ class AudioRecordingService {
       await recordings.create(recursive: true);
     }
     final name = 'rec_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    return '${recordings.path}/$name';
+    return '${recordings.path}${Platform.pathSeparator}$name';
   }
 
   Future<void> _ensureAnalyzer() async {
@@ -43,29 +49,42 @@ class AudioRecordingService {
   }
 
   Future<void> start() async {
+    if (isRecording) {
+      await cancel();
+    }
     if (!await _recorder.hasPermission()) {
       throw StateError('麦克风权限未授予');
     }
     await _ensureAnalyzer();
-    _currentPath = await _newFilePath();
-    await _recorder.start(
-      const RecordConfig(
-        encoder: AudioEncoder.aacLc,
-        bitRate: 128000,
-        sampleRate: 44100,
-      ),
-      path: _currentPath!,
-    );
+    final path = await _newFilePath();
+    _currentPath = path;
+    try {
+      await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 128000,
+          sampleRate: 44100,
+        ),
+        path: path,
+      );
+    } catch (e) {
+      _currentPath = null;
+      rethrow;
+    }
     _startedAt = DateTime.now();
     _paused = false;
     _pausedTotal = Duration.zero;
     _analyzer!.setActive(true);
     _ampSub?.cancel();
     _ampSub = _recorder
-        .onAmplitudeChanged(const Duration(milliseconds: 40))
+        .onAmplitudeChanged(const Duration(milliseconds: 20))
         .listen((amp) {
-      _amplitudeController.add(amp.current);
-      _analyzer?.pushAmplitude(amp.current);
+      final v = amp.current;
+      _amplitudeController.add(v);
+      _analyzer?.pushAmplitude(v);
+      // Normalize dBFS (−60…0) or already 0–1 for fast visual envelope.
+      final n = (v <= 1.0 && v >= 0.0) ? v : ((v + 60) / 60).clamp(0.0, 1.0);
+      liveVolume.value = n;
     });
   }
 
@@ -75,6 +94,7 @@ class AudioRecordingService {
       _paused = true;
       _pausedAt = DateTime.now();
       _analyzer?.setActive(false);
+      liveVolume.value = 0;
     }
   }
 
@@ -89,10 +109,23 @@ class AudioRecordingService {
   }
 
   Future<({String path, int durationSec})> stop() async {
-    final path = await _recorder.stop();
+    if (_startedAt == null && _currentPath == null) {
+      throw StateError('录音尚未开始');
+    }
+
+    String? stoppedPath;
+    try {
+      stoppedPath = await _recorder.stop();
+    } catch (e) {
+      debugPrint('AudioRecordingService stop error: $e');
+    }
+
     await _ampSub?.cancel();
     _ampSub = null;
     _analyzer?.setActive(false);
+
+    liveVolume.value = 0;
+
     final end = DateTime.now();
     final started = _startedAt ?? end;
     var duration = end.difference(started) - _pausedTotal;
@@ -100,27 +133,63 @@ class AudioRecordingService {
       duration -= DateTime.now().difference(_pausedAt!);
     }
     final sec = duration.inSeconds.clamp(1, 9999);
+
+    final candidate = _firstNonEmpty(stoppedPath, _currentPath);
     _startedAt = null;
     _paused = false;
     _pausedAt = null;
     _pausedTotal = Duration.zero;
-    final resultPath = path ?? _currentPath;
-    if (resultPath == null) {
+
+    if (candidate == null) {
+      _currentPath = null;
       throw StateError('录音文件路径无效');
     }
-    return (path: resultPath, durationSec: sec);
+
+    final file = File(candidate);
+    // MediaRecorder 偶发 stop 返回 null，但文件已落盘；短录也需等一小会儿。
+    final ready = await _waitForFile(file);
+    _currentPath = null;
+    if (!ready) {
+      throw StateError('录音文件未生成');
+    }
+    return (path: candidate, durationSec: sec);
+  }
+
+  static String? _firstNonEmpty(String? a, String? b) {
+    if (a != null && a.isNotEmpty) return a;
+    if (b != null && b.isNotEmpty) return b;
+    return null;
+  }
+
+  Future<bool> _waitForFile(File file, {int attempts = 8}) async {
+    for (var i = 0; i < attempts; i++) {
+      if (await file.exists()) {
+        final len = await file.length();
+        if (len > 0) return true;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    return false;
   }
 
   Future<void> cancel() async {
-    await _recorder.stop();
+    try {
+      await _recorder.stop();
+    } catch (_) {}
     await _ampSub?.cancel();
     _ampSub = null;
     _analyzer?.setActive(false);
-    if (_currentPath != null) {
-      final f = File(_currentPath!);
-      if (await f.exists()) await f.delete();
-    }
+    liveVolume.value = 0;
+    final path = _currentPath;
     _currentPath = null;
+    if (path != null) {
+      final f = File(path);
+      if (await f.exists()) {
+        try {
+          await f.delete();
+        } catch (_) {}
+      }
+    }
     _startedAt = null;
     _paused = false;
     _pausedAt = null;
@@ -139,6 +208,7 @@ class AudioRecordingService {
   void dispose() {
     _ampSub?.cancel();
     _amplitudeController.close();
+    liveVolume.dispose();
     _analyzer?.dispose();
     _analyzer = null;
     _recorder.dispose();

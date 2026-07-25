@@ -3,7 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Cloud Media Service base URL.
 ///
 /// Compile-time default via:
-/// `flutter run --dart-define=CLOUD_MEDIA_BASE=http://192.168.1.10:9000`
+/// `flutter run --dart-define=CLOUD_MEDIA_BASE=http://8.129.229.10:9000`
 ///
 /// May be overridden at runtime from the in-app server settings screen; the
 /// override is persisted with [SharedPreferences] and takes precedence.
@@ -14,7 +14,7 @@ class CloudMediaConfig {
 
   static const defaultBaseUrl = String.fromEnvironment(
     'CLOUD_MEDIA_BASE',
-    defaultValue: 'http://127.0.0.1:9000',
+    defaultValue: 'http://8.129.229.10:9000',
   );
 
   static String? _override;

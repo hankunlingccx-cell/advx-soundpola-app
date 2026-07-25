@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SoundPola Memory Terminal · 480×320</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #070808;
+      --panel: #111413;
+      --teal: #63E0CB;
+      --teal-hi: #8DFFE9;
+      --text: #F4F7F6;
+      --muted: #8C9693;
+      --inactive: #252B29;
+      --warn: #FFAA54;
+      --err: #FF626C;
+      --sw: 480px;
+      --sh: 320px;
+      --rail-h: 32px;   /* ~10% */
+      --guide-h: 64px;  /* ~20% */
+      --font: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background: #0c0e0d;
+      background-image:
+        linear-gradient(rgba(99,224,203,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99,224,203,.04) 1px, transparent 1px);
+      background-size: 24px 24px;
+      color: var(--text);
+      font-family: var(--font);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 40px;
+      gap: 18px;
+    }
+
+    .page-h {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+    .page-h b { color: var(--teal); font-weight: 500; }
+
+    .bezel {
+      background: #141816;
+      border: 1px solid #1e2623;
+      border-radius: 12px;
+      padding: 14px 14px 18px;
+      box-shadow: 0 16px 40px rgba(0,0,0,.45);
+      position: relative;
+    }
+    .bezel::before {
+      content: "SOUNDPOLA HMI · 480×320";
+      position: absolute;
+      top: 4px; left: 50%;
+      transform: translateX(-50%);
+      font-family: var(--mono);
+      font-size: 8px;
+      letter-spacing: 0.18em;
+      color: #3a4441;
+    }
+
+    .screen {
+      width: var(--sw);
+      height: var(--sh);
+      background: var(--bg);
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+      border: 1px solid #1a211f;
+      box-shadow: inset 0 0 0 1px #0a0c0b;
+    }
+
+    .screen-label {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      text-align: center;
+    }
+
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      max-width: 720px;
+      justify-content: center;
+    }
+    .nav .group {
+      width: 100%;
+      text-align: center;
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.16em;
+      color: #4a5552;
+      margin-top: 6px;
+      text-transform: uppercase;
+    }
+    .nav button {
+      appearance: none;
+      font-family: var(--mono);
+      font-size: 10px;
+      padding: 6px 10px;
+      background: var(--panel);
+      color: var(--muted);
+      border: 1px solid var(--inactive);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .nav button:hover { border-color: var(--teal); color: var(--text); }
+    .nav button.active {
+      background: rgba(99,224,203,.12);
+      border-color: var(--teal);
+      color: var(--teal);
+    }
+
+    /* ========== Screen chrome: 3 layers ========== */
+    .ui {
+      display: none;
+      position: absolute;
+      inset: 0;
+      flex-direction: column;
+    }
+    .ui.active { display: flex; }
+
+    /* TOP rail ~10% */
+    .top-rail {
+      height: var(--rail-h);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      border-bottom: 1px solid #141a18;
+      background: linear-gradient(180deg, #0a0c0b, var(--bg));
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .top-rail .brand {
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .top-rail .brand em {
+      font-style: normal;
+      color: #5a6662;
+      margin-left: 6px;
+    }
+    .top-rail .mods {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .mod {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .lamp {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--inactive);
+    }
+    .lamp.on {
+      background: var(--teal);
+      box-shadow: 0 0 6px rgba(99,224,203,.55);
+    }
+    .lamp.warn { background: var(--warn); box-shadow: 0 0 6px rgba(255,170,84,.45); }
+    .lamp.err { background: var(--err); box-shadow: 0 0 6px rgba(255,98,108,.45); }
+    .lamp.pulse { animation: lampPulse 2.4s ease-in-out infinite; }
+
+    /* CENTER stage ~70% */
+    .stage {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 10px 20px 8px;
+      position: relative;
+    }
+    .stage.center { align-items: center; text-align: center; }
+    .stage.warn-tone .headline { color: var(--warn); }
+    .stage.err-tone .headline { color: var(--err); }
+
+    .code {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .code span { color: var(--teal); }
+
+    .headline {
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: 0.01em;
+      color: var(--text);
+    }
+    .headline.sm { font-size: 22px; }
+    .headline.xs { font-size: 18px; }
+
+    .sub {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .meta {
+      margin-top: 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      line-height: 1.55;
+    }
+    .meta .name {
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0;
+      display: block;
+      margin-bottom: 2px;
+    }
+    .meta .teal { color: var(--teal); }
+
+    .actions {
+      margin-top: 14px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      appearance: none;
+      font-family: var(--font);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: 3px;
+      border: 1px solid var(--inactive);
+      background: transparent;
+      color: var(--muted);
+      cursor: default;
+    }
+    .btn.ghost { border-color: #2e3835; }
+    .btn.primary {
+      border-color: rgba(99,224,203,.45);
+      color: var(--teal);
+    }
+    .btn.warn {
+      border-color: rgba(255,170,84,.5);
+      color: var(--warn);
+    }
+    .btn.err {
+      border-color: rgba(255,98,108,.5);
+      color: var(--err);
+    }
+
+    /* Process track (write steps) */
+    .track {
+      display: flex;
+      gap: 3px;
+      margin-top: 14px;
+      width: 100%;
+      max-width: 360px;
+    }
+    .track .step {
+      flex: 1;
+      height: 4px;
+      background: var(--inactive);
+      border-radius: 1px;
+      position: relative;
+    }
+    .track .step.done { background: var(--teal); }
+    .track .step.now {
+      background: var(--teal-hi);
+      box-shadow: 0 0 8px rgba(141,255,233,.35);
+      animation: trackPulse 1.4s ease-in-out infinite;
+    }
+    .track-labels {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 6px;
+      font-family: var(--mono);
+      font-size: 8px;
+      color: #4a5552;
+      letter-spacing: 0.02em;
+      max-width: 360px;
+      width: 100%;
+    }
+    .track-labels .on { color: var(--teal); }
+
+    /* Linear data transfer */
+    .xfer {
+      margin-top: 14px;
+      width: 100%;
+      max-width: 280px;
+      height: 2px;
+      background: var(--inactive);
+      position: relative;
+      overflow: hidden;
+    }
+    .xfer > i {
+      display: block;
+      height: 100%;
+      width: var(--p, 60%);
+      background: linear-gradient(90deg, var(--teal), var(--teal-hi));
+    }
+    .xfer.indeterminate > i {
+      width: 40%;
+      animation: xferSlide 1.6s ease-in-out infinite;
+    }
+
+    /* Card silhouette for NFC */
+    .card-outline {
+      width: 52px;
+      height: 72px;
+      border: 1.5px solid var(--teal);
+      border-radius: 4px 4px 3px 3px;
+      position: relative;
+      margin: 0 auto 12px;
+      overflow: hidden;
+      opacity: .85;
+    }
+    .card-outline::before {
+      content: "";
+      position: absolute;
+      top: 8px; left: 50%;
+      transform: translateX(-50%);
+      width: 18px; height: 12px;
+      border: 1px solid rgba(99,224,203,.5);
+      border-radius: 1px;
+    }
+    .card-outline .scan {
+      position: absolute;
+      left: 0; right: 0;
+      height: 2px;
+      background: var(--teal-hi);
+      box-shadow: 0 0 8px var(--teal);
+      animation: scanDown 1.8s linear infinite;
+    }
+
+    /* Idle pulse toward insert */
+    .idle-pulse {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 16px;
+      position: relative;
+    }
+    .idle-pulse .ring {
+      position: absolute;
+      inset: 0;
+      border: 1px solid rgba(99,224,203,.25);
+      border-radius: 50%;
+      animation: idleRing 3.6s ease-out infinite;
+    }
+    .idle-pulse .ring.d2 { animation-delay: 1.2s; }
+    .idle-pulse .core {
+      position: absolute;
+      inset: 22px;
+      border: 1px solid var(--teal);
+      border-radius: 3px;
+      opacity: .7;
+    }
+
+    /* Memory tick (not a player bar) */
+    .memory-tick {
+      position: absolute;
+      left: 20px; right: 20px;
+      bottom: 4px;
+      height: 1px;
+      background: var(--inactive);
+    }
+    .memory-tick > i {
+      display: block;
+      height: 100%;
+      width: var(--p, 42%);
+      background: rgba(99,224,203,.55);
+    }
+
+    .plate {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      color: #4a5552;
+      border: 1px solid #1a211f;
+      padding: 3px 8px;
+      display: inline-block;
+      margin-top: 10px;
+    }
+    .plate.teal { color: var(--teal); border-color: rgba(99,224,203,.3); }
+
+    .exc-list {
+      margin-top: 12px;
+      text-align: left;
+      max-width: 340px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+    .exc-list li {
+      list-style: none;
+      padding-left: 12px;
+      position: relative;
+    }
+    .exc-list li::before {
+      content: "·";
+      position: absolute;
+      left: 0;
+      color: var(--teal);
+    }
+
+    /* BOTTOM guide rail ~20% */
+    .guide {
+      height: var(--guide-h);
+      flex-shrink: 0;
+      background: var(--panel);
+      border-top: 1px solid #1a211f;
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 6px;
+      position: relative;
+      overflow: hidden;
+    }
+    .guide-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+    .guide-row .dir {
+      color: var(--teal);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .guide-row .dir.dim { color: #4a5552; }
+    .guide-row .dir.warn { color: var(--warn); }
+
+    /* Mechanical tray */
+    .tray {
+      height: 14px;
+      background: #0c0f0e;
+      border: 1px solid var(--inactive);
+      border-radius: 2px;
+      position: relative;
+      overflow: hidden;
+    }
+    .tray .slot {
+      position: absolute;
+      top: 2px; bottom: 2px;
+      width: 28px;
+      background: rgba(99,224,203,.15);
+      border: 1px solid rgba(99,224,203,.35);
+      border-radius: 1px;
+      left: var(--x, 8%);
+      transition: left .6s ease;
+    }
+    .tray .slot.bright {
+      background: rgba(99,224,203,.35);
+      border-color: var(--teal-hi);
+      box-shadow: 0 0 10px rgba(99,224,203,.25);
+    }
+    .tray .slot.dim {
+      background: rgba(99,224,203,.06);
+      border-color: #2a3532;
+    }
+    .tray .slot.move-in { animation: trayIn 2.4s ease-in-out infinite; }
+    .tray .slot.move-out { animation: trayOut 2.4s ease-in-out infinite; }
+    .tray .slot.locked {
+      left: 46%;
+      background: rgba(99,224,203,.2);
+      border-color: var(--teal);
+    }
+    .tray .marks {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      justify-content: space-between;
+      padding: 0 4px;
+      align-items: center;
+      pointer-events: none;
+      font-family: var(--mono);
+      font-size: 7px;
+      color: #3a4441;
+    }
+
+    .weak .headline { font-size: 16px; font-weight: 600; color: var(--muted); }
+    .weak .meta { opacity: .7; }
+    .weak .code { opacity: .6; }
+
+    @keyframes lampPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .35; }
+    }
+    @keyframes trackPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .55; }
+    }
+    @keyframes xferSlide {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(280%); }
+    }
+    @keyframes scanDown {
+      0% { top: 0; }
+      100% { top: 100%; }
+    }
+    @keyframes idleRing {
+      0% { transform: scale(.55); opacity: .6; }
+      100% { transform: scale(1.15); opacity: 0; }
+    }
+    @keyframes trayIn {
+      0% { left: 4%; }
+      100% { left: 46%; }
+    }
+    @keyframes trayOut {
+      0% { left: 46%; }
+      100% { left: 88%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-h">SoundPola <b>Memory Terminal</b> · Industrial HMI · 480×320</div>
+
+  <div class="bezel">
+    <div class="screen" id="screen">
+
+      <!-- 01 IDLE -->
+      <section class="ui active" data-id="01">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp on"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on"></i>NFC</span>
+            <span class="mod"><i class="lamp on pulse"></i>HOLO</span>
+            <span>23:41</span>
+          </div>
+        </header>
+        <main class="stage center">
+          <div class="code">STANDBY / <span>01</span></div>
+          <div class="idle-pulse">
+            <div class="ring"></div>
+            <div class="ring d2"></div>
+            <div class="core"></div>
+          </div>
+          <div class="headline">投入声卡<br>唤醒一段声音</div>
+          <div class="sub">或在手机端选择声音，制作一张新声卡</div>
+          <div class="actions" style="justify-content:center">
+            <span class="btn ghost">设备状态</span>
+          </div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir dim">感应轨道 · 低亮度</span>
+            <span>等待声卡</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot dim" style="--x:8%"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 02 RECEIVE -->
+      <section class="ui" data-id="02">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp on pulse"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on"></i>NFC</span>
+            <span class="mod"><i class="lamp on"></i>HOLO</span>
+            <span>23:41</span>
+          </div>
+        </header>
+        <main class="stage">
+          <div class="code">RECEIVE / <span>02</span></div>
+          <div class="headline sm">正在接收声音</div>
+          <div class="meta">
+            <span class="name">雨落在帐篷上的夜晚</span>
+            1.8 MB · 剩余约 00:04
+          </div>
+          <div class="xfer" style="--p:62%"><i></i></div>
+          <div class="actions">
+            <span class="btn ghost">取消任务</span>
+          </div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir dim">请勿投卡</span>
+            <span>数据传输中</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot dim" style="--x:8%"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 02b READY brief -->
+      <section class="ui" data-id="02b">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp on"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on"></i>NFC</span>
+            <span class="mod"><i class="lamp on"></i>HOLO</span>
+            <span>23:41</span>
+          </div>
+        </header>
+        <main class="stage center">
+          <div class="code">READY / <span>02</span></div>
+          <div class="headline sm" style="color:var(--teal)">声音已准备好</div>
+          <div class="sub">即将进入等待投卡</div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir">校验完成</span>
+            <span>→ 03</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot bright" style="--x:8%"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 03 WAIT WRITE -->
+      <section class="ui" data-id="03">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp on"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on pulse"></i>NFC</span>
+            <span class="mod"><i class="lamp on"></i>HOLO</span>
+            <span>23:42</span>
+          </div>
+        </header>
+        <main class="stage">
+          <div class="code">MEMORY PROCESS / <span>03</span></div>
+          <div class="headline sm">请投入一张<br>空白声卡</div>
+          <div class="meta">
+            <span class="name">雨落在帐篷上的夜晚</span>
+            00:42 · 一张声卡只能永久保存一段声音<br>
+            等待剩余 <span class="teal">04:18</span>
+          </div>
+          <div class="actions">
+            <span class="btn ghost">取消制作</span>
+            <span class="btn ghost">连接状态</span>
+          </div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir">→ 投卡口 · 等待载体</span>
+            <span>空白声卡</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot bright move-in"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 04 CARD ID -->
+      <section class="ui" data-id="04">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp on"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on pulse"></i>NFC</span>
+            <span class="mod"><i class="lamp on"></i>HOLO</span>
+            <span>23:42</span>
+          </div>
+        </header>
+        <main class="stage center">
+          <div class="code">CARD CHECK / <span>04</span></div>
+          <div class="card-outline"><div class="scan"></div></div>
+          <div class="headline sm">正在检查声卡</div>
+          <div class="plate teal">READING NFC</div>
+          <div class="sub">声卡将在处理完成后自动送出</div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir">机械轨道已锁定</span>
+            <span>无按钮</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot locked"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 05 WRITE -->
+      <section class="ui" data-id="05">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp on"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on"></i>NFC</span>
+            <span class="mod"><i class="lamp on pulse"></i>HOLO</span>
+            <span>23:43</span>
+          </div>
+        </header>
+        <main class="stage">
+          <div class="code">MEMORY PROCESS / <span>05</span></div>
+          <div class="headline sm">正在写入<br>声音身份</div>
+          <div class="meta">
+            <span class="name">雨落在帐篷上的夜晚</span>
+            CARD&nbsp;&nbsp;SP-07A38<br>
+            网络正常 · 请保持设备开启
+          </div>
+          <div class="track">
+            <div class="step done"></div>
+            <div class="step now"></div>
+            <div class="step"></div>
+            <div class="step"></div>
+            <div class="step"></div>
+          </div>
+          <div class="track-labels">
+            <span class="on">读取</span>
+            <span class="on">写入</span>
+            <span>校验</span>
+            <span>凭证</span>
+            <span>出卡</span>
+          </div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir">工序轨道 · 写入中</span>
+            <span>请勿关闭</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot locked"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 05b VERIFY -->
+      <section class="ui" data-id="05b">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp on"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on"></i>NFC</span>
+            <span class="mod"><i class="lamp on"></i>HOLO</span>
+            <span>23:43</span>
+          </div>
+        </header>
+        <main class="stage">
+          <div class="code">MEMORY PROCESS / <span>05</span></div>
+          <div class="headline sm">正在校验<br>永久绑定</div>
+          <div class="meta">
+            <span class="name">雨落在帐篷上的夜晚</span>
+            CARD&nbsp;&nbsp;SP-07A38
+          </div>
+          <div class="track">
+            <div class="step done"></div>
+            <div class="step done"></div>
+            <div class="step now"></div>
+            <div class="step"></div>
+            <div class="step"></div>
+          </div>
+          <div class="track-labels">
+            <span class="on">读取</span>
+            <span class="on">写入</span>
+            <span class="on">校验</span>
+            <span>凭证</span>
+            <span>出卡</span>
+          </div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir">工序轨道 · 校验中</span>
+            <span>请勿关闭</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot locked"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 06a READ -->
+      <section class="ui" data-id="06a">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on pulse"></i>NFC</span>
+            <span class="mod"><i class="lamp on"></i>HOLO</span>
+            <span>23:50</span>
+          </div>
+        </header>
+        <main class="stage center">
+          <div class="code">REVEAL / <span>06</span></div>
+          <div class="card-outline"><div class="scan"></div></div>
+          <div class="headline sm">正在读取这张声卡</div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir">轨道锁定</span>
+            <span>读取阶段</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot locked"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 06b WAKE -->
+      <section class="ui" data-id="06b">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on"></i>NFC</span>
+            <span class="mod"><i class="lamp on pulse"></i>HOLO</span>
+            <span>23:50</span>
+          </div>
+        </header>
+        <main class="stage">
+          <div class="code">REVEAL / <span>06</span></div>
+          <div class="headline sm">正在唤醒声音记忆</div>
+          <div class="meta">
+            <span class="name">雨落在帐篷上的夜晚</span>
+            2026-07-18 19:24 · 阿尔卑斯营地
+          </div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir">唤醒阶段</span>
+            <span>加载中</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot locked"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 06c REVEAL -->
+      <section class="ui" data-id="06c">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on"></i>NFC</span>
+            <span class="mod"><i class="lamp on pulse"></i>HOLO</span>
+            <span>23:50</span>
+          </div>
+        </header>
+        <main class="stage weak">
+          <div class="code">REVEAL / <span>06</span></div>
+          <div class="headline">声音记忆正在显影</div>
+          <div class="meta">
+            <span class="name">雨落在帐篷上的夜晚</span>
+            2026-07-18 19:24 · 阿尔卑斯营地 · 自然
+          </div>
+          <div class="plate teal">HOLOGRAM ACTIVE</div>
+          <div class="memory-tick" style="--p:42%"><i></i></div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir dim">显影阶段 · 无播放器控件</span>
+            <span>记忆刻度</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot locked"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 07a WRITE DONE -->
+      <section class="ui" data-id="07a">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp on"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on"></i>NFC</span>
+            <span class="mod"><i class="lamp on"></i>HOLO</span>
+            <span>23:44</span>
+          </div>
+        </header>
+        <main class="stage center">
+          <div class="code">COMPLETE / <span>07</span></div>
+          <div class="headline sm" style="color:var(--teal)">声音已经保存下来</div>
+          <div class="sub">雨落在帐篷上的夜晚</div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir">准备出卡</span>
+            <span>写入完成</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot bright" style="--x:46%"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 07b PLAY DONE -->
+      <section class="ui" data-id="07b">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on"></i>NFC</span>
+            <span class="mod"><i class="lamp on"></i>HOLO</span>
+            <span>23:51</span>
+          </div>
+        </header>
+        <main class="stage center">
+          <div class="code">COMPLETE / <span>07</span></div>
+          <div class="headline sm">这段声音已经显影完毕</div>
+          <div class="sub">雨落在帐篷上的夜晚</div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir">准备出卡</span>
+            <span>播放完成</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot bright" style="--x:46%"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 07c EJECT -->
+      <section class="ui" data-id="07c">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp on"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on"></i>NFC</span>
+            <span class="mod"><i class="lamp on"></i>HOLO</span>
+            <span>23:44</span>
+          </div>
+        </header>
+        <main class="stage center">
+          <div class="code">OUTPUT / <span>07</span></div>
+          <div class="headline sm">正在送出声卡</div>
+          <div class="sub">声卡轮廓向出卡口移动</div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir">→ 出卡口</span>
+            <span>自动送出</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot bright move-out"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 07d TAKE -->
+      <section class="ui" data-id="07d">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp on"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp on"></i>NFC</span>
+            <span class="mod"><i class="lamp on"></i>HOLO</span>
+            <span>23:44</span>
+          </div>
+        </header>
+        <main class="stage center">
+          <div class="code">TAKE CARD / <span>07</span></div>
+          <div class="headline sm">请从出卡口<br>取走声卡</div>
+          <div class="sub">取走后自动回到待机</div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir warn">出卡口有卡 · 可取走</span>
+            <span>等待取卡</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot bright" style="--x:88%"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 08a BOUND CARD CONFLICT -->
+      <section class="ui" data-id="08a">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp on"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp warn"></i>NFC</span>
+            <span class="mod"><i class="lamp on"></i>HOLO</span>
+            <span>23:42</span>
+          </div>
+        </header>
+        <main class="stage warn-tone">
+          <div class="code">EXCEPTION / <span>08</span></div>
+          <div class="headline xs">这张声卡已经保存了<br>另一段声音</div>
+          <ul class="exc-list">
+            <li>原有声音不会被覆盖</li>
+            <li>手机发送的任务仍然保留</li>
+            <li>设备正在自动退回声卡</li>
+            <li>请投入一张空白声卡</li>
+          </ul>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir warn">→ 自动退卡</span>
+            <span>任务已保留</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot bright move-out"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 08b CRED DELAY -->
+      <section class="ui" data-id="08b">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp on"></i>PHONE</span>
+            <span class="mod"><i class="lamp warn"></i>NET</span>
+            <span class="mod"><i class="lamp on"></i>NFC</span>
+            <span class="mod"><i class="lamp on"></i>HOLO</span>
+            <span>23:44</span>
+          </div>
+        </header>
+        <main class="stage">
+          <div class="code">EXCEPTION / <span>08</span></div>
+          <div class="headline xs" style="color:var(--teal)">声卡已经完成绑定</div>
+          <ul class="exc-list">
+            <li>声音不会丢失</li>
+            <li>数字凭证将在网络恢复后继续创建</li>
+            <li>声卡正在安全送出</li>
+            <li>无需再次写入</li>
+          </ul>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir">→ 安全送出</span>
+            <span>凭证后台续传</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot bright move-out"></div>
+          </div>
+        </footer>
+      </section>
+
+      <!-- 08c JAM -->
+      <section class="ui" data-id="08c">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp on"></i>PHONE</span>
+            <span class="mod"><i class="lamp on"></i>NET</span>
+            <span class="mod"><i class="lamp err"></i>NFC</span>
+            <span class="mod"><i class="lamp"></i>HOLO</span>
+            <span>23:45</span>
+          </div>
+        </header>
+        <main class="stage err-tone">
+          <div class="code">EXCEPTION / <span>08</span></div>
+          <div class="headline xs">声卡未能正常送出</div>
+          <ul class="exc-list">
+            <li>请勿再次投入声卡</li>
+            <li>当前任务已经保存</li>
+            <li>保持设备开启</li>
+            <li>点击“获取帮助”</li>
+          </ul>
+          <div class="actions">
+            <span class="btn err">获取帮助</span>
+          </div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir warn">机械卡滞 · 投入口已锁</span>
+            <span>需要维护</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot locked" style="border-color:var(--err);background:rgba(255,98,108,.15)"></div>
+          </div>
+        </footer>
+      </section>
+
+    </div>
+  </div>
+  <div class="screen-label" id="label">01 · 待机：等待一段声音 · 480×320</div>
+
+  <nav class="nav" id="nav">
+    <div class="group">Core</div>
+    <button data-id="01" class="active">01 待机</button>
+    <button data-id="02">02 接收</button>
+    <button data-id="02b">02 就绪</button>
+    <button data-id="03">03 等待写入</button>
+    <button data-id="04">04 识别</button>
+    <button data-id="05">05 写入</button>
+    <button data-id="05b">05 校验</button>
+    <div class="group">Reveal</div>
+    <button data-id="06a">06 读取</button>
+    <button data-id="06b">06 唤醒</button>
+    <button data-id="06c">06 显影</button>
+    <div class="group">Output</div>
+    <button data-id="07a">07 写入完成</button>
+    <button data-id="07b">07 显影完毕</button>
+    <button data-id="07c">07 送出</button>
+    <button data-id="07d">07 取卡</button>
+    <div class="group">Exception</div>
+    <button data-id="08a">08 已绑定冲突</button>
+    <button data-id="08b">08 凭证延迟</button>
+    <button data-id="08c">08 卡滞</button>
+  </nav>
+
+  <script>
+    const names = {
+      "01": "待机：等待一段声音",
+      "02": "手机声音接收",
+      "02b": "声音已准备好",
+      "03": "等待写入",
+      "04": "声卡识别",
+      "05": "自动写入 · 写入身份",
+      "05b": "自动写入 · 校验绑定",
+      "06a": "显影 · 读取",
+      "06b": "显影 · 唤醒",
+      "06c": "显影 · 播放",
+      "07a": "写入完成",
+      "07b": "显影完毕",
+      "07c": "正在送出声卡",
+      "07d": "请取走声卡",
+      "08a": "异常 · 已绑定冲突",
+      "08b": "异常 · 凭证延迟",
+      "08c": "异常 · 机械卡滞",
+    };
+
+    const nav = document.getElementById("nav");
+    const label = document.getElementById("label");
+    const screens = [...document.querySelectorAll(".ui")];
+
+    function show(id) {
+      screens.forEach((el) => el.classList.toggle("active", el.dataset.id === id));
+      nav.querySelectorAll("button").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.id === id);
+      });
+      label.textContent = `${id} · ${names[id] || ""} · 480×320`;
+      history.replaceState(null, "", "#" + id);
+    }
+
+    nav.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-id]");
+      if (btn) show(btn.dataset.id);
+    });
+
+    const initial = (location.hash || "#01").slice(1);
+    if (names[initial]) show(initial);
+
+    const order = Object.keys(names);
+    window.addEventListener("keydown", (e) => {
+      const cur = document.querySelector(".ui.active")?.dataset.id;
+      const i = order.indexOf(cur);
+      if (e.key === "ArrowRight" && i < order.length - 1) show(order[i + 1]);
+      if (e.key === "ArrowLeft" && i > 0) show(order[i - 1]);
+    });
+  </script>
+</body>
+</html>

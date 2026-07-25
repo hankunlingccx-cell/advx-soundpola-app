@@ -133,7 +133,7 @@ class MintPipeline extends ChangeNotifier {
     } catch (e) {
       debugPrint('startChain failed for $soundId: $e');
       _errors[soundId] = e.toString();
-      repo.markChainFailed(soundId);
+      repo.markChainFailed(soundId, item.discId ?? 'SP-UNKNOWN');
     } finally {
       _running.remove(soundId);
       notifyListeners();

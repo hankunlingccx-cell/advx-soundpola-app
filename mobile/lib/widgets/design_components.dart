@@ -1,10 +1,14 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import '../data/disc_rarity.dart';
 import '../data/sound_repository.dart';
 import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_dimens.dart';
+import 'rarity_holo.dart';
 
 class PrimaryButton extends StatelessWidget {
   const PrimaryButton({
@@ -54,7 +58,7 @@ class SecondaryButton extends StatelessWidget {
   });
 
   final String text;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final bool danger;
 
   @override
@@ -142,8 +146,163 @@ class StatusChip extends StatelessWidget {
   }
 }
 
+/// 稀有度角标；null / pending 显示「待揭晓」。
+class RarityChip extends StatelessWidget {
+  const RarityChip({
+    super.key,
+    this.rarity,
+    this.pending = false,
+    this.compact = false,
+  });
+
+  final DiscRarity? rarity;
+  final bool pending;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final showPending = pending || rarity == null;
+    final label = showPending ? '待揭晓' : rarity!.code;
+    final Color fg;
+    final Color bg;
+    if (showPending) {
+      fg = AppColors.textTertiary;
+      bg = AppColors.surface2;
+    } else {
+      (bg, fg) = rarityPalette(rarity!);
+    }
+    return Container(
+      height: compact ? 22 : AppSizes.statusChipHeight,
+      padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(50),
+        border: Border.all(
+          color: showPending
+              ? AppColors.borderSubtle
+              : fg.withValues(alpha: 0.35),
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: TextStyle(
+          color: fg,
+          fontSize: compact ? 11 : 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: showPending ? 0 : 0.4,
+        ),
+      ),
+    );
+  }
+}
+
+/// 游戏式稀有度展示：大号代号 + 中文名 + 等级条，用于声片信息区。
+class RarityShowcase extends StatelessWidget {
+  const RarityShowcase({super.key, this.rarity});
+
+  final DiscRarity? rarity;
+
+  static const _tiers = DiscRarity.values;
+
+  @override
+  Widget build(BuildContext context) {
+    final pending = rarity == null;
+    final accent = pending
+        ? AppColors.textTertiary
+        : rarityPalette(rarity!).$2;
+    final fill = pending
+        ? AppColors.surface2
+        : rarityPalette(rarity!).$1;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: accent.withValues(alpha: 0.45)),
+        boxShadow: pending
+            ? null
+            : [
+                BoxShadow(
+                  color: accent.withValues(alpha: 0.18),
+                  blurRadius: 16,
+                  spreadRadius: 0,
+                ),
+              ],
+      ),
+      child: Column(
+        children: [
+          Text(
+            pending ? '?' : rarity!.code,
+            style: TextStyle(
+              color: accent,
+              fontSize: pending ? 28 : 34,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 2.4,
+              height: 1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            pending ? '稀有度待揭晓' : rarity!.label,
+            style: TextStyle(
+              color: accent,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (final tier in _tiers)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  child: Text(
+                    tier.code,
+                    style: TextStyle(
+                      fontSize: !pending && tier == rarity ? 13 : 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
+                      color: pending
+                          ? AppColors.textTertiary.withValues(alpha: 0.45)
+                          : tier.index <= rarity!.index
+                              ? (tier == rarity
+                                  ? accent
+                                  : accent.withValues(alpha: 0.55))
+                              : AppColors.textTertiary.withValues(alpha: 0.35),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          if (!pending) ...[
+            const SizedBox(height: 8),
+            Text(
+              '由实体声片出厂决定',
+              style: TextStyle(
+                color: accent.withValues(alpha: 0.7),
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+(Color, Color) rarityPalette(DiscRarity rarity) =>
+    RarityHoloStyle.of(rarity).chipPalette;
+
 class AccountAvatarButton extends StatelessWidget {
-  const AccountAvatarButton({super.key});
+  const AccountAvatarButton({super.key, this.compact = false});
+
+  /// 圆形图标按钮，降低账户入口视觉权重。
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -158,38 +317,65 @@ class AccountAvatarButton extends StatelessWidget {
             child: Semantics(
               label: '账户',
               button: true,
-              child: Container(
-                height: AppSizes.avatar,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppSizes.avatar / 2),
-                  color: AppColors.surface2,
-                  border: Border.all(
-                    color: loggedIn
-                        ? AppColors.accent.withValues(alpha: 0.5)
-                        : AppColors.border,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      loggedIn ? Icons.person : Icons.person_outline,
-                      size: 16,
-                      color: loggedIn ? AppColors.accent : AppColors.textTertiary,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '账户',
-                      style: TextStyle(
-                        color: loggedIn ? AppColors.accent : AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
+              child: compact
+                  ? ClipOval(
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                        child: Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withValues(alpha: 0.14),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.28),
+                            ),
+                          ),
+                          child: Icon(
+                            loggedIn ? Icons.person : Icons.person_outline,
+                            size: 17,
+                            color: AppColors.textPrimary.withValues(alpha: 0.9),
+                          ),
+                        ),
+                      ),
+                    )
+                  : Container(
+                      height: AppSizes.avatar,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        borderRadius:
+                            BorderRadius.circular(AppSizes.avatar / 2),
+                        color: AppColors.surface2,
+                        border: Border.all(
+                          color: loggedIn
+                              ? AppColors.accent.withValues(alpha: 0.5)
+                              : AppColors.border,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            loggedIn ? Icons.person : Icons.person_outline,
+                            size: 16,
+                            color: loggedIn
+                                ? AppColors.accent
+                                : AppColors.textTertiary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '账户',
+                            style: TextStyle(
+                              color: loggedIn
+                                  ? AppColors.accent
+                                  : AppColors.textSecondary,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ),
             ),
           ),
         );
@@ -464,48 +650,117 @@ class BottomNavBar extends StatelessWidget {
   final int selected;
   final ValueChanged<int> onSelect;
 
-  static const _tabs = ['Record', 'Drafts', 'Collection'];
+  static const _tabs = [
+    (Icons.mic_none_rounded, Icons.mic_rounded, 'Record'),
+    (Icons.inbox_outlined, Icons.inbox_rounded, 'Drafts'),
+    (Icons.album_outlined, Icons.album_rounded, 'Collection'),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: AppColors.bottomNav,
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: AppSizes.bottomNav,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.pageHorizontal,
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: List.generate(_tabs.length, (index) {
-                final active = selected == index;
-                return GestureDetector(
-                  onTap: () => onSelect(index),
-                  behavior: HitTestBehavior.opaque,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    child: Text(
-                      _tabs[index],
-                      style: TextStyle(
-                        color: active
-                            ? AppColors.accent
-                            : AppColors.textTertiary,
-                        fontSize: 13,
-                        fontWeight:
-                            active ? FontWeight.w600 : FontWeight.w500,
-                      ),
-                    ),
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: Container(
+              height: 64,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.22),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
                   ),
-                );
-              }),
+                ],
+              ),
+              child: Row(
+                children: List.generate(_tabs.length, (index) {
+                  final active = selected == index;
+                  final tab = _tabs[index];
+                  return Expanded(
+                    child: _NavItem(
+                      label: tab.$3,
+                      icon: active ? tab.$2 : tab.$1,
+                      active: active,
+                      onTap: () => onSelect(index),
+                    ),
+                  );
+                }),
+              ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavItem extends StatefulWidget {
+  const _NavItem({
+    required this.label,
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  State<_NavItem> createState() => _NavItemState();
+}
+
+class _NavItemState extends State<_NavItem> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTap: () {
+        HapticFeedback.selectionClick();
+        widget.onTap();
+      },
+      child: AnimatedScale(
+        scale: _pressed ? 0.92 : 1,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOutCubic,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              widget.icon,
+              size: 22,
+              color: widget.active
+                  ? AppColors.accent
+                  : AppColors.structure,
+            ),
+            const SizedBox(height: 3),
+            Text(
+              widget.label,
+              style: TextStyle(
+                color: widget.active
+                    ? AppColors.accent
+                    : AppColors.structure,
+                fontSize: 11,
+                fontWeight: widget.active ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ],
         ),
       ),
     );

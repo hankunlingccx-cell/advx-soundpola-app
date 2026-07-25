@@ -4,431 +4,346 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import '../audio/audio_features.dart';
 import '../theme/app_colors.dart';
-import 'visual_shape.dart';
 
-/// Organic ribbon kaleidoscope: analyze @25–30 Hz, render @60 with lerp.
-/// One Seed petal geometry → Canvas rotate ×6 (never six independent datasets).
+/// Ordered mirrored circular-particle field.
+///
+/// One master Q1 curve → normal-offset nested streams → dual-axis mirror.
+/// Shape driven by fast volume envelope (not canvas scale / brightness alone).
 enum SoundVisualMode { idle, recording, paused, complete, playback }
 
 const _tau = math.pi * 2;
-const _sectorCount = 6;
-const _bundleCount = 3;
-const _strandCount = 4;
-const _controlPoints = 24;
-const _particleSlots = 8; // fixed slots; quality caps how many draw
+const _streamCount = 6;
+const _particlesPerStream = 48;
+// 6 * 48 * 4 = 1152
+const _arcTableSteps = 96;
 
 const _cMint = Color(0xFF63E0CB);
-const _cBass = Color(0xFF4FA9E8);
-const _cMid = Color(0xFF7667E8);
-const _cHi = Color(0xFFD9FFF8);
-const _cOnset = Color(0xFFD879C8);
-
-double _hash01(double n) {
-  final x = math.sin(n * 127.1 + 311.7) * 43758.5453;
-  return x - x.floorToDouble();
-}
+const _cBlue = Color(0xFF56B8FF);
+const _cViolet = Color(0xFF8875FF);
 
 double _smoothstep(double a, double b, double x) {
   final t = ((x - a) / (b - a)).clamp(0.0, 1.0);
   return t * t * (3 - 2 * t);
 }
 
-class _BundleSpec {
-  const _BundleSpec({
-    required this.id,
-    required this.rStart,
-    required this.rEnd,
-    required this.thHome,
-    required this.sweep,
-    required this.foldSign,
-  });
-
-  final double id;
-  final double rStart;
-  final double rEnd;
-  final double thHome;
-  final double sweep;
-  final double foldSign;
+double _ar(double cur, double target, double attack, double release, double dt) {
+  final rate = target > cur ? attack : release;
+  final k = 1.0 - math.exp(-dt / rate.clamp(0.001, 2.0));
+  return cur + (target - cur) * k;
 }
 
-List<_BundleSpec> _fixedBundles(int seed) {
-  return List.generate(_bundleCount, (i) {
-    double h(double k) => _hash01(seed * 0.031 + i * 19.7 + k * 7.1);
-    return _BundleSpec(
-      id: i + seed * 0.001,
-      rStart: 0.10 + 0.12 * h(1),
-      rEnd: 0.58 + 0.34 * h(2),
-      thHome: (0.12 + 0.76 * ((i + 0.5) / _bundleCount * 0.55 + h(3) * 0.45))
-          .clamp(0.08, 0.92),
-      sweep: (0.22 + 0.38 * h(4)) * (h(5) < 0.5 ? -1.0 : 1.0),
-      foldSign: h(6) < 0.5 ? -1.0 : 1.0,
+/// Cumulative normal offset in unit field (~dp mapped for ~300px stage).
+/// Inner 7–10dp · mid 10–14 · outer 14–20 — smooth growth.
+double _bundleOffset(int streamIndex, double opening) {
+  // Approx: 1 unit ≈ half-subject ≈ 0.36 * side; use ~110 unit-px at scale.
+  // Spacing expressed in unit-field directly.
+  var sum = 0.0;
+  for (var i = 0; i < streamIndex; i++) {
+    final u = i / math.max(1, _streamCount - 1);
+    final gap = 0.026 + u * 0.022; // ~inner→outer growth
+    sum += gap;
+  }
+  return sum * opening;
+}
+
+class _ShapeParams {
+  const _ShapeParams({
+    required this.expansion,
+    required this.opening,
+    required this.bending,
+    required this.outerReach,
+    required this.innerPull,
+  });
+
+  final double expansion;
+  final double opening;
+  final double bending;
+  final double outerReach;
+  final double innerPull;
+}
+
+_ShapeParams _shapeFromFast(double fast) {
+  // Priority: contour > opening > bend > (speed/brightness elsewhere)
+  return _ShapeParams(
+    expansion: 0.92 + fast * 0.14,
+    opening: 1.0 + fast * 0.55,
+    bending: 0.35 + fast * 1.05,
+    outerReach: 0.0 + fast * 0.11,
+    innerPull: 0.035 - fast * 0.022,
+  );
+}
+
+/// Master Q1 curve: rounded-square quarter arc (no ears / eyes / nose).
+Offset _masterAt({
+  required double t,
+  required double time,
+  required _ShapeParams shape,
+  required double breath,
+  required double slow,
+}) {
+  // Avoid exact axes → no isolated vertical particle chains.
+  final theta = (0.07 + t * 0.86) * (math.pi * 0.5);
+  // p∈(0.55,1): lower = squarer. 0.72 = soft rounded square, not circle rings.
+  const p = 0.72;
+
+  var r = (0.50 + shape.outerReach) * shape.expansion;
+  // Shared continuous bend field — all streams inherit via normal offset.
+  final bend = shape.bending;
+  final w1 = math.sin(theta * 2.0 + time * 0.65) * 0.028 * bend;
+  final w2 = math.sin(theta * 3.5 - time * 0.4) * 0.012 * bend;
+  // Fade bend near ends so tips don't form sharp corners / ears.
+  final tipFade = _smoothstep(0.0, 0.12, t) * _smoothstep(0.0, 0.12, 1.0 - t);
+  r *= 1.0 + (w1 + w2) * tipFade;
+  r *= 1.0 + breath * 0.01 * (0.4 + 0.6 * slow);
+
+  final c = math.cos(theta);
+  final s = math.sin(theta);
+  var x = r * math.pow(c.abs(), p).toDouble();
+  var y = r * math.pow(s.abs(), p).toDouble();
+
+  // Soft center breath zone 4–7% — ordered converge, no void / knot.
+  const soft = 0.055;
+  final len = math.sqrt(x * x + y * y) + 1e-8;
+  if (len < soft) {
+    final k = soft / len;
+    x *= k;
+    y *= k;
+  }
+  return Offset(x.clamp(0.0, 1.05), y.clamp(0.0, 1.05));
+}
+
+Offset _streamPoint({
+  required int streamIndex,
+  required double t,
+  required double time,
+  required _ShapeParams shape,
+  required double breath,
+  required double slow,
+}) {
+  final a = _masterAt(
+    t: t,
+    time: time,
+    shape: shape,
+    breath: breath,
+    slow: slow,
+  );
+  final b = _masterAt(
+    t: (t + 0.004).clamp(0.0, 1.0),
+    time: time,
+    shape: shape,
+    breath: breath,
+    slow: slow,
+  );
+  var tx = b.dx - a.dx;
+  var ty = b.dy - a.dy;
+  final tLen = math.sqrt(tx * tx + ty * ty) + 1e-8;
+  tx /= tLen;
+  ty /= tLen;
+  // Outward-ish normal (away from origin side of tangent) — prevents crossing.
+  var nx = -ty;
+  var ny = tx;
+  // Flip so normal points roughly away from origin (nested expand outward).
+  if (nx * a.dx + ny * a.dy < 0) {
+    nx = -nx;
+    ny = -ny;
+  }
+
+  final u = streamIndex / (_streamCount - 1);
+  var offset = _bundleOffset(streamIndex, shape.opening);
+  // Inner contraction when quiet; outer gets more of outerReach.
+  offset += shape.outerReach * u * 0.06;
+  offset -= shape.innerPull * (1.0 - u);
+
+  var x = a.dx + nx * offset;
+  var y = a.dy + ny * offset;
+
+  // Keep Q1 and soft center.
+  const soft = 0.05;
+  final len = math.sqrt(x * x + y * y) + 1e-8;
+  if (len < soft) {
+    final k = soft / len;
+    x *= k;
+    y *= k;
+  }
+  return Offset(x.clamp(0.0, 1.1), y.clamp(0.0, 1.1));
+}
+
+/// Arc-length uniform parameter table for one stream at current shape.
+List<double> _arcLengthTs({
+  required int streamIndex,
+  required double time,
+  required _ShapeParams shape,
+  required double breath,
+  required double slow,
+}) {
+  final pts = List<Offset>.generate(_arcTableSteps + 1, (i) {
+    final t = i / _arcTableSteps;
+    return _streamPoint(
+      streamIndex: streamIndex,
+      t: t,
+      time: time,
+      shape: shape,
+      breath: breath,
+      slow: slow,
     );
   });
-}
-
-/// Polar control point for one spine sample (r, thLocal in half-sector).
-Offset _spineAt({
-  required double u,
-  required _BundleSpec b,
-  required double time,
-  required double breath,
-  required double awake,
-  required double curvatureScale,
-  required AudioFeatures f,
-  required bool shapeLive,
-}) {
-  final tipSharp = shapeLive
-      ? (0.25 + f.pitch * 0.7 + f.treble * 0.2).clamp(0.2, 0.95)
-      : 0.4;
-  final bendFreq =
-      shapeLive ? (1.1 + f.pitch * 2.4 + f.mid * 1.2) : (1.2 + f.pitch * 0.35);
-  final bendAmp = (0.045 + f.mid * 0.11 + f.pitch * 0.06) * curvatureScale;
-  final fold =
-      (0.03 + f.pitch * 0.08 + f.mid * 0.05) * curvatureScale * b.foldSign;
-  final wideBass = f.bass * 0.07 * awake * curvatureScale;
-
-  final uEase = math.pow(u.clamp(0.0, 1.0), 0.82 + tipSharp * 0.45).toDouble();
-  var r = b.rStart + (b.rEnd - b.rStart) * uEase;
-  r += wideBass * uEase;
-  r -= f.treble * 0.04 * tipSharp * uEase;
-  r += bendAmp *
-      0.55 *
-      math.sin(u * _tau * bendFreq * 0.55 + b.id + time * 0.11) *
-      (0.35 + f.mid);
-  r += bendAmp *
-      0.25 *
-      math.sin(u * _tau * bendFreq * 1.1 - time * 0.09 + b.id * 2) *
-      f.mid;
-
-  var th = b.thHome + b.sweep * (u - 0.5) * (0.55 + f.pitch * 0.35);
-  th += bendAmp *
-      1.15 *
-      math.sin(u * math.pi * bendFreq + time * 0.13 + b.id) *
-      (0.4 + f.mid * 0.8);
-  th += fold * math.sin(u * _tau * 0.85 + time * 0.07);
-  final tip = _smoothstep(0.72, 1.0, u);
-  th += b.foldSign * tip * (0.06 + tipSharp * 0.08) * curvatureScale;
-  r *= 1.0 - tip * tipSharp * 0.08;
-
-  if (f.onset > 0.05 && shapeLive) {
-    final pulse =
-        math.exp(-math.pow((u - (time * 0.35 % 1.0)) * 6, 2).toDouble());
-    r += f.onset * 0.035 * pulse;
-    th += f.onset * 0.02 * pulse * b.foldSign;
+  final cum = List<double>.filled(_arcTableSteps + 1, 0);
+  for (var i = 1; i <= _arcTableSteps; i++) {
+    cum[i] = cum[i - 1] + (pts[i] - pts[i - 1]).distance;
   }
-
-  r *= 1.0 + (f.rms - 0.2).clamp(-0.5, 0.8) * 0.04 * awake;
-  r += breath * 0.008 * math.sin(u * math.pi + b.id);
-
-  final voidFloor = 0.08 + 0.02 * _hash01(b.id * 3.1);
-  if (u < 0.08) r = math.max(r, voidFloor + u * 0.04);
-  return Offset(r.clamp(voidFloor * 0.92, 1.05), th.clamp(0.04, 0.96));
-}
-
-/// Cloud-skeleton modulation: apply only the layers that don't distort the
-/// cloud-encoded curvature (rms radial scale, breath nudge, onset pulse,
-/// voidFloor). Skips the bend/fold oscillations from [_spineAt] since the
-/// cloud already provides the static shape.
-Offset _spineAtCloud({
-  required Offset base,
-  required double u,
-  required double bId,
-  required double time,
-  required double breath,
-  required double awake,
-  required AudioFeatures f,
-  required bool shapeLive,
-}) {
-  var r = base.dx;
-  var th = base.dy;
-  // rms radial scale (mirrors _spineAt line 119)
-  r *= 1.0 + (f.rms - 0.2).clamp(-0.5, 0.8) * 0.04 * awake;
-  // breath radial nudge (mirrors _spineAt line 120)
-  r += breath * 0.008 * math.sin(u * math.pi + bId);
-  // onset pulse (mirrors _spineAt lines 112-117; foldSign not available
-  // from cloud, use +1)
-  if (f.onset > 0.05 && shapeLive) {
-    final pulse =
-        math.exp(-math.pow((u - (time * 0.35 % 1.0)) * 6, 2).toDouble());
-    r += f.onset * 0.035 * pulse;
-    th += f.onset * 0.02 * pulse;
+  final total = cum.last;
+  if (total < 1e-6) {
+    return List<double>.generate(_particlesPerStream, (j) => j / _particlesPerStream);
   }
-  final voidFloor = 0.08 + 0.02 * _hash01(bId * 3.1);
-  if (u < 0.08) r = math.max(r, voidFloor + u * 0.04);
-  return Offset(r.clamp(voidFloor * 0.92, 1.05), th.clamp(0.04, 0.96));
-}
-
-Offset _polarToLocal(Offset polar, double mirrorSign) {
-  final sectorHalf = (_tau / _sectorCount) * 0.5;
-  final theta = mirrorSign * (polar.dy * sectorHalf);
-  return Offset(math.cos(theta) * polar.dx, math.sin(theta) * polar.dx);
-}
-
-Color _colorAlong({
-  required double u,
-  required SoundVisualMode mode,
-  required AudioFeatures f,
-  required double awake,
-  required bool primary,
-}) {
-  if (mode == SoundVisualMode.idle ||
-      mode == SoundVisualMode.paused ||
-      mode == SoundVisualMode.complete) {
-    return Color.lerp(_cMint, _cBass, 0.12 + 0.06 * math.sin(u * 2))!;
-  }
-  final bassW = f.bass * (1.0 - u) * 0.85;
-  final midW = f.mid * math.sin(u * math.pi).clamp(0.0, 1.0);
-  final hiW = f.treble * _smoothstep(0.55, 1.0, u);
-  final onsetW =
-      f.onset * math.exp(-math.pow((u - 0.35) * 4, 2).toDouble());
-  var c = _cMint;
-  c = Color.lerp(c, _cBass, (bassW * 0.75).clamp(0.0, 0.7))!;
-  c = Color.lerp(c, _cMid, (midW * 0.65 * awake).clamp(0.0, 0.7))!;
-  c = Color.lerp(c, _cHi, (hiW * (primary ? 0.85 : 0.45)).clamp(0.0, 0.9))!;
-  c = Color.lerp(c, _cOnset, (onsetW * 0.55).clamp(0.0, 0.6))!;
-  return c;
-}
-
-/// Flat buffer: bundle * controlPoints of polar Offsets (one Seed).
-class _CtrlBuffer {
-  _CtrlBuffer()
-      : pts = List<Offset>.filled(_bundleCount * _controlPoints, Offset.zero);
-
-  final List<Offset> pts;
-
-  Offset get(int bundle, int i) => pts[bundle * _controlPoints + i];
-
-  void set(int bundle, int i, Offset o) => pts[bundle * _controlPoints + i] = o;
-
-  void copyFrom(_CtrlBuffer o) {
-    for (var i = 0; i < pts.length; i++) {
-      pts[i] = o.pts[i];
+  // Inner denser: slight bias toward ends? Spec: inner streams denser spacing
+  // via more particles feel — we keep equal arc on each stream; outer streams
+  // are longer so same count = slightly sparser visually. Good.
+  return List<double>.generate(_particlesPerStream, (j) {
+    final target = (j / _particlesPerStream) * total;
+    // Binary search cum
+    var lo = 0;
+    var hi = _arcTableSteps;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (cum[mid] < target) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
     }
-  }
-
-  void lerpFrom(_CtrlBuffer a, _CtrlBuffer b, double t) {
-    for (var i = 0; i < pts.length; i++) {
-      pts[i] = Offset.lerp(a.pts[i], b.pts[i], t)!;
-    }
-  }
+    final i = lo.clamp(1, _arcTableSteps);
+    final c0 = cum[i - 1];
+    final c1 = cum[i];
+    final seg = (c1 - c0).clamp(1e-8, double.infinity);
+    final f = ((target - c0) / seg).clamp(0.0, 1.0);
+    return ((i - 1) + f) / _arcTableSteps;
+  });
 }
 
-void _fillTargets({
-  required _CtrlBuffer out,
-  required List<_BundleSpec> bundles,
-  required SoundVisualShape? shape,
-  required double time,
-  required double breath,
-  required double awake,
-  required double curvatureScale,
-  required AudioFeatures f,
-  required bool shapeLive,
-}) {
-  for (var b = 0; b < _bundleCount; b++) {
-    for (var i = 0; i < _controlPoints; i++) {
-      final u = i / (_controlPoints - 1);
-      out.set(
-        b,
-        i,
-        shape != null
-            ? _spineAtCloud(
-                base: shape.bundles[b][i],
-                u: u,
-                bId: b + 0.001,
-                time: time,
-                breath: breath,
-                awake: awake,
-                f: f,
-                shapeLive: shapeLive,
-              )
-            : _spineAt(
-                u: u,
-                b: bundles[b],
-                time: time,
-                breath: breath,
-                awake: awake,
-                curvatureScale: curvatureScale,
-                f: f,
-                shapeLive: shapeLive,
-              ),
-      );
-    }
-  }
+class _VisualFrame extends ChangeNotifier {
+  double fast = 0;
+  double slow = 0;
+  double time = 0;
+  double breath = 0.5;
+  double flowPhase = 0;
+  SoundVisualMode mode = SoundVisualMode.idle;
+  VisualQualityProfile quality = VisualQualityProfile.idle;
+  bool showProgressRing = false;
+  double progress = 0;
+
+  void bump() => notifyListeners();
 }
 
 class _SoundVisualPainter extends CustomPainter {
-  _SoundVisualPainter({
-    required this.ctrl,
-    required this.bundles,
-    required this.mode,
-    required this.features,
-    required this.time,
-    required this.breath,
-    required this.awake,
-    required this.globalPhase,
-    required this.quality,
-    this.showProgressRing = false,
-    this.progress = 0,
-  });
+  _SoundVisualPainter(this.frame) : super(repaint: frame);
 
-  final _CtrlBuffer ctrl;
-  final List<_BundleSpec> bundles;
-  final SoundVisualMode mode;
-  final AudioFeatures features;
-  final double time;
-  final double breath;
-  final double awake;
-  final double globalPhase;
-  final VisualQualityProfile quality;
-  final bool showProgressRing;
-  final double progress;
+  final _VisualFrame frame;
 
   @override
   void paint(Canvas canvas, Size size) {
     final side = math.min(size.width, size.height);
     final cx = size.width / 2;
     final cy = size.height / 2;
-    final scale = side * 0.46 * (0.99 + 0.02 * breath) * quality.resolutionScale;
+    final scale = side * 0.72 * frame.quality.resolutionScale;
 
-    final idle = mode == SoundVisualMode.idle;
-    final recording =
-        mode == SoundVisualMode.recording || mode == SoundVisualMode.playback;
-    final brightIdle = 1.0 + 0.10 * (breath - 0.5) * 2;
-    final brightRec = 0.75 + features.rms * 0.35 + features.onset * 0.08;
-    final bright = (idle ? brightIdle : brightRec).clamp(0.55, 1.15);
+    final fast = frame.fast;
+    final slow = frame.slow;
+    final time = frame.time;
+    final breath = frame.breath;
+    final flowPhase = frame.flowPhase;
+    final shape = _shapeFromFast(fast);
+    final bright = (0.78 + slow * 0.18).clamp(0.65, 1.05);
+    final radiusMul = 1.0 + fast * 0.12;
 
-    // Build ONE seed petal (both mirrors) in local unit space, then rotate ×6.
-    final petalOps = <_StrokeSeg>[];
+    final streamLimit = switch (frame.quality.tier) {
+      VisualQuality.high => _streamCount,
+      VisualQuality.medium => 5,
+      VisualQuality.low => 4,
+    };
+    final particleStep = frame.quality.tier == VisualQuality.low ? 2 : 1;
 
-    for (var b = 0; b < _bundleCount; b++) {
-      for (var s = 0; s < _strandCount; s++) {
-        final strandOffset = s - (_strandCount - 1) * 0.5;
-        final primary = strandOffset.abs() < 0.35;
-        final baseAlpha = idle
-            ? (primary ? 0.52 : 0.28)
-            : recording
-                ? (primary ? 0.78 : 0.42)
-                : (primary ? 0.55 : 0.3);
-        final strokeW = primary ? 1.15 : 0.75;
+    final paint = Paint()..style = PaintingStyle.fill;
+    canvas.save();
+    canvas.translate(cx, cy);
 
-        for (final mirror in [1.0, -1.0]) {
-          final cart = List<Offset>.generate(_controlPoints, (i) {
-            final pol = ctrl.get(b, i);
-            final p = _polarToLocal(pol, mirror);
-            // Parallel strand via finite difference normal in local space
-            return p;
-          });
-          for (var i = 0; i < _controlPoints - 1; i++) {
-            final uMid = (i + 0.5) / (_controlPoints - 1);
-            final p0 = cart[i];
-            final p1 = cart[i + 1];
-            final tx = p1.dx - p0.dx;
-            final ty = p1.dy - p0.dy;
-            final len = math.sqrt(tx * tx + ty * ty) + 1e-5;
-            final nx = -ty / len;
-            final ny = tx / len;
-            final spacing = 0.014 + ctrl.get(b, i).dx * 0.006;
-            final o0 = Offset(
-              p0.dx + nx * strandOffset * spacing,
-              p0.dy + ny * strandOffset * spacing,
-            );
-            final o1 = Offset(
-              p1.dx + nx * strandOffset * spacing,
-              p1.dy + ny * strandOffset * spacing,
-            );
-            final tipFade = 1.0 - _smoothstep(0.82, 1.0, uMid) * 0.55;
-            var alpha =
-                (baseAlpha * bright * tipFade * (0.85 + 0.15 * awake))
-                    .clamp(0.08, 0.95);
-            if (recording &&
-                primary &&
-                features.treble > 0.35 &&
-                uMid > 0.6) {
-              alpha = (alpha + features.treble * 0.2).clamp(0.0, 1.0);
-            }
-            final color = _colorAlong(
-              u: uMid,
-              mode: mode,
-              f: features,
-              awake: awake,
-              primary: primary,
-            );
-            petalOps.add(
-              _StrokeSeg(
-                o0: o0,
-                o1: o1,
-                color: color,
-                alpha: alpha,
-                width: strokeW,
-                bloom: quality.bloom &&
-                    recording &&
-                    primary &&
-                    alpha > 0.72 &&
-                    features.treble + features.onset > 0.4,
-              ),
-            );
-          }
-        }
+    for (var si = 0; si < streamLimit; si++) {
+      final u = si / (_streamCount - 1);
+      final ts = _arcLengthTs(
+        streamIndex: si,
+        time: time,
+        shape: shape,
+        breath: breath,
+        slow: slow,
+      );
+
+      final Color col;
+      final double baseAlpha;
+      final double baseR;
+      if (u < 0.28) {
+        col = _cMint;
+        baseAlpha = 0.88;
+        baseR = 1.15;
+      } else if (u < 0.62) {
+        col = Color.lerp(_cMint, _cBlue, 0.35 + slow * 0.15)!;
+        baseAlpha = 0.68;
+        baseR = 0.95;
+      } else {
+        col = Color.lerp(_cBlue, _cViolet, 0.25 + fast * 0.35)!;
+        baseAlpha = 0.38;
+        baseR = 0.72;
       }
-    }
 
-    // Fixed particle slots (u positions); only first N drawn.
-    final particleN = quality.particleCount.clamp(0, _particleSlots);
+      final layerSpeed = 0.85 + u * 0.2;
+      final n = ts.length;
 
-    void drawPetal(Canvas c) {
-      for (final seg in petalOps) {
-        if (seg.bloom) {
-          c.drawLine(
-            Offset(seg.o0.dx * scale, seg.o0.dy * scale),
-            Offset(seg.o1.dx * scale, seg.o1.dy * scale),
-            Paint()
-              ..color = seg.color.withValues(alpha: 0.08)
-              ..strokeWidth = seg.width + 2.2
-              ..strokeCap = StrokeCap.round
-              ..style = PaintingStyle.stroke,
-          );
-        }
-        c.drawLine(
-          Offset(seg.o0.dx * scale, seg.o0.dy * scale),
-          Offset(seg.o1.dx * scale, seg.o1.dy * scale),
-          Paint()
-            ..color = seg.color.withValues(alpha: seg.alpha)
-            ..strokeWidth = seg.width
-            ..strokeCap = StrokeCap.round
-            ..style = PaintingStyle.stroke,
+      for (var p = 0; p < n; p += particleStep) {
+        final idx = (p + (flowPhase * n * layerSpeed).floor()) % n;
+        final t = ts[idx];
+        final pos = _streamPoint(
+          streamIndex: si,
+          t: t,
+          time: time,
+          shape: shape,
+          breath: breath,
+          slow: slow,
         );
-      }
-      for (var i = 0; i < particleN; i++) {
-        final b = i % _bundleCount;
-        final u = (0.15 + i * 0.11 + time * (0.04 + features.rms * 0.03)) % 1.0;
-        final idx = (u * (_controlPoints - 1)).floor().clamp(0, _controlPoints - 2);
-        final frac = (u * (_controlPoints - 1)) - idx;
-        final pol = Offset.lerp(ctrl.get(b, idx), ctrl.get(b, idx + 1), frac)!;
-        final mirror = i.isEven ? 1.0 : -1.0;
-        final p = _polarToLocal(pol, mirror);
-        final a = idle ? 0.2 : (0.18 + features.rms * 0.12);
-        c.drawCircle(
-          Offset(p.dx * scale, p.dy * scale),
-          1.2,
-          Paint()..color = _cHi.withValues(alpha: a * bright),
-        );
+
+        final alpha = (baseAlpha * bright * (0.92 + 0.08 * (1.0 - u)))
+            .clamp(0.16, 0.95);
+        final radius = (baseR * radiusMul).clamp(0.55, 1.6);
+
+        paint.color = col.withValues(alpha: alpha);
+        final x = pos.dx * scale;
+        final y = pos.dy * scale;
+        canvas.drawCircle(Offset(x, y), radius, paint);
+        canvas.drawCircle(Offset(-x, y), radius, paint);
+        canvas.drawCircle(Offset(x, -y), radius, paint);
+        canvas.drawCircle(Offset(-x, -y), radius, paint);
       }
     }
 
-    // Six rotations of the same petal — no duplicate geometry generation.
-    for (var rot = 0; rot < _sectorCount; rot++) {
-      canvas.save();
-      canvas.translate(cx, cy);
-      canvas.rotate(rot * (_tau / _sectorCount) + globalPhase);
-      drawPetal(canvas);
-      canvas.restore();
+    if (frame.quality.tier != VisualQuality.low) {
+      for (var i = 0; i < 4; i++) {
+        final ang = (i + 0.5) / 4 * (math.pi * 0.5);
+        final r = 0.042 + 0.01 * math.sin(time * _tau / 5.2 + i);
+        final x = math.cos(ang) * r * scale;
+        final y = math.sin(ang) * r * scale;
+        paint.color = _cMint.withValues(alpha: 0.2 * bright);
+        const rr = 0.65;
+        canvas.drawCircle(Offset(x, y), rr, paint);
+        canvas.drawCircle(Offset(-x, y), rr, paint);
+        canvas.drawCircle(Offset(x, -y), rr, paint);
+        canvas.drawCircle(Offset(-x, -y), rr, paint);
+      }
     }
 
-    if (showProgressRing) {
+    canvas.restore();
+
+    if (frame.showProgressRing) {
       canvas.drawArc(
-        Rect.fromCircle(center: Offset(cx, cy), radius: side * 0.46 * 0.96),
+        Rect.fromCircle(center: Offset(cx, cy), radius: side * 0.46),
         -math.pi / 2,
-        math.pi * 2 * progress.clamp(0, 1),
+        math.pi * 2 * frame.progress.clamp(0, 1),
         false,
         Paint()
           ..color = AppColors.accent.withValues(alpha: 0.85)
@@ -439,36 +354,7 @@ class _SoundVisualPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _SoundVisualPainter old) =>
-      old.time != time ||
-      old.breath != breath ||
-      old.awake != awake ||
-      old.globalPhase != globalPhase ||
-      old.mode != mode ||
-      old.quality.tier != quality.tier ||
-      old.features.rms != features.rms ||
-      old.features.pitch != features.pitch ||
-      old.features.onset != features.onset ||
-      old.progress != progress ||
-      !identical(old.ctrl, ctrl);
-}
-
-class _StrokeSeg {
-  _StrokeSeg({
-    required this.o0,
-    required this.o1,
-    required this.color,
-    required this.alpha,
-    required this.width,
-    required this.bloom,
-  });
-
-  final Offset o0;
-  final Offset o1;
-  final Color color;
-  final double alpha;
-  final double width;
-  final bool bloom;
+  bool shouldRepaint(covariant _SoundVisualPainter old) => false;
 }
 
 class SoundVisualCanvas extends StatefulWidget {
@@ -480,25 +366,21 @@ class SoundVisualCanvas extends StatefulWidget {
     this.mode,
     this.amplitude = 0.2,
     this.features,
+    this.liveVolume,
     this.showProgressRing = false,
     this.progress = 0,
-    this.shape,
   });
 
   final int seed;
   final bool active;
   final bool dark;
   final SoundVisualMode? mode;
-  /// Legacy fallback when [features] is null (idle / static pages).
   final double amplitude;
-  /// Prefer feeding isolate-produced features; avoids page-wide setState.
   final ValueListenable<AudioFeatures>? features;
+  /// Raw 0–1 volume at ~20–50ms for fast shape envelope (preferred).
+  final ValueListenable<double>? liveVolume;
   final bool showProgressRing;
   final double progress;
-  /// Cloud-produced polar skeleton (3 bundles × 24 points). When non-null,
-  /// overrides seed-based [_spineAt]; local breath/AudioFeatures modulation
-  /// still applies via [_spineAtCloud]. Null = seed fallback.
-  final SoundVisualShape? shape;
 
   @override
   State<SoundVisualCanvas> createState() => _SoundVisualCanvasState();
@@ -507,21 +389,11 @@ class SoundVisualCanvas extends StatefulWidget {
 class _SoundVisualCanvasState extends State<SoundVisualCanvas>
     with SingleTickerProviderStateMixin {
   late final Ticker _ticker;
-  late final List<_BundleSpec> _bundles;
-  final _ctrlFrom = _CtrlBuffer();
-  final _ctrlTo = _CtrlBuffer();
-  final _ctrlNow = _CtrlBuffer();
+  final _frame = _VisualFrame();
+  late final _SoundVisualPainter _painter;
 
-  final _start = DateTime.now();
   Duration _lastElapsed = Duration.zero;
-  double _globalPhase = 0;
-  double _awake = 0;
-  double _lerpT = 1;
-  double _targetInterval = 1 / 25;
-  double _sinceTarget = 0;
-  AudioFeatures _featFrom = AudioFeatures.silent;
-  AudioFeatures _featTo = AudioFeatures.silent;
-  AudioFeatures _featNow = AudioFeatures.silent;
+  double _rawTarget = 0.12;
   VisualQuality _tier = VisualQuality.high;
   final _frameTimes = <double>[];
   int _paintEpoch = 0;
@@ -545,16 +417,10 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
   @override
   void initState() {
     super.initState();
-    _bundles = _fixedBundles(widget.seed);
-    _awake = _isLive ? 1.0 : 0.0;
-    _featTo = widget.features?.value ??
-        AudioFeatures(rms: widget.amplitude.clamp(0.05, 1.0));
-    _featFrom = _featTo;
-    _featNow = _featTo;
-    _retarget(0, breath: 0.5);
-    _ctrlFrom.copyFrom(_ctrlTo);
-    _ctrlNow.copyFrom(_ctrlTo);
+    _painter = _SoundVisualPainter(_frame);
     widget.features?.addListener(_onFeatures);
+    widget.liveVolume?.addListener(_onLiveVolume);
+    _syncRawTarget();
     _ticker = createTicker(_onTick)..start();
   }
 
@@ -565,56 +431,37 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
       oldWidget.features?.removeListener(_onFeatures);
       widget.features?.addListener(_onFeatures);
     }
-    if (oldWidget.seed != widget.seed) {
-      _bundles = _fixedBundles(widget.seed);
+    if (oldWidget.liveVolume != widget.liveVolume) {
+      oldWidget.liveVolume?.removeListener(_onLiveVolume);
+      widget.liveVolume?.addListener(_onLiveVolume);
     }
-    if (oldWidget.seed != widget.seed || oldWidget.shape != widget.shape) {
-      final t = _lastElapsed == Duration.zero
-          ? 0.0
-          : _lastElapsed.inMilliseconds / 1000.0;
-      _retarget(t, breath: 0.5);
-      if (!_ticker.isActive) _ticker.start();
-    }
-    if (_isLive && !_ticker.isActive) _ticker.start();
+    _frame.showProgressRing = widget.showProgressRing;
+    _frame.progress = widget.progress;
   }
 
   @override
   void dispose() {
     widget.features?.removeListener(_onFeatures);
+    widget.liveVolume?.removeListener(_onLiveVolume);
     _ticker.dispose();
+    _frame.dispose();
     super.dispose();
   }
 
-  void _onFeatures() {
-    // Features arrive ~25–30 Hz from isolate; only mark new targets.
-    // Actual control-point retarget happens on ticker at same cadence.
-  }
+  void _onFeatures() => _syncRawTarget();
+  void _onLiveVolume() => _syncRawTarget();
 
-  void _retarget(double time, {required double breath}) {
-    final live = _isLive;
-    final curvature = live
-        ? (0.85 + 0.15 * _awake)
-        : (_mode == SoundVisualMode.paused
-            ? 0.15
-            : (0.08 + 0.04 * breath));
-    _ctrlFrom.copyFrom(_ctrlNow);
-    _featFrom = _featNow;
-    _featTo = widget.features?.value ??
-        (_isLive
-            ? AudioFeatures(rms: widget.amplitude.clamp(0.05, 1.0))
-            : AudioFeatures.silent);
-    _fillTargets(
-      out: _ctrlTo,
-      bundles: _bundles,
-      shape: widget.shape,
-      time: time,
-      breath: breath,
-      awake: _awake,
-      curvatureScale: curvature,
-      f: _featTo,
-      shapeLive: live,
-    );
-    _lerpT = 0;
+  void _syncRawTarget() {
+    if (widget.liveVolume != null) {
+      _rawTarget = widget.liveVolume!.value.clamp(0.0, 1.0);
+      return;
+    }
+    final f = widget.features?.value;
+    if (f != null) {
+      _rawTarget = f.rms.clamp(0.0, 1.0);
+      return;
+    }
+    _rawTarget = widget.amplitude.clamp(0.0, 1.0);
   }
 
   void _adaptQuality(double dt) {
@@ -625,9 +472,7 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
     _frameTimes.add(dt);
     if (_frameTimes.length > 30) _frameTimes.removeAt(0);
     if (_frameTimes.length < 12) return;
-    final avg =
-        _frameTimes.reduce((a, b) => a + b) / _frameTimes.length;
-    // Drop frame budget: prefer bloom off → fewer particles → lower res → fps
+    final avg = _frameTimes.reduce((a, b) => a + b) / _frameTimes.length;
     if (avg > 1 / 45) {
       if (_tier == VisualQuality.high) {
         _tier = VisualQuality.medium;
@@ -644,119 +489,72 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
   void _onTick(Duration elapsed) {
     final reduce = MediaQuery.disableAnimationsOf(context);
     final t = _mode == SoundVisualMode.complete
-        ? 8.0 + widget.seed % 5
+        ? 5.0 + (widget.seed % 11) * 0.07
         : elapsed.inMilliseconds / 1000.0;
     final dt = _lastElapsed == Duration.zero
         ? 1 / 60
         : ((elapsed - _lastElapsed).inMicroseconds / 1e6).clamp(0.0, 0.05);
     _lastElapsed = elapsed;
 
-    final profile = _profile;
-    // Idle 20–30 FPS: skip paints when under budget.
-    final minDt = 1.0 / profile.targetFps;
-    if (dt < minDt * 0.85 && _mode != SoundVisualMode.complete) {
-      // Still advance soft state lightly but throttle paint via early return
-      // using accumulator — simpler: only mark needsPaint every minDt.
-    }
-
     _adaptQuality(dt);
-    final breath =
-        reduce ? 0.5 : 0.5 + 0.5 * math.sin(t * _tau / 7.0);
-    final wakeTarget = _isLive ? 1.0 : (_mode == SoundVisualMode.paused ? 0.35 : 0.0);
-    _awake += ((wakeTarget - _awake) * (dt / 0.75)).clamp(-1.0, 1.0);
-    _awake = _awake.clamp(0.0, 1.0);
+    _syncRawTarget();
 
-    // Target control points @ 20–30 Hz
-    _targetInterval = _isLive ? 1 / 25 : 1 / 22;
-    _sinceTarget += dt;
-    if (_sinceTarget >= _targetInterval || _lerpT >= 1) {
-      if (_sinceTarget >= _targetInterval) {
-        _sinceTarget = 0;
-        if (!reduce && _mode != SoundVisualMode.complete) {
-          _retarget(t, breath: breath);
-        }
-      }
+    final volTarget = _isLive
+        ? _rawTarget
+        : (_mode == SoundVisualMode.paused
+            ? _rawTarget * 0.35
+            : 0.08 + 0.04 * (0.5 + 0.5 * math.sin(t * _tau / 5.0)));
+
+    // Dual envelopes — fast → shape; slow → brightness / breath.
+    _frame.fast = _ar(_frame.fast, volTarget, 0.035, 0.18, dt);
+    _frame.slow = _ar(_frame.slow, volTarget, 0.13, 0.42, dt);
+
+    final intensity = _smoothstep(0.05, 0.7, _frame.fast);
+    final flowSpeed = 0.06 + intensity * 0.5;
+    if (!reduce && _mode != SoundVisualMode.complete) {
+      _frame.flowPhase = (_frame.flowPhase + dt * flowSpeed) % 1.0;
     }
 
-    // High-frequency interpolation toward targets
-    final lerpSpeed = _isLive ? 28.0 : 18.0;
-    _lerpT = (_lerpT + dt * lerpSpeed).clamp(0.0, 1.0);
-    final s = _lerpT * _lerpT * (3 - 2 * _lerpT);
-    _ctrlNow.lerpFrom(_ctrlFrom, _ctrlTo, s);
-    _featNow = _featFrom.lerp(_featTo, s);
+    _frame.time = t;
+    _frame.breath = reduce
+        ? 0.5
+        : 0.5 + 0.5 * math.sin(t * _tau / (_isLive ? 3.8 : 4.5));
+    _frame.mode = _mode;
+    _frame.quality = _profile;
+    _frame.showProgressRing = widget.showProgressRing;
+    _frame.progress = widget.progress;
 
-    if (!reduce &&
-        _mode != SoundVisualMode.paused &&
-        _mode != SoundVisualMode.complete) {
-      _globalPhase += 0.012 * dt * (0.4 + 0.6 * _awake);
-    }
-
-    // Throttle idle repaints to ~24 FPS
+    final profile = _profile;
     if (!_isLive && _mode != SoundVisualMode.complete) {
       final frame = (t * profile.targetFps).floor();
       if (frame == _paintEpoch) return;
       _paintEpoch = frame;
     }
 
-    // Complete mode is a static still: once the shape has settled, paint the
-    // final frame and stop the ticker entirely, so a grid of cards does zero
-    // per-frame work (the 60fps repaints were overloading the GPU and causing
-    // badge ghosting). didUpdateWidget restarts the ticker on shape change.
-    if (_mode == SoundVisualMode.complete && _lerpT >= 1.0) {
-      if (mounted) setState(() {});
-      _ticker.stop();
-      return;
-    }
-
-    // Repaint only this boundary — parent page is not rebuilt.
-    if (mounted) setState(() {});
+    _frame.bump();
   }
 
   @override
   Widget build(BuildContext context) {
-    final reduce = MediaQuery.disableAnimationsOf(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxW = constraints.maxWidth;
         final maxH = constraints.maxHeight;
-        final side = switch ((maxW.isFinite, maxH.isFinite)) {
-          (true, true) => math.min(maxW, maxH),
-          (true, false) => maxW,
-          (false, true) => maxH,
-          _ => 240.0,
+        final width = switch ((maxW.isFinite, maxH.isFinite)) {
+          (true, true) => math.min(maxW * 0.96, maxH * 0.98),
+          (true, false) => maxW * 0.96,
+          (false, true) => maxH * 0.9,
+          _ => 300.0,
         };
+        final height = width.clamp(0.0, maxH.isFinite ? maxH : width);
         return Center(
           child: SizedBox(
-            width: side,
-            height: side,
+            width: width,
+            height: height,
             child: RepaintBoundary(
               child: CustomPaint(
-                painter: _SoundVisualPainter(
-                  ctrl: _ctrlNow,
-                  bundles: _bundles,
-                  mode: reduce ? SoundVisualMode.complete : _mode,
-                  features: _featNow,
-                  time: DateTime.now().difference(_start).inMilliseconds /
-                      1000.0,
-                  breath: reduce
-                      ? 0.5
-                      : 0.5 +
-                          0.5 *
-                              math.sin(
-                                DateTime.now()
-                                        .difference(_start)
-                                        .inMilliseconds /
-                                    1000.0 *
-                                    _tau /
-                                    7.0,
-                              ),
-                  awake: _awake,
-                  globalPhase: _globalPhase,
-                  quality: _profile,
-                  showProgressRing: widget.showProgressRing,
-                  progress: widget.progress,
-                ),
-                size: Size.square(side),
+                painter: _painter,
+                size: Size(width, height),
               ),
             ),
           ),

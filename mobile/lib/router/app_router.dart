@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../data/press_resume.dart';
 import '../data/session.dart';
-import '../data/sound_repository.dart';
 import '../screens/account/account_screen.dart';
 import '../screens/account/pair_device_screen.dart';
 import '../screens/auth/auth_screens.dart';
+import '../screens/collection/category_play_screen.dart';
 import '../screens/collection/collection_screen.dart';
 import '../screens/content/content_resolve_screen.dart';
 import '../screens/drafts/drafts_screen.dart';
@@ -15,6 +15,7 @@ import '../screens/record/record_home_screen.dart';
 import '../screens/record/recording_screen.dart';
 import '../screens/record/result_screen.dart';
 import '../screens/settings/server_settings_screen.dart';
+import '../screens/splash/splash_screen.dart';
 import '../services/auth_service.dart';
 import '../services/mint_pipeline.dart';
 import '../theme/app_colors.dart';
@@ -43,32 +44,23 @@ void startChain(BuildContext context, String id) {
   MintPipeline.instance.startChain(id);
 }
 
-/// 进入 NFC 写卡流程，云端 READY 即可写入（上链为可选）。
-void openPressFlow(BuildContext context, String id) {
-  final item = SoundRepository.instance.get(id);
-  if (item == null) return;
-  final canWrite = item.status == SoundStatus.cloudReady ||
-      item.status == SoundStatus.chainPending ||
-      item.status == SoundStatus.chainReady ||
-      item.status == SoundStatus.chainFailed ||
-      (item.status == SoundStatus.collected &&
-          item.contentId != null &&
-          item.discId != null);
-  if (!canWrite) return;
+/// 进入 NFC 写卡流程。
+void openPressFlow(BuildContext context, String id, {bool chainOnly = false}) {
   if (!AuthService.instance.isLoggedIn) {
-    PressResume.set(id: id);
+    PressResume.set(id: id, chainOnlyMode: chainOnly);
     context.push(AppRoutes.loginPath(draftId: id));
     return;
   }
-  context.push(AppRoutes.pressMethodPath(id));
+  context.push(AppRoutes.pressMethodPath(id, chainOnly: chainOnly));
 }
 
 GoRouter createRouter({required ValueNotifier<bool> consented}) {
   return GoRouter(
-    initialLocation: AppRoutes.permission,
+    initialLocation: AppRoutes.splash,
     refreshListenable: Listenable.merge([consented, AuthService.instance]),
     redirect: (context, state) {
       final loc = state.matchedLocation;
+      final onSplash = loc == AppRoutes.splash;
       final onPermission = loc == AppRoutes.permission;
       final onAuth = loc == AppRoutes.login ||
           loc == AppRoutes.register ||
@@ -77,7 +69,10 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
       final onSettings = loc == AppRoutes.serverSettings;
       final onResolve = state.uri.path.startsWith('/c/');
 
-      // 1) 麦克风权限页优先
+      // 启动页自行分流
+      if (onSplash) return null;
+
+      // 麦克风权限页优先（未同意时）
       if (!consented.value) {
         return (onPermission || onResolve) ? null : AppRoutes.permission;
       }
@@ -87,12 +82,12 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
             : AppRoutes.login;
       }
 
-      // 2) 进入主流程前必须登录
+      // 进入主流程前必须登录
       if (!AuthService.instance.isLoggedIn) {
         return (onAuth || onSettings || onResolve) ? null : AppRoutes.login;
       }
 
-      // 3) 已登录时离开登录页
+      // 已登录时离开登录页
       if (loc == AppRoutes.login) {
         if (PressResume.hasPending) return null;
         return AppRoutes.main;
@@ -101,6 +96,10 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
       return null;
     },
     routes: [
+      GoRoute(
+        path: AppRoutes.splash,
+        builder: (context, state) => const SplashScreen(),
+      ),
       GoRoute(
         path: AppRoutes.permission,
         builder: (context, state) => PermissionScreen(
@@ -191,9 +190,6 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
               return DraftDetailScreen(
                 id: id,
                 onBack: () => context.pop(),
-                onMint: () => startMint(context, id),
-                onChain: () => startChain(context, id),
-                onPress: () => openPressFlow(context, id),
                 onDeleted: () => context.pop(),
               );
             },
@@ -202,10 +198,21 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
             path: AppRoutes.pressMethod,
             builder: (context, state) {
               final id = state.pathParameters['id']!;
+              final chainOnly =
+                  state.uri.queryParameters['chainOnly'] == '1';
               return PressMethodScreen(
                 id: id,
+                chainOnly: chainOnly,
                 onBack: () => context.pop(),
-                onNfc: () => context.push(AppRoutes.pressDetectPath(id)),
+                onNfc: () {
+                  if (chainOnly) {
+                    context.pushReplacement(
+                      AppRoutes.pressProgressPath(id, chainOnly: true),
+                    );
+                  } else {
+                    context.push(AppRoutes.pressDetectPath(id));
+                  }
+                },
               );
             },
           ),
@@ -217,6 +224,18 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
                 id: id,
                 onBack: () => context.pop(),
                 onDetected: () =>
+                    context.pushReplacement(AppRoutes.pressRevealPath(id)),
+              );
+            },
+          ),
+          GoRoute(
+            path: AppRoutes.pressReveal,
+            builder: (context, state) {
+              final id = state.pathParameters['id']!;
+              return PressRevealScreen(
+                id: id,
+                onBack: () => context.pop(),
+                onConfirm: () =>
                     context.pushReplacement(AppRoutes.pressConfirmPath(id)),
               );
             },
@@ -237,8 +256,11 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
             path: AppRoutes.pressProgress,
             builder: (context, state) {
               final id = state.pathParameters['id']!;
+              final chainOnly =
+                  state.uri.queryParameters['chainOnly'] == '1';
               return PressProgressScreen(
                 id: id,
+                chainOnly: chainOnly,
                 onDone: () =>
                     context.pushReplacement(AppRoutes.pressDonePath(id)),
               );
@@ -251,19 +273,23 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
               return PressDoneScreen(
                 id: id,
                 onCollection: () => context.go(AppRoutes.mainTab(2)),
-                onMemory: () => context.push(AppRoutes.memoryPath(id)),
+                onOpenCategoryPlay: (category) {
+                  context.go(
+                    AppRoutes.categoryPlayPath(category, soundId: id),
+                  );
+                },
               );
             },
           ),
           GoRoute(
-            path: AppRoutes.memory,
+            path: AppRoutes.categoryPlay,
             builder: (context, state) {
-              final id = state.pathParameters['id']!;
-              return MemoryScreen(
-                id: id,
+              final category = state.pathParameters['categoryId'] ?? '';
+              final soundId = state.uri.queryParameters['soundId'];
+              return CategoryPlayScreen(
+                category: category,
+                initialSoundId: soundId,
                 onBack: () => context.pop(),
-                onWriteNfc: (mid) => openPressFlow(context, mid),
-                onChain: (mid) => startChain(context, mid),
               );
             },
           ),
@@ -302,25 +328,32 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
+      extendBody: false,
       body: IndexedStack(
         index: _tab,
         children: [
           RecordHomeScreen(onStartRecord: () => context.push(AppRoutes.recording)),
           DraftsScreen(
             onOpenDetail: (id) => context.push(AppRoutes.draftPath(id)),
-            onMint: (id) => startMint(context, id),
-            onChain: (id) => startChain(context, id),
-            onPress: (id) => openPressFlow(context, id),
             onStartRecord: () {
               setState(() => _tab = 0);
               context.push(AppRoutes.recording);
             },
+            onOpenCollection: () => setState(() => _tab = 2),
             onLogin: () => context.push(AppRoutes.login),
           ),
           CollectionScreen(
-            onOpenMemory: (id) => context.push(AppRoutes.memoryPath(id)),
+            onOpenCategoryPlay: (category, {String? soundId}) {
+              context.push(
+                AppRoutes.categoryPlayPath(category, soundId: soundId),
+              );
+            },
+            onStartRecord: () {
+              setState(() => _tab = 0);
+              context.push(AppRoutes.recording);
+            },
+            onOpenDrafts: () => setState(() => _tab = 1),
             onLogin: () => context.push(AppRoutes.login),
-            onWriteNfc: (id) => openPressFlow(context, id),
           ),
         ],
       ),

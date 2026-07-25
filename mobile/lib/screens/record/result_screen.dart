@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'dart:async';
 import '../../data/session.dart';
 import '../../data/sound_repository.dart';
 import '../../services/audio_playback_service.dart';
+import '../../services/location_capture_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
-import '../../widgets/location_picker_sheet.dart';
 import '../../widgets/sound_visual.dart';
+import '../../widgets/sp_category_picker.dart';
 
 class ResultScreen extends StatefulWidget {
   const ResultScreen({
@@ -31,23 +31,39 @@ class _ResultScreenState extends State<ResultScreen> {
   final _nameCtrl = TextEditingController(text: '未命名声音');
   final _descCtrl = TextEditingController();
   String? _category;
-  String? _locationLabel;
   final _seed = DateTime.now().millisecondsSinceEpoch % 10000;
   bool _playing = false;
   final _player = AudioPlaybackService.instance;
-  StreamSubscription<void>? _completeSub;
+  String _locationLabel = LocationCaptureService.unsetLabel;
+  bool _locating = true;
 
   @override
   void initState() {
     super.initState();
-    _completeSub = _player.completionStream.listen((_) {
-      if (mounted) setState(() => _playing = false);
+    _player.addListener(_onPlayerChanged);
+    _resolveLocation();
+  }
+
+  void _onPlayerChanged() {
+    final playing =
+        _player.isPlaying && _player.currentPath == widget.audioPath;
+    if (playing != _playing && mounted) {
+      setState(() => _playing = playing);
+    }
+  }
+
+  Future<void> _resolveLocation() async {
+    final label = await LocationCaptureService.capturePlaceLabel();
+    if (!mounted) return;
+    setState(() {
+      _locationLabel = label;
+      _locating = false;
     });
   }
 
   @override
   void dispose() {
-    _completeSub?.cancel();
+    _player.removeListener(_onPlayerChanged);
     _player.stop();
     _nameCtrl.dispose();
     _descCtrl.dispose();
@@ -65,42 +81,11 @@ class _ResultScreenState extends State<ResultScreen> {
   }
 
   Future<void> _pickCategory() async {
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.surface2,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.sheet)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: soundCategories
-              .map(
-                (c) => ListTile(
-                  title: Text(c, style: const TextStyle(color: AppColors.textPrimary)),
-                  onTap: () => Navigator.pop(ctx, c),
-                ),
-              )
-              .toList(),
-        ),
-      ),
+    final picked = await SpCategoryPicker.show(
+      context,
+      current: _category,
     );
     if (picked != null) setState(() => _category = picked);
-  }
-
-  Future<void> _pickLocation() async {
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.surface2,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.sheet)),
-      ),
-      builder: (ctx) => const LocationPickerSheet(),
-    );
-    if (picked != null && picked.isNotEmpty) {
-      setState(() => _locationLabel = picked);
-    }
   }
 
   void _save() {
@@ -125,7 +110,7 @@ class _ResultScreenState extends State<ResultScreen> {
         durationSec: widget.durationSec,
         visualSeed: _seed,
         audioPath: widget.audioPath,
-        locationLabel: _locationLabel ?? '地点未记录',
+        locationLabel: _locationLabel,
       ),
     );
     RecordingSession.clear();
@@ -182,7 +167,8 @@ class _ResultScreenState extends State<ResultScreen> {
             ),
             const SizedBox(height: AppSpacing.item),
             Text(
-              '${formatRecordedAt(now)}  ·  ${formatDuration(widget.durationSec)} · ${_locationLabel ?? '地点未记录'}',
+              '${formatRecordedAt(now)}  ·  ${formatDuration(widget.durationSec)} · '
+              '${_locating ? '定位中…' : _locationLabel}',
               style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
             ),
             const SizedBox(height: AppSpacing.section),
@@ -215,45 +201,6 @@ class _ResultScreenState extends State<ResultScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.item),
-            const SectionLabel('地点'),
-            GestureDetector(
-              onTap: _pickLocation,
-              child: Container(
-                height: AppSizes.inputHeight,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                alignment: Alignment.centerLeft,
-                decoration: BoxDecoration(
-                  color: AppColors.surface1,
-                  borderRadius: BorderRadius.circular(AppRadii.input),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _locationLabel ?? '选择地点',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: _locationLabel == null
-                              ? AppColors.textTertiary
-                              : AppColors.textPrimary,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Icon(
-                      Icons.location_on_outlined,
-                      size: 20,
-                      color: _locationLabel == null
-                          ? AppColors.textTertiary
-                          : AppColors.accent,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.item),
             SpTextField(
               controller: _descCtrl,
               label: '描述（选填）',
@@ -262,6 +209,13 @@ class _ResultScreenState extends State<ResultScreen> {
               maxLength: 200,
             ),
             const SizedBox(height: AppSpacing.block),
+            const MetaRow(label: '声片稀有度', value: '待揭晓'),
+            const SizedBox(height: 6),
+            const Text(
+              '稀有度由实体声片决定，写入声片时揭晓',
+              style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+            ),
+            const SizedBox(height: AppSpacing.item),
             SecondaryButton(text: '重新录制', onPressed: widget.onReRecord),
             const SizedBox(height: AppSpacing.tight),
             PrimaryButton(text: '保存至 Drafts', onPressed: _save),

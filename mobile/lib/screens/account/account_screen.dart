@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import '../../data/sound_repository.dart';
 import '../../router/app_routes.dart';
 import '../../services/auth_service.dart';
-import '../../services/visual_shape_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
@@ -226,8 +225,6 @@ class AccountScreen extends StatelessWidget {
                                 child: SoundVisualCanvas(
                                   seed: item.visualSeed,
                                   mode: SoundVisualMode.complete,
-                                  shape: VisualShapeService.instance
-                                      .peek(item.visualPath),
                                 ),
                               ),
                             ),

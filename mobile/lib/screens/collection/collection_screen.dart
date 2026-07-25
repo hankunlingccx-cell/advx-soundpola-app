@@ -1,27 +1,48 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
-import 'dart:async';
+import 'package:flutter/services.dart';
 import '../../cloud/cloud_media_client.dart';
+import '../../data/disc_rarity.dart';
 import '../../data/sound_repository.dart';
-import '../../services/audio_playback_service.dart';
 import '../../services/auth_service.dart';
-import '../../services/mint_pipeline.dart';
-import '../../services/visual_shape_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
-import '../../widgets/sound_visual.dart';
+import '../../widgets/disc_texture.dart';
+import '../../widgets/empty_state_panel.dart';
+import '../../widgets/rarity_holo.dart';
+import '../../widgets/ssr_aura_layer.dart';
+
+/// 玻璃跑道胶囊色值（半透明，配合 BackdropFilter）。
+const _capsuleGlassTop = Color(0xCC3A3A3A);
+const _capsuleGlassBottom = Color(0xB31C1C1C);
+const _capsuleStroke = Color(0x59FFFFFF);
+const _capsuleStrokeInner = Color(0x1AFFFFFF);
+
+/// 稿面：圆片 140、重叠 80、内边距 16；顶部色层放分类名。
+const _discSize = 140.0;
+const _discOverlap = 80.0;
+const _capsulePad = 16.0;
+const _labelBlock = 36.0;
+const _columnGap = 10.0;
+const _emptyCapsuleMinHeight = 120.0;
+
+typedef OpenCategoryPlay = void Function(String category, {String? soundId});
 
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({
     super.key,
-    required this.onOpenMemory,
+    required this.onOpenCategoryPlay,
+    required this.onStartRecord,
+    required this.onOpenDrafts,
     required this.onLogin,
-    required this.onWriteNfc,
   });
 
-  final ValueChanged<String> onOpenMemory;
+  final OpenCategoryPlay onOpenCategoryPlay;
+  final VoidCallback onStartRecord;
+  final VoidCallback onOpenDrafts;
   final VoidCallback onLogin;
-  final ValueChanged<String> onWriteNfc;
 
   @override
   State<CollectionScreen> createState() => _CollectionScreenState();
@@ -47,12 +68,15 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 
   void _onAuthChanged() {
-    _maybeSync();
-    if (mounted) setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _maybeSync();
+    });
   }
 
   Future<void> _maybeSync() async {
     if (!AuthService.instance.isLoggedIn || _syncing) return;
+    if (!mounted) return;
     setState(() {
       _syncing = true;
       _syncError = null;
@@ -70,91 +94,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
     }
   }
 
-  Future<void> _showItemMenu(BuildContext context, SoundMemory item) async {
-    final canWriteNfc = item.contentId != null &&
-        item.discId != null &&
-        item.nfcUrl != null;
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.surface1,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.borderSubtle,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const Icon(Icons.info_outline, color: AppColors.accent),
-              title: const Text('查看详情', style: TextStyle(color: AppColors.textPrimary)),
-              onTap: () => Navigator.pop(ctx, 'detail'),
-            ),
-            if (canWriteNfc)
-              ListTile(
-                leading: const Icon(Icons.nfc, color: AppColors.accent),
-                title: Text(
-                  item.nfcTagId == null ? '写入声片' : '重写声片',
-                  style: const TextStyle(color: AppColors.textPrimary),
-                ),
-                onTap: () => Navigator.pop(ctx, 'write'),
-              ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: AppColors.error),
-              title: const Text('删除', style: TextStyle(color: AppColors.error)),
-              onTap: () => Navigator.pop(ctx, 'delete'),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-    if (!mounted || action == null) return;
-    switch (action) {
-      case 'detail':
-        widget.onOpenMemory(item.id);
-        break;
-      case 'write':
-        widget.onWriteNfc(item.id);
-        break;
-      case 'delete':
-        await _confirmDelete(item);
-        break;
-    }
-  }
-
-  Future<void> _confirmDelete(SoundMemory item) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除这段声音？'),
-        content: const Text('本地引用会移除，链上与云端记录不受影响。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除', style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      SoundRepository.instance.delete(item.id);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -165,6 +104,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
       builder: (context, _) {
         final loggedIn = AuthService.instance.isLoggedIn;
         final items = SoundRepository.instance.collection;
+        final groups = SoundRepository.instance.collectionGroups;
         return ColoredBox(
           color: AppColors.bgPrimary,
           child: SafeArea(
@@ -176,7 +116,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                   subtitle: loggedIn
                       ? (_syncing
                           ? '同步云端收藏…'
-                          : '${items.length} 段收藏')
+                          : '${items.length} 段收藏 · ${groups.length} 组')
                       : '数字收藏',
                 ),
                 if (loggedIn && _syncError != null)
@@ -206,47 +146,21 @@ class _CollectionScreenState extends State<CollectionScreen> {
                   child: !loggedIn
                       ? _LoginGate(onLogin: widget.onLogin)
                       : items.isEmpty
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(
-                                  AppSpacing.pageHorizontal,
-                                ),
-                                child: Text(
-                                  _syncing
-                                      ? '正在从云端加载…'
-                                      : '还没有收藏的声音\n从 Drafts 写入第一张声片吧',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: AppColors.textSecondary,
-                                    height: 1.5,
-                                  ),
-                                ),
-                              ),
+                          ? _CollectionEmpty(
+                              syncing: _syncing,
+                              draftCount: SoundRepository.instance.draftCount,
+                              onStartRecord: widget.onStartRecord,
+                              onOpenDrafts: widget.onOpenDrafts,
                             )
                           : RefreshIndicator(
                               onRefresh: _maybeSync,
                               color: AppColors.accent,
-                              child: GridView.builder(
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.pageHorizontal,
-                                ),
-                                gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  crossAxisSpacing: AppSpacing.tight,
-                                  mainAxisSpacing: AppSpacing.tight,
-                                  childAspectRatio: 0.66,
-                                ),
-                                itemCount: items.length,
-                                itemBuilder: (context, index) {
-                                  final item = items[index];
-                                  return _CollectionCard(
-                                    item: item,
-                                    onTap: () => widget.onOpenMemory(item.id),
-                                    onLongPress: () =>
-                                        _showItemMenu(context, item),
-                                  );
+                              child: _CollectionWaterfall(
+                                groups: groups,
+                                onOpenCategoryPlay: widget.onOpenCategoryPlay,
+                                onMoveToCategory: (id, category) {
+                                  SoundRepository.instance
+                                      .updateCategory(id, category);
                                 },
                               ),
                             ),
@@ -260,533 +174,941 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 }
 
+double _discStep(double disc) => disc * (1 - _discOverlap / _discSize);
+
+double _groupHeight({required int count, required double disc}) {
+  if (count <= 0) return _emptyCapsuleMinHeight;
+  // 分类名叠在顶部色层上，不额外占高。
+  return _capsulePad * 2 + disc + (count - 1) * _discStep(disc);
+}
+
+/// 拖拽时补齐空分类跑道，便于改到尚无收藏的分类。
+List<CollectionGroup> _groupsForLayout(
+  List<CollectionGroup> groups, {
+  required bool dragging,
+}) {
+  if (!dragging) return groups;
+  final present = {for (final g in groups) g.category};
+  final extras = SoundRepository.instance.categories
+      .where((c) => !present.contains(c))
+      .map((c) => CollectionGroup(category: c, items: const []));
+  return [...groups, ...extras];
+}
+
+/// 双列瀑布流：下一组落入当前更矮的一列。
+List<List<CollectionGroup>> _splitMasonry(
+  List<CollectionGroup> groups, {
+  required double columnWidth,
+}) {
+  final disc = (columnWidth - _capsulePad * 2).clamp(0.0, _discSize);
+  final columns = List.generate(2, (_) => <CollectionGroup>[]);
+  final heights = List<double>.filled(2, 0);
+  for (final group in groups) {
+    final target = heights[0] <= heights[1] ? 0 : 1;
+    columns[target].add(group);
+    heights[target] +=
+        _groupHeight(count: group.count, disc: disc) + AppSpacing.tight;
+  }
+  return columns;
+}
+
+class _CollectionWaterfall extends StatefulWidget {
+  const _CollectionWaterfall({
+    required this.groups,
+    required this.onOpenCategoryPlay,
+    required this.onMoveToCategory,
+  });
+
+  final List<CollectionGroup> groups;
+  final OpenCategoryPlay onOpenCategoryPlay;
+  final void Function(String soundId, String category) onMoveToCategory;
+
+  @override
+  State<_CollectionWaterfall> createState() => _CollectionWaterfallState();
+}
+
+class _CollectionWaterfallState extends State<_CollectionWaterfall> {
+  String? _draggingId;
+  String? _hoverCategory;
+
+  void _onDragStarted(String id) {
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _draggingId = id;
+      _hoverCategory = null;
+    });
+  }
+
+  void _onDragEnded() {
+    if (!mounted) return;
+    setState(() {
+      _draggingId = null;
+      _hoverCategory = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dragging = _draggingId != null;
+    final layoutGroups =
+        _groupsForLayout(widget.groups, dragging: dragging);
+    final pageW = MediaQuery.sizeOf(context).width;
+    final columnWidth =
+        (pageW - AppSpacing.pageHorizontal * 2 - _columnGap) / 2;
+    final columns = _splitMasonry(layoutGroups, columnWidth: columnWidth);
+
+    return Column(
+      children: [
+        if (dragging)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageHorizontal,
+              0,
+              AppSpacing.pageHorizontal,
+              8,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    gradient: LinearGradient(
+                      colors: [
+                        AppColors.accent.withValues(alpha: 0.18),
+                        AppColors.accent.withValues(alpha: 0.08),
+                      ],
+                    ),
+                    border: Border.all(
+                      color: AppColors.accent.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  child: const Text(
+                    '拖到目标分类跑道松开',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.accentSoft,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        Expanded(
+          child: SingleChildScrollView(
+            physics: dragging
+                ? const NeverScrollableScrollPhysics()
+                : const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageHorizontal,
+              0,
+              AppSpacing.pageHorizontal,
+              AppSpacing.section,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < columns.length; i++) ...[
+                  if (i > 0) const SizedBox(width: _columnGap),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        for (final group in columns[i]) ...[
+                          _CategoryCapsule(
+                            group: group,
+                            draggingId: _draggingId,
+                            highlighted: _hoverCategory == group.category,
+                            onOpenGroup: () {
+                              if (_draggingId != null) return;
+                              // 点击分类跑道 → 进入该分类声片播放页
+                              widget.onOpenCategoryPlay(group.category);
+                            },
+                            onOpenDisc: (soundId) {
+                              if (_draggingId != null) return;
+                              widget.onOpenCategoryPlay(
+                                group.category,
+                                soundId: soundId,
+                              );
+                            },
+                            onDragStarted: _onDragStarted,
+                            onDragEnded: _onDragEnded,
+                            onHoverChanged: (active) {
+                              final next = active ? group.category : null;
+                              if (!active && _hoverCategory != group.category) {
+                                return;
+                              }
+                              if (_hoverCategory == next) return;
+                              setState(() => _hoverCategory = next);
+                            },
+                            onAccept: (soundId) {
+                              widget.onMoveToCategory(
+                                soundId,
+                                group.category,
+                              );
+                              HapticFeedback.lightImpact();
+                              _onDragEnded();
+                            },
+                          ),
+                          const SizedBox(height: AppSpacing.tight),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 分组样式：玻璃拟物跑道 + 声片叠放；顶部玻璃罩显示分类名。
+class _CategoryCapsule extends StatelessWidget {
+  const _CategoryCapsule({
+    required this.group,
+    required this.onOpenGroup,
+    required this.onOpenDisc,
+    required this.onDragStarted,
+    required this.onDragEnded,
+    required this.onHoverChanged,
+    required this.onAccept,
+    this.draggingId,
+    this.highlighted = false,
+  });
+
+  final CollectionGroup group;
+  final String? draggingId;
+  final bool highlighted;
+  final VoidCallback onOpenGroup;
+  final ValueChanged<String> onOpenDisc;
+  final ValueChanged<String> onDragStarted;
+  final VoidCallback onDragEnded;
+  final ValueChanged<bool> onHoverChanged;
+  final ValueChanged<String> onAccept;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = group.items.length;
+
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) {
+        final item = SoundRepository.instance.get(details.data);
+        if (item == null) return false;
+        return item.category != group.category;
+      },
+      onMove: (_) {
+        if (!highlighted) {
+          HapticFeedback.selectionClick();
+          onHoverChanged(true);
+        }
+      },
+      onLeave: (_) => onHoverChanged(false),
+      onAcceptWithDetails: (details) {
+        onHoverChanged(false);
+        onAccept(details.data);
+      },
+      builder: (context, candidateData, rejectedData) {
+        final hot = highlighted || candidateData.isNotEmpty;
+        return GestureDetector(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            onOpenGroup();
+          },
+          child: Semantics(
+            label: '${group.category}，$count 段收藏',
+            button: true,
+            child: AnimatedScale(
+              scale: hot ? 1.02 : 1.0,
+              duration: AppMotion.fast,
+              curve: Curves.easeOutCubic,
+              child: AnimatedContainer(
+                duration: AppMotion.normal,
+                curve: Curves.easeOutCubic,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(100),
+                  border: Border.all(
+                    color: hot
+                        ? AppColors.accent.withValues(alpha: 0.9)
+                        : _capsuleStroke,
+                    width: hot ? 1.6 : 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: hot ? 0.55 : 0.38),
+                      offset: Offset(0, hot ? 14 : 10),
+                      blurRadius: hot ? 28 : 18,
+                    ),
+                    if (hot)
+                      BoxShadow(
+                        color: AppColors.accent.withValues(alpha: 0.32),
+                        blurRadius: 22,
+                        spreadRadius: 0.5,
+                      )
+                    else
+                      BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.04),
+                        offset: const Offset(0, -1),
+                        blurRadius: 0,
+                      ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(98),
+                  child: Stack(
+                    fit: StackFit.passthrough,
+                    children: [
+                      // 毛玻璃底
+                      Positioned.fill(
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(
+                            sigmaX: hot ? 22 : 16,
+                            sigmaY: hot ? 22 : 16,
+                          ),
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
+                      // 玻璃渐变填充
+                      Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: hot
+                                  ? [
+                                      AppColors.accent.withValues(alpha: 0.22),
+                                      _capsuleGlassTop,
+                                      _capsuleGlassBottom,
+                                    ]
+                                  : [
+                                      _capsuleGlassTop,
+                                      const Color(0xB3282828),
+                                      _capsuleGlassBottom,
+                                    ],
+                              stops: hot
+                                  ? const [0.0, 0.35, 1.0]
+                                  : const [0.0, 0.45, 1.0],
+                            ),
+                          ),
+                        ),
+                      ),
+                      // 顶部高光条（拟物玻璃反光）
+                      Positioned(
+                        top: 0,
+                        left: 12,
+                        right: 12,
+                        height: 42,
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(80),
+                              ),
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.white.withValues(alpha: 0.22),
+                                  Colors.white.withValues(alpha: 0.06),
+                                  Colors.white.withValues(alpha: 0.0),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // 内描边
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(98),
+                              border: Border.all(
+                                color: hot
+                                    ? AppColors.accent.withValues(alpha: 0.35)
+                                    : _capsuleStrokeInner,
+                                width: 1,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final disc = (constraints.maxWidth - _capsulePad * 2)
+                              .clamp(0.0, _discSize);
+                          final yStep = _discStep(disc);
+                          final stackH = count == 0
+                              ? 0.0
+                              : disc + (count - 1) * yStep;
+                          final bodyH = count == 0
+                              ? _emptyCapsuleMinHeight
+                              : _capsulePad * 2 + stackH;
+
+                          return SizedBox(
+                            height: bodyH,
+                            child: Stack(
+                              children: [
+                                if (count > 0)
+                                  Positioned(
+                                    top: _capsulePad,
+                                    left: _capsulePad,
+                                    right: _capsulePad,
+                                    height: stackH,
+                                    child: Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        for (var i = 0; i < count; i++)
+                                          Positioned(
+                                            top: i * yStep,
+                                            left: ((constraints.maxWidth -
+                                                        _capsulePad * 2) -
+                                                    disc) /
+                                                2,
+                                            child: _SoundDisc(
+                                              size: disc,
+                                              soundId: group.items[i].id,
+                                              textureAsset: discTextureFor(
+                                                group.items[i].visualSeed,
+                                              ),
+                                              rarity: group.items[i].discRarity,
+                                              lifting: draggingId ==
+                                                  group.items[i].id,
+                                              onTap: () => onOpenDisc(
+                                                group.items[i].id,
+                                              ),
+                                              onDragStarted: onDragStarted,
+                                              onDragEnded: onDragEnded,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                // 分类名玻璃罩
+                                Positioned(
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  height: _labelBlock + 40,
+                                  child: IgnorePointer(
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: [
+                                            Colors.black.withValues(alpha: 0.55),
+                                            Colors.black.withValues(alpha: 0.28),
+                                            Colors.black.withValues(alpha: 0.0),
+                                          ],
+                                          stops: const [0.0, 0.45, 1.0],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  top: 14,
+                                  left: 10,
+                                  right: 10,
+                                  child: IgnorePointer(
+                                    child: Text(
+                                      group.category,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: hot
+                                            ? AppColors.accentHighlight
+                                            : AppColors.textPrimary,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        height: 1.2,
+                                        shadows: [
+                                          Shadow(
+                                            color: Colors.black
+                                                .withValues(alpha: 0.55),
+                                            blurRadius: 8,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                if (hot)
+                                  Positioned.fill(
+                                    child: IgnorePointer(
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(98),
+                                          border: Border.all(
+                                            color: AppColors.accent
+                                                .withValues(alpha: 0.85),
+                                            width: 1.4,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SoundDisc extends StatefulWidget {
+  const _SoundDisc({
+    required this.size,
+    required this.soundId,
+    required this.textureAsset,
+    required this.onTap,
+    required this.onDragStarted,
+    required this.onDragEnded,
+    this.rarity,
+    this.lifting = false,
+  });
+
+  final double size;
+  final String soundId;
+  final String textureAsset;
+  final DiscRarity? rarity;
+  final bool lifting;
+  final VoidCallback onTap;
+  final ValueChanged<String> onDragStarted;
+  final VoidCallback onDragEnded;
+
+  @override
+  State<_SoundDisc> createState() => _SoundDiscState();
+}
+
+class _SoundDiscState extends State<_SoundDisc> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = widget.lifting
+        ? 0.94
+        : _pressed
+            ? 0.93
+            : 1.0;
+
+    return LongPressDraggable<String>(
+      data: widget.soundId,
+      hapticFeedbackOnStart: true,
+      delay: const Duration(milliseconds: 240),
+      onDragStarted: () {
+        setState(() => _pressed = false);
+        widget.onDragStarted(widget.soundId);
+      },
+      onDragEnd: (_) => widget.onDragEnded(),
+      onDraggableCanceled: (_, _) => widget.onDragEnded(),
+      feedback: Material(
+        color: Colors.transparent,
+        elevation: 0,
+        child: Transform.scale(
+          scale: 1.18,
+          child: _DiscVisual(
+            size: widget.size,
+            textureAsset: widget.textureAsset,
+            rarity: widget.rarity,
+            floating: true,
+          ),
+        ),
+      ),
+      childWhenDragging: Opacity(
+        opacity: 0.16,
+        child: _DiscVisual(
+          size: widget.size,
+          textureAsset: widget.textureAsset,
+          rarity: widget.rarity,
+          dimmed: true,
+        ),
+      ),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: widget.lifting
+            ? null
+            : (_) {
+                setState(() => _pressed = true);
+                HapticFeedback.selectionClick();
+              },
+        onTapUp: widget.lifting
+            ? null
+            : (_) {
+                setState(() => _pressed = false);
+                widget.onTap();
+              },
+        onTapCancel: () => setState(() => _pressed = false),
+        child: AnimatedScale(
+          scale: scale,
+          duration: AppMotion.fast,
+          curve: Curves.easeOutCubic,
+          child: _DiscVisual(
+            size: widget.size,
+            textureAsset: widget.textureAsset,
+            rarity: widget.rarity,
+            pressed: _pressed,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 声片面：贴图 + 按稀有度分级的镭射扫光（等级越高越绚烂）。
+class _DiscVisual extends StatefulWidget {
+  const _DiscVisual({
+    required this.size,
+    required this.textureAsset,
+    this.rarity,
+    this.floating = false,
+    this.pressed = false,
+    this.dimmed = false,
+  });
+
+  final double size;
+  final String textureAsset;
+  final DiscRarity? rarity;
+  final bool floating;
+  final bool pressed;
+  final bool dimmed;
+
+  @override
+  State<_DiscVisual> createState() => _DiscVisualState();
+}
+
+class _DiscVisualState extends State<_DiscVisual>
+    with SingleTickerProviderStateMixin {
+  AnimationController? _laser;
+  RarityHoloStyle get _holo => RarityHoloStyle.of(widget.rarity);
+
+  bool get _needsLaser => !widget.dimmed;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncLaser();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DiscVisual oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.dimmed != widget.dimmed ||
+        oldWidget.rarity != widget.rarity) {
+      _syncLaser();
+    }
+  }
+
+  void _syncLaser() {
+    if (_needsLaser) {
+      final ms = (_holo.sweepSeconds * 1000).round();
+      if (_laser == null) {
+        _laser = AnimationController(
+          vsync: this,
+          duration: Duration(milliseconds: ms),
+        )..repeat();
+      } else if (_laser!.duration?.inMilliseconds != ms) {
+        _laser!.duration = Duration(milliseconds: ms);
+        if (!_laser!.isAnimating) _laser!.repeat();
+      }
+    } else {
+      _laser?.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _laser?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = widget.size;
+    final floating = widget.floating;
+    final pressed = widget.pressed;
+    final dimmed = widget.dimmed;
+    final rim = size * 0.035;
+    final holo = _holo;
+    final (rimMain, rimSecond) = rarityRimColors(
+      widget.rarity,
+      elevated: floating,
+    );
+
+    final glow = holo.accent.withValues(
+      alpha: floating ? holo.glowAlpha * 1.15 : holo.glowAlpha * 0.7,
+    );
+
+    final face = Stack(
+      alignment: Alignment.center,
+      children: [
+        ClipOval(
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                const ColoredBox(color: Colors.white),
+                Opacity(
+                  opacity: dimmed ? 0.18 : 0.48,
+                  child: Image.asset(
+                    widget.textureAsset,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.high,
+                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                  ),
+                ),
+                ColoredBox(
+                  color: Colors.white.withValues(
+                    alpha: dimmed ? 0.3 : 0.08,
+                  ),
+                ),
+                if (_needsLaser && _laser != null)
+                  AnimatedBuilder(
+                    animation: _laser!,
+                    builder: (context, _) {
+                      return CustomPaint(
+                        painter: RarityHoloSheenPainter(
+                          t: _laser!.value,
+                          style: holo,
+                          intensityScale: floating ? 1.1 : 0.95,
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
+        IgnorePointer(
+          child: ClipOval(
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: const Alignment(-0.8, -1),
+                    end: const Alignment(0.4, 0.35),
+                    colors: [
+                      Colors.white.withValues(
+                        alpha: floating ? 0.42 : 0.32,
+                      ),
+                      Colors.white.withValues(alpha: 0.08),
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: pressed ? 0.18 : 0.1),
+                    ],
+                    stops: const [0.0, 0.28, 0.55, 1.0],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        IgnorePointer(
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: rimMain,
+                width: floating ? holo.rimWidth + 0.2 : holo.rimWidth,
+              ),
+            ),
+          ),
+        ),
+        if (!dimmed && rimSecond != null)
+          IgnorePointer(
+            child: Container(
+              width: size - 3,
+              height: size - 3,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: rimSecond,
+                  width: 0.85,
+                ),
+              ),
+            ),
+          ),
+        IgnorePointer(
+          child: Container(
+            width: size - rim * 2,
+            height: size - rim * 2,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.black.withValues(alpha: 0.18),
+                width: 0.8,
+              ),
+            ),
+          ),
+        ),
+        IgnorePointer(
+          child: Container(
+            width: size * 0.12,
+            height: size * 0.12,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  Colors.white.withValues(alpha: 0.35),
+                  Colors.white.withValues(alpha: 0.05),
+                  Colors.transparent,
+                ],
+              ),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.2),
+                width: 0.6,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+
+    return AnimatedContainer(
+      duration: AppMotion.fast,
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: floating ? 0.55 : 0.35),
+            offset: Offset(0, floating ? 16 : (pressed ? 2 : 6)),
+            blurRadius: floating ? 28 : (pressed ? 6 : 12),
+            spreadRadius: floating ? 1 : 0,
+          ),
+          if (!floating)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.28),
+              offset: const Offset(0, -4),
+              blurRadius: 10,
+            ),
+          if (floating || !dimmed)
+            BoxShadow(
+              color: glow,
+              blurRadius: 18 + holo.glowAlpha * 28,
+              spreadRadius: holo.rarity.index >= DiscRarity.sr.index ? 1.2 : 0.4,
+            ),
+          if (!dimmed && holo.rarity == DiscRarity.ssr)
+            BoxShadow(
+              color: holo.secondaryAccent.withValues(alpha: 0.22),
+              blurRadius: 36,
+              spreadRadius: 1,
+            ),
+          BoxShadow(
+            color: Colors.white.withValues(alpha: floating ? 0.12 : 0.06),
+            offset: const Offset(-2, -3),
+            blurRadius: 6,
+          ),
+        ],
+      ),
+      child: SsrAuraLayer(
+        size: size,
+        enabled: SsrAuraLayer.isSsr(widget.rarity) && !dimmed,
+        intensity: floating ? 1.0 : 0.55,
+        parallax: floating
+            ? const Offset(2.5, -1.5)
+            : (pressed ? const Offset(1.2, 0.8) : Offset.zero),
+        child: face,
+      ),
+    );
+  }
+}
+
+class _CollectionEmpty extends StatelessWidget {
+  const _CollectionEmpty({
+    required this.syncing,
+    required this.draftCount,
+    required this.onStartRecord,
+    required this.onOpenDrafts,
+  });
+
+  final bool syncing;
+  final int draftCount;
+  final VoidCallback onStartRecord;
+  final VoidCallback onOpenDrafts;
+
+  @override
+  Widget build(BuildContext context) {
+    if (syncing) {
+      return const EmptyStatePanel(
+        statusCode: 'SYNCING COLLECTION',
+        title: '正在同步数字收藏',
+        description: '确认同步完成前，不会把列表当成空收藏。',
+        visual: EmptyTrackVisual(),
+        variant: EmptyStateVariant.processing,
+      );
+    }
+
+    if (draftCount > 0) {
+      final count = draftCount.toString().padLeft(2, '0');
+      return EmptyStatePanel(
+        statusCode: 'NO ASSETS YET',
+        title: '你有 $count 段声音等待封存',
+        description: '完成实体声片写入后，它们才会进入 Collection。',
+        visual: EmptyTrackVisual(pendingSlots: draftCount.clamp(1, 5)),
+        variant: EmptyStateVariant.processing,
+        primaryLabel: '前往封存',
+        onPrimary: onOpenDrafts,
+      );
+    }
+
+    return EmptyStatePanel(
+      statusCode: 'COLLECTION EMPTY',
+      title: '你的数字收藏尚未开始',
+      description: '只有写入实体声片并完成上链后，声音才会成为数字收藏资产。',
+      visual: const EmptyTrackVisual(),
+      primaryLabel: '录下第一段声音',
+      onPrimary: onStartRecord,
+      secondaryLabel: '查看暂存声音',
+      onSecondary: onOpenDrafts,
+    );
+  }
+}
+
 class _LoginGate extends StatelessWidget {
   const _LoginGate({required this.onLogin});
   final VoidCallback onLogin;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.pageHorizontal),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const SizedBox(
-              height: 140,
-              width: 140,
-              child: SoundVisualCanvas(seed: 9090, active: false),
-            ),
-            const SizedBox(height: AppSpacing.item),
-            const Text(
-              '登录后查看数字收藏',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              '已写入声片并完成上链的声音会出现在这里。',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.textSecondary, height: 1.5),
-            ),
-            const SizedBox(height: AppSpacing.section),
-            PrimaryButton(text: '登录', onPressed: onLogin),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-bool _isOnChain(SoundMemory item) {
-  if (item.tokenId == null || item.txHash == null) return false;
-  final hash = item.txHash!;
-  return hash.startsWith('0x') && hash.length > 20;
-}
-
-class _CollectionCard extends StatelessWidget {
-  const _CollectionCard({
-    required this.item,
-    required this.onTap,
-    required this.onLongPress,
-  });
-  final SoundMemory item;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface1,
-      borderRadius: BorderRadius.circular(AppRadii.collectionCard),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              flex: 3,
-              child: ColoredBox(
-                color: AppColors.surface2,
-                child: Stack(
-                  children: [
-                    SoundVisualCanvas(
-                      seed: item.visualSeed,
-                      mode: SoundVisualMode.complete,
-                      shape: VisualShapeService.instance
-                          .peek(item.visualPath),
-                    ),
-                    if (item.nfcTagId != null)
-                      Positioned(
-                        right: 8,
-                        top: 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.bgPrimary.withValues(alpha: 0.7),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: AppColors.accent.withValues(alpha: 0.45),
-                            ),
-                          ),
-                          child: const Text(
-                            '声片',
-                            style: TextStyle(
-                              color: AppColors.accent,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      )
-                    else if (_isOnChain(item))
-                      Positioned(
-                        right: 8,
-                        top: 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.bgPrimary.withValues(alpha: 0.7),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: const Color(0xFFF5C542).withValues(alpha: 0.55),
-                            ),
-                          ),
-                          child: const Text(
-                            '已上链',
-                            style: TextStyle(
-                              color: Color(0xFFF5C542),
-                              fontSize: 10,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      )
-                    else if (item.contentId != null)
-                      Positioned(
-                        right: 8,
-                        top: 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.bgPrimary.withValues(alpha: 0.7),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: AppColors.textTertiary.withValues(alpha: 0.35),
-                            ),
-                          ),
-                          child: const Text(
-                            '云端',
-                            style: TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(AppSpacing.cardPadding),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.title.isNotEmpty ? item.title : '未命名声音',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${item.category} · ${item.locationLabel}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.textTertiary,
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${formatRecordedAt(item.recordedAt)}  ·  ${formatDuration(item.durationSec)}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: AppColors.textTertiary.withValues(alpha: 0.75),
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class MemoryScreen extends StatefulWidget {
-  const MemoryScreen({
-    super.key,
-    required this.id,
-    required this.onBack,
-    required this.onWriteNfc,
-    required this.onChain,
-  });
-
-  final String id;
-  final VoidCallback onBack;
-  final ValueChanged<String> onWriteNfc;
-  final ValueChanged<String> onChain;
-
-  @override
-  State<MemoryScreen> createState() => _MemoryScreenState();
-}
-
-class _MemoryScreenState extends State<MemoryScreen> {
-  bool _playing = false;
-  bool _assetExpanded = false;
-  final _player = AudioPlaybackService.instance;
-  StreamSubscription<void>? _completeSub;
-
-  @override
-  void initState() {
-    super.initState();
-    // Auto-flip _playing on audio completion (fixes "stuck in playback").
-    _completeSub = _player.completionStream.listen((_) {
-      if (mounted) setState(() => _playing = false);
-    });
-    // Visual fallback: open-time lazy fetch if still missing the local file.
-    final item = SoundRepository.instance.get(widget.id);
-    if (item != null) {
-      if (item.visualPath == null &&
-          item.visualUrl != null &&
-          item.contentId != null) {
-        unawaited(VisualShapeService.instance
-            .cacheFromUrl(
-              contentId: item.contentId!,
-              url: item.visualUrl!,
-            )
-            .then((p) {
-          if (p != null) {
-            SoundRepository.instance
-                .update(item.id, (c) => c.copyWith(visualPath: p));
-            if (mounted) setState(() {});
-          }
-        }));
-      }
-      unawaited(VisualShapeService.instance.load(item.visualPath));
-    }
-  }
-
-  @override
-  void dispose() {
-    _completeSub?.cancel();
-    _player.stop();
-    super.dispose();
-  }
-
-  Future<void> _togglePlay(String? path) async {
-    if (path == null || path.isEmpty) {
-      setState(() => _playing = !_playing);
-      return;
-    }
-    if (_playing) {
-      await _player.stop();
-      setState(() => _playing = false);
-    } else {
-      await _player.play(path);
-      setState(() => _playing = true);
-    }
-  }
-
-  Future<void> _confirmDelete(SoundMemory item) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除这段声音？'),
-        content: const Text('本地引用会移除，链上与云端记录不受影响。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('删除', style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
-    );
-    if (ok == true && mounted) {
-      SoundRepository.instance.delete(item.id);
-      await _player.stop();
-      if (mounted) widget.onBack();
-    }
-  }
-
-  bool _showChainAction(SoundMemory item) {
-    return item.contentId != null &&
-        item.contentId!.isNotEmpty &&
-        !_isOnChain(item);
-  }
-
-  Widget _chainButton(SoundMemory item) {
-    final running = MintPipeline.instance.isRunning(item.id);
-    final failed = item.status == SoundStatus.chainFailed;
-    return PrimaryButton(
-      text: running ? '上链中' : (failed ? '重试上链' : '上链'),
-      enabled: !running,
-      onPressed: running ? null : () => widget.onChain(item.id),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([
-        SoundRepository.instance,
-        MintPipeline.instance,
-      ]),
-      builder: (context, _) {
-        final item = SoundRepository.instance.get(widget.id);
-        if (item == null) {
-          return Scaffold(
-            body: Center(
-              child: TextButton(
-                onPressed: widget.onBack,
-                child: const Text('返回'),
-              ),
-            ),
-          );
-        }
-
-        return Scaffold(
-          backgroundColor: AppColors.bgPrimary,
-          body: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.pageHorizontal,
-              ),
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    GestureDetector(
-                      onTap: widget.onBack,
-                      child: const Text(
-                        '返回',
-                        style: TextStyle(color: AppColors.textSecondary),
-                      ),
-                    ),
-                    const Text(
-                      'Memory',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => _confirmDelete(item),
-                      icon: const Icon(
-                        Icons.delete_outline,
-                        color: AppColors.error,
-                        size: 22,
-                      ),
-                      tooltip: '删除',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.tight),
-                Text(
-                  formatRecordedAt(item.recordedAt),
-                  style: const TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 12,
-                  ),
-                ),
-                Text(
-                  item.locationLabel,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.item),
-                GestureDetector(
-                  onTap: () => _togglePlay(item.audioPath),
-                  child: ClipRRect(
-                    borderRadius:
-                        BorderRadius.circular(AppRadii.collectionCard),
-                    child: SizedBox(
-                      height: 340,
-                      child: ColoredBox(
-                        color: AppColors.surface1,
-                        child: Padding(
-                          padding: const EdgeInsets.all(AppSpacing.section),
-                          child: SoundVisualCanvas(
-                            seed: item.visualSeed,
-                            mode: _playing
-                                ? SoundVisualMode.playback
-                                : SoundVisualMode.complete,
-                            shape: VisualShapeService.instance
-                                .peek(item.visualPath),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.section),
-                Text(
-                  item.title,
-                  style: const TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '#${item.category}  ·  ${formatDuration(item.durationSec)}',
-                  style: const TextStyle(color: AppColors.textSecondary),
-                ),
-                const SizedBox(height: 8),
-                StatusChip(status: item.status),
-                if (item.description.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.item),
-                  Text(
-                    item.description,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.section),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SecondaryButton(
-                        text: _playing ? '暂停播放' : '播放声音',
-                        onPressed: () => _togglePlay(item.audioPath),
-                      ),
-                    ),
-                    if (item.contentId != null &&
-                        item.discId != null &&
-                        item.nfcUrl != null) ...[
-                      const SizedBox(width: AppSpacing.tight),
-                      Expanded(
-                        child: PrimaryButton(
-                          text: item.nfcTagId == null ? '写入声片' : '重写声片',
-                          onPressed: () => widget.onWriteNfc(item.id),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                if (_showChainAction(item)) ...[
-                  const SizedBox(height: AppSpacing.tight),
-                  _chainButton(item),
-                ],
-                const SizedBox(height: AppSpacing.section),
-                InkWell(
-                  onTap: () =>
-                      setState(() => _assetExpanded = !_assetExpanded),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.tight,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          '声片与数字资产',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        Text(
-                          _assetExpanded ? '收起' : '展开',
-                          style: const TextStyle(
-                            color: AppColors.accent,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (_assetExpanded) ...[
-                  MetaRow(label: '声片编号', value: item.discId ?? '—'),
-                  MetaRow(
-                    label: '写入时间',
-                    value: item.pressedAt != null
-                        ? formatRecordedAt(item.pressedAt!)
-                        : '—',
-                  ),
-                  MetaRow(label: '数字资产编号', value: item.assetId ?? '—', copyable: true),
-                  MetaRow(
-                    label: '上链时间',
-                    value: item.chainedAt != null
-                        ? formatRecordedAt(item.chainedAt!)
-                        : '—',
-                  ),
-                  const MetaRow(label: '绑定状态', value: '已绑定'),
-                  MetaRow(label: '网络', value: item.networkLabel),
-                  MetaRow(label: '合约', value: item.contractLabel ?? '—', copyable: true),
-                  MetaRow(label: 'Token ID', value: item.tokenId ?? '—', copyable: true),
-                  MetaRow(label: '交易凭证', value: item.txHash ?? '—', copyable: true),
-                ],
-                const SizedBox(height: AppSpacing.section),
-              ],
-            ),
-          ),
-        );
-      },
+    return EmptyStatePanel(
+      statusCode: 'ACCOUNT OFFLINE',
+      title: '登录以查看你的资产',
+      description: '登录后可同步 Collection，查看 NFT 状态与收藏记录。',
+      visual: const EmptyTrackVisual(),
+      variant: EmptyStateVariant.blocked,
+      primaryLabel: '登录 / 创建账户',
+      onPrimary: onLogin,
     );
   }
 }

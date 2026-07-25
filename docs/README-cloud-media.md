@@ -2,22 +2,45 @@
 
 契约文件：[`openapi-cloud-media.yaml`](./openapi-cloud-media.yaml)
 
-## 本地联调
+默认基址：`http://8.129.229.10:9000`
 
-1. 启动 Cloud Media 服务（默认 `http://127.0.0.1:9000`）。
-2. 真机调试时把基址换成电脑局域网 IP：
+## 运行
 
 ```powershell
 cd mobile
-flutter run -d 53740dd4 --dart-define=CLOUD_MEDIA_BASE=http://192.168.x.x:9000
+flutter run -d 53740dd4
 ```
 
-3. 登录 / 注册后会自动签发并保存 UserToken。
-4. Press 会上传 Draft 本地音频 → 轮询 READY → 写入 NFC（`contentId` + `nfc_url`）。
-5. Collection 下拉刷新可重新 `listOwnedContents`。
+如需临时改基址：
 
-## App 职责边界
+```powershell
+flutter run -d 53740dd4 --dart-define=CLOUD_MEDIA_BASE=http://8.129.229.10:9000
+```
 
-- App 使用 **UserToken**；不持有 Trigger / Playback Token。
-- Drafts 仍本地优先；Collection 合并云端 READY 条目。
-- NFT Mint 不在本 OpenAPI 内，Press 末尾仍走本地模拟上链。
+## 联调流程
+
+1. 登录 / 注册后会自动签发并保存 UserToken。
+2. Press 会上传 Draft 本地音频 → 轮询 READY → 写入 NFC（`contentId` + `nfc_url`）。
+3. Collection 下拉刷新可重新 `listOwnedContents`。
+
+# 上传协议（App 已对齐）
+
+```http
+POST /api/v1/contents
+Authorization: Bearer <USER_TOKEN>
+Content-Type: multipart/form-data; boundary=...
+```
+
+- 文件字段名必须是 **`audio`**
+- 不要手写死 `Content-Type: multipart/form-data`（须带 boundary，由客户端自动生成）
+- 成功：`201` + `content_id` / `state=UPLOADED` / `status_url`
+
+等价 curl：
+
+```bash
+curl -i \
+  -X POST \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -F "audio=@recording.m4a" \
+  http://8.129.229.10:9000/api/v1/contents
+```

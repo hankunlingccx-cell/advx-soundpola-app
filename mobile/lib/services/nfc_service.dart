@@ -6,9 +6,12 @@ import 'package:ndef_record/ndef_record.dart' show NdefMessage, NdefRecord, Type
 import 'package:nfc_manager/nfc_manager.dart';
 import 'package:nfc_manager/nfc_manager_android.dart';
 import 'package:nfc_manager/nfc_manager_ios.dart';
+
 import '../cloud/cloud_media_config.dart';
+import '../data/disc_rarity.dart';
 
 const soundpolaMimeType = 'application/vnd.soundpola+json';
+const soundpolaFactoryMimeType = 'application/vnd.soundpola.factory+json';
 
 enum NfcDeviceStatus {
   available,
@@ -23,6 +26,8 @@ class NfcBinding {
     required this.title,
     this.contentId,
     this.nfcUrl,
+    this.rarity,
+    this.series,
   });
 
   final String soundId;
@@ -32,14 +37,18 @@ class NfcBinding {
   final String? contentId;
   /// Absolute NFC resolve URL from ContentSummary.nfc_url when READY.
   final String? nfcUrl;
+  final DiscRarity? rarity;
+  final String? series;
 
   Map<String, dynamic> toJson() => {
-        'v': 2,
+        'v': 3,
         'soundId': soundId,
         'discId': discId,
         'title': title,
         if (contentId != null) 'contentId': contentId,
         if (nfcUrl != null) 'nfcUrl': nfcUrl,
+        if (rarity != null) 'rarity': rarity!.code,
+        if (series != null) 'series': series,
       };
 
   static NfcBinding? fromJson(Map<String, dynamic> json) {
@@ -52,6 +61,8 @@ class NfcBinding {
       title: json['title'] as String? ?? '',
       contentId: json['contentId'] as String? ?? json['content_id'] as String?,
       nfcUrl: json['nfcUrl'] as String? ?? json['nfc_url'] as String?,
+      rarity: DiscRarity.tryParse(json['rarity'] as String?),
+      series: json['series'] as String? ?? json['batch'] as String?,
     );
   }
 }
@@ -90,7 +101,9 @@ class NfcService {
   String generateDiscId(String tagIdHex) {
     final now = DateTime.now();
     final compact = tagIdHex.replaceAll(':', '');
-    final tail = compact.length > 4 ? compact.substring(compact.length - 4) : compact.padLeft(4, '0');
+    final tail = compact.length > 4
+        ? compact.substring(compact.length - 4)
+        : compact.padLeft(4, '0');
     return 'SP-${now.year}-${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-$tail';
   }
 
@@ -111,9 +124,53 @@ class NfcService {
     return null;
   }
 
+  /// 读取出厂声片档案；无正式记录时用 tagId 派生演示档案（仅开发）。
+  Future<DiscFactoryProfile?> readFactoryProfile(
+    NfcTag tag, {
+    bool allowDemoFallback = true,
+  }) async {
+    final message = await _readMessage(tag) ?? _cachedMessage(tag);
+    if (message != null) {
+      final factory = _parseFactory(message);
+      if (factory != null) {
+        if (!factory.isAuthentic) {
+          throw StateError('声片防伪校验失败');
+        }
+        return factory;
+      }
+    }
+    if (!allowDemoFallback) return null;
+    final tagId = tagIdHex(tag);
+    final demo = DiscFactoryProfile.demoFromTagId(tagId);
+    if (!demo.isAuthentic) {
+      throw StateError('声片防伪校验失败');
+    }
+    return demo;
+  }
+
   Future<bool> canWriteTag(NfcTag tag) async {
     if (await readBinding(tag) != null) return false;
     return _isWritable(tag);
+  }
+
+  NdefMessage? _cachedMessage(NfcTag tag) {
+    if (Platform.isAndroid) return NdefAndroid.from(tag)?.cachedNdefMessage;
+    if (Platform.isIOS) return NdefIos.from(tag)?.cachedNdefMessage;
+    return null;
+  }
+
+  DiscFactoryProfile? _parseFactory(NdefMessage message) {
+    for (final record in message.records) {
+      if (record.typeNameFormat == TypeNameFormat.media &&
+          utf8.decode(record.type) == soundpolaFactoryMimeType) {
+        try {
+          final json =
+              jsonDecode(utf8.decode(record.payload)) as Map<String, dynamic>;
+          return DiscFactoryProfile.fromJson(json);
+        } catch (_) {}
+      }
+    }
+    return null;
   }
 
   NfcBinding? _parseBinding(NdefMessage message) {
@@ -121,7 +178,8 @@ class NfcService {
       if (record.typeNameFormat == TypeNameFormat.media &&
           utf8.decode(record.type) == soundpolaMimeType) {
         try {
-          final json = jsonDecode(utf8.decode(record.payload)) as Map<String, dynamic>;
+          final json =
+              jsonDecode(utf8.decode(record.payload)) as Map<String, dynamic>;
           return NfcBinding.fromJson(json);
         } catch (_) {}
       }
@@ -141,52 +199,20 @@ class NfcService {
           }
         }
       }
-      // URI-only tags (Option E): match /c/<32-hex> and treat as bound.
-      if (record.typeNameFormat == TypeNameFormat.wellKnown &&
-          record.type.isNotEmpty &&
-          record.type[0] == 0x55) {
-        final uri = _decodeUriPayload(record.payload);
-        final contentId = _extractContentId(uri);
-        if (contentId != null) {
-          return NfcBinding(
-            soundId: '',
-            discId: contentId,
-            title: '',
-            contentId: contentId,
-            nfcUrl: uri,
-          );
-        }
-      }
     }
     return null;
-  }
-
-  String _decodeUriPayload(Uint8List payload) {
-    if (payload.isEmpty) return '';
-    // First byte is the URI abbreviation prefix code; 0x00 = no abbreviation.
-    const prefixes = <String>[
-      '', 'http://www.', 'https://www.', 'http://', 'https://',
-      'tel:', 'mailto:', 'ftp://anonymous:anonymous@', 'ftp://ftp.',
-      'ftps://', 'sftp://', 'smb://', 'nfs://', 'ftp://', 'dav://',
-      'news:', 'telnet://', 'imap:', 'rtsp://', 'urn:', 'pop:',
-      'sip:', 'sips:', 'tftp:', 'btspp://', 'btl2cap://', 'btgoep://',
-      'tcpobex://', 'irdaobex://', 'file://', 'urn:epc:id:',
-      'urn:epc:tag:', 'urn:epc:pat:', 'urn:epc:raw:', 'urn:epc:', 'urn:nfc:',
-    ];
-    final code = payload[0];
-    final prefix = code < prefixes.length ? prefixes[code] : '';
-    return prefix + utf8.decode(payload.sublist(1));
-  }
-
-  String? _extractContentId(String uri) {
-    final match = RegExp(r'/c/([0-9a-fA-F]{32})').firstMatch(uri);
-    return match?.group(1);
   }
 
   String _decodeTextPayload(Uint8List payload) {
     if (payload.isEmpty) return '';
     final langLen = payload[0] & 0x3F;
     return utf8.decode(payload.sublist(1 + langLen));
+  }
+
+  Uint8List _encodeTextPayload(String text, {String lang = 'en'}) {
+    final langBytes = utf8.encode(lang);
+    final textBytes = utf8.encode(text);
+    return Uint8List.fromList([langBytes.length, ...langBytes, ...textBytes]);
   }
 
   Future<void> writeBinding({
@@ -196,87 +222,90 @@ class NfcService {
     required String title,
     String? contentId,
     String? nfcUrl,
+    DiscRarity? rarity,
+    String? series,
+    DiscFactoryProfile? factory,
   }) async {
     final writable = await _isWritable(tag);
     if (!writable) {
       throw StateError('该声片不可写入');
     }
-    // Always compose from the currently configured login server IP:port so
-    // the written URL is a browser-openable absolute link. A server-provided
-    // nfcUrl is only used as a last-resort fallback (may be a different host).
+    // Prefer absolute URL from the currently configured cloud base so the
+    // written link opens in-browser against the active server.
     final linkUrl = (contentId != null && contentId.isNotEmpty)
         ? '${CloudMediaConfig.baseUrl}/c/$contentId'
         : ((nfcUrl != null && nfcUrl.isNotEmpty) ? nfcUrl : null);
-    if (linkUrl == null || linkUrl.isEmpty) {
-      throw StateError('缺少解析链接，无法写入声片');
-    }
-    // Option E: write only the URI record. All metadata is resolved from cloud
-    // via GET /c/<contentId>. Keeps the payload ~50-80B so NTAG213 fits.
-    final uriRecord = NdefRecord(
-      typeNameFormat: TypeNameFormat.wellKnown,
-      type: Uint8List.fromList([0x55]), // 'U'
-      identifier: Uint8List(0),
-      payload: _encodeUriPayload(linkUrl),
+    final binding = NfcBinding(
+      soundId: soundId,
+      discId: discId,
+      title: title,
+      contentId: contentId,
+      nfcUrl: linkUrl ?? nfcUrl,
+      rarity: rarity,
+      series: series,
     );
-    final message = NdefMessage(records: [uriRecord]);
-    final capacity = await _maxSize(tag);
-    if (capacity != null && capacity > 0) {
-      final size = _encodedMessageSize(message);
-      if (size > capacity) {
-        throw StateError('声片容量不足（$capacity B / 需要 $size B）');
-      }
-    }
-    await _writeMessageWithRetry(tag, message);
-  }
+    final records = <NdefRecord>[];
 
-  int _encodedMessageSize(NdefMessage message) {
-    var total = 0;
-    for (final r in message.records) {
-      // NDEF record overhead: header(1) + typeLen(1) + payloadLen(1 or 4)
-      final payloadLen = r.payload.length;
-      final overhead = 3 + (payloadLen > 255 ? 3 : 0) +
-          (r.identifier.isNotEmpty ? 1 + r.identifier.length : 0);
-      total += overhead + r.type.length + payloadLen;
+    final factoryRecord = factory?.copyWith(bound: true) ??
+        (rarity != null
+            ? DiscFactoryProfile(
+                discId: discId,
+                rarity: rarity,
+                series: series ?? 'Unknown',
+                signature: DiscFactoryProfile.computeSignature(
+                  discId: discId,
+                  rarity: rarity,
+                  series: series ?? 'Unknown',
+                  demo: true,
+                ),
+                bound: true,
+                demo: true,
+              )
+            : null);
+    if (factoryRecord != null) {
+      records.add(
+        NdefRecord(
+          typeNameFormat: TypeNameFormat.media,
+          type: Uint8List.fromList(utf8.encode(soundpolaFactoryMimeType)),
+          identifier: Uint8List(0),
+          payload: Uint8List.fromList(
+            utf8.encode(jsonEncode(factoryRecord.toJson())),
+          ),
+        ),
+      );
     }
-    return total;
-  }
 
-  Future<int?> _maxSize(NfcTag tag) async {
-    if (Platform.isAndroid) {
-      final ndef = NdefAndroid.from(tag);
-      return ndef?.maxSize;
+    records.add(
+      NdefRecord(
+        typeNameFormat: TypeNameFormat.media,
+        type: Uint8List.fromList(utf8.encode(soundpolaMimeType)),
+        identifier: Uint8List(0),
+        payload: Uint8List.fromList(utf8.encode(jsonEncode(binding.toJson()))),
+      ),
+    );
+    // Prefer URI for Trigger boards that resolve nfc_url; keep text fallback.
+    if (linkUrl != null && linkUrl.isNotEmpty) {
+      records.add(
+        NdefRecord(
+          typeNameFormat: TypeNameFormat.wellKnown,
+          type: Uint8List.fromList([0x55]), // 'U'
+          identifier: Uint8List(0),
+          payload: _encodeUriPayload(linkUrl),
+        ),
+      );
     }
-    if (Platform.isIOS) {
-      final ndef = NdefIos.from(tag);
-      if (ndef == null) return null;
-      try {
-        final status = await ndef.queryNdefStatus();
-        return status.capacity;
-      } catch (_) {
-        return null;
-      }
-    }
-    return null;
-  }
-
-  Future<void> _writeMessageWithRetry(
-    NfcTag tag,
-    NdefMessage message, {
-    int attempts = 3,
-  }) async {
-    Object? lastError;
-    for (var i = 0; i < attempts; i++) {
-      try {
-        await _writeMessage(tag, message);
-        return;
-      } catch (e) {
-        lastError = e;
-        if (i < attempts - 1) {
-          await Future.delayed(const Duration(milliseconds: 220));
-        }
-      }
-    }
-    throw lastError ?? StateError('声片写入失败');
+    final textPayload = contentId != null && contentId.isNotEmpty
+        ? 'SOUNDPOLA:$soundId:$discId:$contentId'
+        : 'SOUNDPOLA:$soundId:$discId';
+    records.add(
+      NdefRecord(
+        typeNameFormat: TypeNameFormat.wellKnown,
+        type: Uint8List.fromList([0x54]),
+        identifier: Uint8List(0),
+        payload: _encodeTextPayload(textPayload),
+      ),
+    );
+    await _writeMessage(tag, NdefMessage(records: records));
   }
 
   /// NDEF URI payload: code 0x00 = full URI in UTF-8 (no abbreviation).

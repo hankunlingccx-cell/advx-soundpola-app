@@ -28,6 +28,7 @@ dependencies:
   flutter_map: ^8.3.1
   latlong2: ^0.10.1
   geolocator: ^14.0.2
+  geocoding: ^5.0.0
   mobile_scanner: ^7.4.0
 
 dev_dependencies:
@@ -39,3 +40,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icons/
+    - assets/disc_textures/

@@ -10,7 +10,6 @@ import '../../router/app_routes.dart';
 import '../../services/auth_service.dart';
 import '../../services/deep_link_service.dart';
 import '../../services/mint_pipeline.dart';
-import '../../services/visual_shape_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
@@ -185,8 +184,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: SoundVisualCanvas(
                             seed: draft.visualSeed,
                             mode: SoundVisualMode.complete,
-                            shape: VisualShapeService.instance
-                                .peek(draft.visualPath),
                           ),
                         ),
                       ),
