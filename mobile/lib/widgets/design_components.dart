@@ -8,6 +8,7 @@ import '../data/sound_repository.dart';
 import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_dimens.dart';
+import 'rarity_holo.dart';
 
 class PrimaryButton extends StatelessWidget {
   const PrimaryButton({
@@ -279,21 +280,8 @@ class RarityShowcase extends StatelessWidget {
   }
 }
 
-(Color, Color) rarityPalette(DiscRarity rarity) => switch (rarity) {
-      DiscRarity.n => (AppColors.surface2, AppColors.textSecondary),
-      DiscRarity.r => (
-          AppColors.accent.withValues(alpha: 0.12),
-          AppColors.accent,
-        ),
-      DiscRarity.sr => (
-          const Color(0xFF4FA9E8).withValues(alpha: 0.16),
-          const Color(0xFF4FA9E8),
-        ),
-      DiscRarity.ssr => (
-          AppColors.accent.withValues(alpha: 0.22),
-          AppColors.accent,
-        ),
-    };
+(Color, Color) rarityPalette(DiscRarity rarity) =>
+    RarityHoloStyle.of(rarity).chipPalette;
 
 class AccountAvatarButton extends StatelessWidget {
   const AccountAvatarButton({super.key, this.compact = false});

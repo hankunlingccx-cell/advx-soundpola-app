@@ -5,16 +5,17 @@ import 'package:flutter/scheduler.dart';
 import '../audio/audio_features.dart';
 import '../theme/app_colors.dart';
 
-/// Strictly mirrored circular-particle streamline field.
+/// Ordered mirrored circular-particle field.
 ///
-/// Compute upper-right quadrant only → mirror to (−x,y)/(x,−y)/(−x,−y).
-/// Particles are pure [Canvas.drawCircle] dots — never lines/capsules.
+/// One master Q1 curve → normal-offset nested streams → dual-axis mirror.
+/// Shape driven by fast volume envelope (not canvas scale / brightness alone).
 enum SoundVisualMode { idle, recording, paused, complete, playback }
 
 const _tau = math.pi * 2;
-const _streamCount = 8;
-const _particlesPerStream = 36;
-// 8 * 36 * 4 quadrants = 1152 dots — within 700–1400.
+const _streamCount = 6;
+const _particlesPerStream = 48;
+// 6 * 48 * 4 = 1152
+const _arcTableSteps = 96;
 
 const _cMint = Color(0xFF63E0CB);
 const _cBlue = Color(0xFF56B8FF);
@@ -31,214 +32,289 @@ double _ar(double cur, double target, double attack, double release, double dt) 
   return cur + (target - cur) * k;
 }
 
-double _hash01(double n) {
-  final x = math.sin(n * 127.1 + 311.7) * 43758.5453;
-  return x - x.floorToDouble();
+/// Cumulative normal offset in unit field (~dp mapped for ~300px stage).
+/// Inner 7–10dp · mid 10–14 · outer 14–20 — smooth growth.
+double _bundleOffset(int streamIndex, double opening) {
+  // Approx: 1 unit ≈ half-subject ≈ 0.36 * side; use ~110 unit-px at scale.
+  // Spacing expressed in unit-field directly.
+  var sum = 0.0;
+  for (var i = 0; i < streamIndex; i++) {
+    final u = i / math.max(1, _streamCount - 1);
+    final gap = 0.026 + u * 0.022; // ~inner→outer growth
+    sum += gap;
+  }
+  return sum * opening;
 }
 
-/// Fixed hidden trajectory for the upper-right quadrant (init once).
-class _StreamSpec {
-  const _StreamSpec({
-    required this.innerX,
-    required this.innerY,
-    required this.horizontalLength,
-    required this.archHeight,
-    required this.bendX,
-    required this.detailY,
-    required this.phase,
-    required this.sampleOffset,
-    required this.outerness,
-    required this.isCore,
+class _ShapeParams {
+  const _ShapeParams({
+    required this.expansion,
+    required this.opening,
+    required this.bending,
+    required this.outerReach,
+    required this.innerPull,
   });
 
-  final double innerX;
-  final double innerY;
-  final double horizontalLength;
-  final double archHeight;
-  final double bendX;
-  final double detailY;
-  final double phase;
-  final double sampleOffset;
-  final double outerness; // 0 inner → 1 outer
-  final bool isCore;
+  final double expansion;
+  final double opening;
+  final double bending;
+  final double outerReach;
+  final double innerPull;
 }
 
-List<_StreamSpec> _buildStreams(int seed) {
-  return List.generate(_streamCount, (i) {
-    double h(double k) => _hash01(seed * 0.021 + i * 13.7 + k * 4.3);
-    final u = i / (_streamCount - 1);
-
-    // Nested layers: inner closer to axes, outer more extended — not rings.
-    final innerX = 0.06 + u * 0.10 + h(1) * 0.02;
-    final innerY = 0.06 + u * 0.09 + h(2) * 0.02;
-    final horizontalLength = 0.28 + u * 0.38 + h(3) * 0.04;
-    final archHeight = 0.22 + u * 0.36 + h(4) * 0.03;
-
-    return _StreamSpec(
-      innerX: innerX,
-      innerY: innerY,
-      horizontalLength: horizontalLength,
-      archHeight: archHeight,
-      bendX: 0.018 + h(5) * 0.022 + u * 0.012,
-      detailY: 0.012 + h(6) * 0.018 + u * 0.008,
-      phase: h(7) * _tau,
-      sampleOffset: h(8),
-      outerness: u,
-      isCore: i < 3,
-    );
-  });
+_ShapeParams _shapeFromFast(double fast) {
+  // Priority: contour > opening > bend > (speed/brightness elsewhere)
+  return _ShapeParams(
+    expansion: 0.92 + fast * 0.14,
+    opening: 1.0 + fast * 0.55,
+    bending: 0.35 + fast * 1.05,
+    outerReach: 0.0 + fast * 0.11,
+    innerPull: 0.035 - fast * 0.022,
+  );
 }
 
-/// Sample hidden Q1 trajectory. Returns point in unit field (x≥0, y≥0).
-Offset _sampleQ1({
-  required _StreamSpec s,
+/// Master Q1 curve: rounded-square quarter arc (no ears / eyes / nose).
+Offset _masterAt({
   required double t,
   required double time,
-  required double intensity,
+  required _ShapeParams shape,
   required double breath,
-  required double expansion,
+  required double slow,
 }) {
-  // Center soft space ~6–10% of subject radius.
-  const centerSoft = 0.08;
+  // Avoid exact axes → no isolated vertical particle chains.
+  final theta = (0.07 + t * 0.86) * (math.pi * 0.5);
+  // p∈(0.55,1): lower = squarer. 0.72 = soft rounded square, not circle rings.
+  const p = 0.72;
 
-  // Bend amplitude fades toward center (t→0) to prevent mid tangle.
-  final centerEase = _smoothstep(0.0, 0.28, t);
-  final tipEase = _smoothstep(0.0, 0.12, 1.0 - t);
-  final bendLive = (1.0 + intensity * 1.1) * centerEase;
+  var r = (0.50 + shape.outerReach) * shape.expansion;
+  // Shared continuous bend field — all streams inherit via normal offset.
+  final bend = shape.bending;
+  final w1 = math.sin(theta * 2.0 + time * 0.65) * 0.028 * bend;
+  final w2 = math.sin(theta * 3.5 - time * 0.4) * 0.012 * bend;
+  // Fade bend near ends so tips don't form sharp corners / ears.
+  final tipFade = _smoothstep(0.0, 0.12, t) * _smoothstep(0.0, 0.12, 1.0 - t);
+  r *= 1.0 + (w1 + w2) * tipFade;
+  r *= 1.0 + breath * 0.01 * (0.4 + 0.6 * slow);
 
-  final flowPhase = time * (0.35 + intensity * 0.55);
-  final bendX = s.bendX *
-      bendLive *
-      math.sin(t * math.pi * 2.0 + s.phase + flowPhase * 0.4);
-  final detailY = s.detailY *
-      bendLive *
-      math.sin(t * math.pi * 3.0 + s.phase - flowPhase * 0.3);
-  final breathY =
-      math.sin(t * math.pi + time * _tau / 4.4) * 0.006 * breath * centerEase;
+  final c = math.cos(theta);
+  final s = math.sin(theta);
+  var x = r * math.pow(c.abs(), p).toDouble();
+  var y = r * math.pow(s.abs(), p).toDouble();
 
-  var x = s.innerX + t * s.horizontalLength * expansion + bendX;
-  var y = s.innerY +
-      math.sin(t * math.pi) * s.archHeight * expansion +
-      detailY +
-      breathY;
-
-  // Soft radial clamp: keep inside subject, enforce center soft zone.
-  final r = math.sqrt(x * x + y * y);
-  final maxR = 0.92 * expansion;
-  if (r > maxR && r > 1e-6) {
-    final k = maxR / r;
+  // Soft center breath zone 4–7% — ordered converge, no void / knot.
+  const soft = 0.055;
+  final len = math.sqrt(x * x + y * y) + 1e-8;
+  if (len < soft) {
+    final k = soft / len;
     x *= k;
     y *= k;
   }
-  if (r < centerSoft && r > 1e-6) {
-    // Push gently outward — ordered converge, not void or knot.
-    final k = centerSoft / r;
-    final blend = 0.35 + 0.65 * tipEase;
-    x = x * (1 - blend) + x * k * blend;
-    y = y * (1 - blend) + y * k * blend;
+  return Offset(x.clamp(0.0, 1.05), y.clamp(0.0, 1.05));
+}
+
+Offset _streamPoint({
+  required int streamIndex,
+  required double t,
+  required double time,
+  required _ShapeParams shape,
+  required double breath,
+  required double slow,
+}) {
+  final a = _masterAt(
+    t: t,
+    time: time,
+    shape: shape,
+    breath: breath,
+    slow: slow,
+  );
+  final b = _masterAt(
+    t: (t + 0.004).clamp(0.0, 1.0),
+    time: time,
+    shape: shape,
+    breath: breath,
+    slow: slow,
+  );
+  var tx = b.dx - a.dx;
+  var ty = b.dy - a.dy;
+  final tLen = math.sqrt(tx * tx + ty * ty) + 1e-8;
+  tx /= tLen;
+  ty /= tLen;
+  // Outward-ish normal (away from origin side of tangent) — prevents crossing.
+  var nx = -ty;
+  var ny = tx;
+  // Flip so normal points roughly away from origin (nested expand outward).
+  if (nx * a.dx + ny * a.dy < 0) {
+    nx = -nx;
+    ny = -ny;
   }
 
-  // Strict Q1 — never cross axes (mirrors handle the rest).
-  return Offset(x.clamp(0.0, 1.0), y.clamp(0.0, 1.0));
+  final u = streamIndex / (_streamCount - 1);
+  var offset = _bundleOffset(streamIndex, shape.opening);
+  // Inner contraction when quiet; outer gets more of outerReach.
+  offset += shape.outerReach * u * 0.06;
+  offset -= shape.innerPull * (1.0 - u);
+
+  var x = a.dx + nx * offset;
+  var y = a.dy + ny * offset;
+
+  // Keep Q1 and soft center.
+  const soft = 0.05;
+  final len = math.sqrt(x * x + y * y) + 1e-8;
+  if (len < soft) {
+    final k = soft / len;
+    x *= k;
+    y *= k;
+  }
+  return Offset(x.clamp(0.0, 1.1), y.clamp(0.0, 1.1));
+}
+
+/// Arc-length uniform parameter table for one stream at current shape.
+List<double> _arcLengthTs({
+  required int streamIndex,
+  required double time,
+  required _ShapeParams shape,
+  required double breath,
+  required double slow,
+}) {
+  final pts = List<Offset>.generate(_arcTableSteps + 1, (i) {
+    final t = i / _arcTableSteps;
+    return _streamPoint(
+      streamIndex: streamIndex,
+      t: t,
+      time: time,
+      shape: shape,
+      breath: breath,
+      slow: slow,
+    );
+  });
+  final cum = List<double>.filled(_arcTableSteps + 1, 0);
+  for (var i = 1; i <= _arcTableSteps; i++) {
+    cum[i] = cum[i - 1] + (pts[i] - pts[i - 1]).distance;
+  }
+  final total = cum.last;
+  if (total < 1e-6) {
+    return List<double>.generate(_particlesPerStream, (j) => j / _particlesPerStream);
+  }
+  // Inner denser: slight bias toward ends? Spec: inner streams denser spacing
+  // via more particles feel — we keep equal arc on each stream; outer streams
+  // are longer so same count = slightly sparser visually. Good.
+  return List<double>.generate(_particlesPerStream, (j) {
+    final target = (j / _particlesPerStream) * total;
+    // Binary search cum
+    var lo = 0;
+    var hi = _arcTableSteps;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (cum[mid] < target) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    final i = lo.clamp(1, _arcTableSteps);
+    final c0 = cum[i - 1];
+    final c1 = cum[i];
+    final seg = (c1 - c0).clamp(1e-8, double.infinity);
+    final f = ((target - c0) / seg).clamp(0.0, 1.0);
+    return ((i - 1) + f) / _arcTableSteps;
+  });
+}
+
+class _VisualFrame extends ChangeNotifier {
+  double fast = 0;
+  double slow = 0;
+  double time = 0;
+  double breath = 0.5;
+  double flowPhase = 0;
+  SoundVisualMode mode = SoundVisualMode.idle;
+  VisualQualityProfile quality = VisualQualityProfile.idle;
+  bool showProgressRing = false;
+  double progress = 0;
+
+  void bump() => notifyListeners();
 }
 
 class _SoundVisualPainter extends CustomPainter {
-  _SoundVisualPainter({
-    required this.streams,
-    required this.mode,
-    required this.intensity,
-    required this.time,
-    required this.breath,
-    required this.quality,
-    this.showProgressRing = false,
-    this.progress = 0,
-  });
+  _SoundVisualPainter(this.frame) : super(repaint: frame);
 
-  final List<_StreamSpec> streams;
-  final SoundVisualMode mode;
-  final double intensity;
-  final double time;
-  final double breath;
-  final VisualQualityProfile quality;
-  final bool showProgressRing;
-  final double progress;
+  final _VisualFrame frame;
 
   @override
   void paint(Canvas canvas, Size size) {
     final side = math.min(size.width, size.height);
     final cx = size.width / 2;
     final cy = size.height / 2;
-    // Subject ~72% of shorter side (68–76% band).
-    final scale = side * (0.72 + intensity * 0.015) * quality.resolutionScale;
+    final scale = side * 0.72 * frame.quality.resolutionScale;
 
-    final expansion = 1.0 + intensity * 0.06;
-    final flowSpeed = 0.07 + intensity * 0.55;
-    final radiusScale = 1.0 + intensity * 0.22; // max +22% — never stretch
-    final bright = (0.74 + intensity * 0.26).clamp(0.6, 1.12);
+    final fast = frame.fast;
+    final slow = frame.slow;
+    final time = frame.time;
+    final breath = frame.breath;
+    final flowPhase = frame.flowPhase;
+    final shape = _shapeFromFast(fast);
+    final bright = (0.78 + slow * 0.18).clamp(0.65, 1.05);
+    final radiusMul = 1.0 + fast * 0.12;
 
-    final streamLimit = switch (quality.tier) {
+    final streamLimit = switch (frame.quality.tier) {
       VisualQuality.high => _streamCount,
-      VisualQuality.medium => 7,
-      VisualQuality.low => 5,
+      VisualQuality.medium => 5,
+      VisualQuality.low => 4,
     };
-    final particleStep = quality.tier == VisualQuality.low ? 2 : 1;
+    final particleStep = frame.quality.tier == VisualQuality.low ? 2 : 1;
 
     final paint = Paint()..style = PaintingStyle.fill;
-
     canvas.save();
     canvas.translate(cx, cy);
 
     for (var si = 0; si < streamLimit; si++) {
-      final s = streams[si];
-      final n = _particlesPerStream;
-      // Shared progress for all 4 mirrored copies — no per-quadrant phase.
-      final flow = time * flowSpeed * (0.9 + s.outerness * 0.15) + s.sampleOffset;
+      final u = si / (_streamCount - 1);
+      final ts = _arcLengthTs(
+        streamIndex: si,
+        time: time,
+        shape: shape,
+        breath: breath,
+        slow: slow,
+      );
+
+      final Color col;
+      final double baseAlpha;
+      final double baseR;
+      if (u < 0.28) {
+        col = _cMint;
+        baseAlpha = 0.88;
+        baseR = 1.15;
+      } else if (u < 0.62) {
+        col = Color.lerp(_cMint, _cBlue, 0.35 + slow * 0.15)!;
+        baseAlpha = 0.68;
+        baseR = 0.95;
+      } else {
+        col = Color.lerp(_cBlue, _cViolet, 0.25 + fast * 0.35)!;
+        baseAlpha = 0.38;
+        baseR = 0.72;
+      }
+
+      final layerSpeed = 0.85 + u * 0.2;
+      final n = ts.length;
 
       for (var p = 0; p < n; p += particleStep) {
-        final t = (p / n + flow) % 1.0;
-        final pos = _sampleQ1(
-          s: s,
+        final idx = (p + (flowPhase * n * layerSpeed).floor()) % n;
+        final t = ts[idx];
+        final pos = _streamPoint(
+          streamIndex: si,
           t: t,
           time: time,
-          intensity: intensity,
+          shape: shape,
           breath: breath,
-          expansion: expansion,
+          slow: slow,
         );
 
-        // Color shared across mirrors.
-        Color col;
-        if (s.outerness > 0.75 && intensity > 0.5) {
-          col = Color.lerp(
-            _cBlue,
-            _cViolet,
-            ((intensity - 0.5) / 0.5 * 0.5).clamp(0.0, 0.5),
-          )!;
-        } else if (s.outerness > 0.55) {
-          col = Color.lerp(_cMint, _cBlue, 0.28 + s.outerness * 0.2)!;
-        } else {
-          col = _cMint;
-        }
+        final alpha = (baseAlpha * bright * (0.92 + 0.08 * (1.0 - u)))
+            .clamp(0.16, 0.95);
+        final radius = (baseR * radiusMul).clamp(0.55, 1.6);
 
-        // Mid layers clearest; outer slightly dimmer; density lower outward.
-        final midBoost = (1.0 - (s.outerness - 0.35).abs() * 1.4).clamp(0.0, 1.0);
-        final alpha = ((s.isCore ? 0.72 : 0.52) +
-                midBoost * 0.18 -
-                s.outerness * 0.14 +
-                intensity * 0.1) *
-            bright;
-        final a = alpha.clamp(0.14, 0.92);
-
-        final baseR = s.isCore
-            ? (1.7 + s.outerness * 0.3)
-            : (0.95 + (1.0 - s.outerness) * 0.55);
-        final radius = (baseR * radiusScale).clamp(0.8, 2.5);
-
-        paint.color = col.withValues(alpha: a);
-
+        paint.color = col.withValues(alpha: alpha);
         final x = pos.dx * scale;
         final y = pos.dy * scale;
-
-        // Strict dual-axis mirror — identical r / color / alpha / phase.
         canvas.drawCircle(Offset(x, y), radius, paint);
         canvas.drawCircle(Offset(-x, y), radius, paint);
         canvas.drawCircle(Offset(x, -y), radius, paint);
@@ -246,17 +322,14 @@ class _SoundVisualPainter extends CustomPainter {
       }
     }
 
-    // Sparse low-alpha center connectors (dots only, shared mirrors).
-    if (quality.tier != VisualQuality.low) {
-      final linkN = 5;
-      for (var i = 0; i < linkN; i++) {
-        final u = (i + 0.5) / linkN;
-        final ang = u * (math.pi * 0.5);
-        final r = 0.055 + 0.025 * math.sin(time * _tau / 5.0 + u * 2);
+    if (frame.quality.tier != VisualQuality.low) {
+      for (var i = 0; i < 4; i++) {
+        final ang = (i + 0.5) / 4 * (math.pi * 0.5);
+        final r = 0.042 + 0.01 * math.sin(time * _tau / 5.2 + i);
         final x = math.cos(ang) * r * scale;
         final y = math.sin(ang) * r * scale;
-        paint.color = _cMint.withValues(alpha: 0.18 * bright);
-        final rr = 0.9 * radiusScale;
+        paint.color = _cMint.withValues(alpha: 0.2 * bright);
+        const rr = 0.65;
         canvas.drawCircle(Offset(x, y), rr, paint);
         canvas.drawCircle(Offset(-x, y), rr, paint);
         canvas.drawCircle(Offset(x, -y), rr, paint);
@@ -266,11 +339,11 @@ class _SoundVisualPainter extends CustomPainter {
 
     canvas.restore();
 
-    if (showProgressRing) {
+    if (frame.showProgressRing) {
       canvas.drawArc(
         Rect.fromCircle(center: Offset(cx, cy), radius: side * 0.46),
         -math.pi / 2,
-        math.pi * 2 * progress.clamp(0, 1),
+        math.pi * 2 * frame.progress.clamp(0, 1),
         false,
         Paint()
           ..color = AppColors.accent.withValues(alpha: 0.85)
@@ -281,13 +354,7 @@ class _SoundVisualPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _SoundVisualPainter old) =>
-      old.time != time ||
-      old.breath != breath ||
-      old.intensity != intensity ||
-      old.mode != mode ||
-      old.quality.tier != quality.tier ||
-      old.progress != progress;
+  bool shouldRepaint(covariant _SoundVisualPainter old) => false;
 }
 
 class SoundVisualCanvas extends StatefulWidget {
@@ -299,6 +366,7 @@ class SoundVisualCanvas extends StatefulWidget {
     this.mode,
     this.amplitude = 0.2,
     this.features,
+    this.liveVolume,
     this.showProgressRing = false,
     this.progress = 0,
   });
@@ -309,6 +377,8 @@ class SoundVisualCanvas extends StatefulWidget {
   final SoundVisualMode? mode;
   final double amplitude;
   final ValueListenable<AudioFeatures>? features;
+  /// Raw 0–1 volume at ~20–50ms for fast shape envelope (preferred).
+  final ValueListenable<double>? liveVolume;
   final bool showProgressRing;
   final double progress;
 
@@ -319,16 +389,14 @@ class SoundVisualCanvas extends StatefulWidget {
 class _SoundVisualCanvasState extends State<SoundVisualCanvas>
     with SingleTickerProviderStateMixin {
   late final Ticker _ticker;
-  late final List<_StreamSpec> _streams;
+  final _frame = _VisualFrame();
+  late final _SoundVisualPainter _painter;
 
-  final _start = DateTime.now();
   Duration _lastElapsed = Duration.zero;
-  double _smoothedVolume = 0.12;
-  double _intensity = 0.0;
+  double _rawTarget = 0.12;
   VisualQuality _tier = VisualQuality.high;
   final _frameTimes = <double>[];
   int _paintEpoch = 0;
-  bool _paintScheduled = false;
 
   SoundVisualMode get _mode =>
       widget.mode ??
@@ -349,14 +417,51 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
   @override
   void initState() {
     super.initState();
-    _streams = _buildStreams(widget.seed);
+    _painter = _SoundVisualPainter(_frame);
+    widget.features?.addListener(_onFeatures);
+    widget.liveVolume?.addListener(_onLiveVolume);
+    _syncRawTarget();
     _ticker = createTicker(_onTick)..start();
   }
 
   @override
+  void didUpdateWidget(covariant SoundVisualCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.features != widget.features) {
+      oldWidget.features?.removeListener(_onFeatures);
+      widget.features?.addListener(_onFeatures);
+    }
+    if (oldWidget.liveVolume != widget.liveVolume) {
+      oldWidget.liveVolume?.removeListener(_onLiveVolume);
+      widget.liveVolume?.addListener(_onLiveVolume);
+    }
+    _frame.showProgressRing = widget.showProgressRing;
+    _frame.progress = widget.progress;
+  }
+
+  @override
   void dispose() {
+    widget.features?.removeListener(_onFeatures);
+    widget.liveVolume?.removeListener(_onLiveVolume);
     _ticker.dispose();
+    _frame.dispose();
     super.dispose();
+  }
+
+  void _onFeatures() => _syncRawTarget();
+  void _onLiveVolume() => _syncRawTarget();
+
+  void _syncRawTarget() {
+    if (widget.liveVolume != null) {
+      _rawTarget = widget.liveVolume!.value.clamp(0.0, 1.0);
+      return;
+    }
+    final f = widget.features?.value;
+    if (f != null) {
+      _rawTarget = f.rms.clamp(0.0, 1.0);
+      return;
+    }
+    _rawTarget = widget.amplitude.clamp(0.0, 1.0);
   }
 
   void _adaptQuality(double dt) {
@@ -381,13 +486,8 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
     }
   }
 
-  double _rawVolume() {
-    final f = widget.features?.value;
-    if (f != null) return f.rms.clamp(0.0, 1.0);
-    return widget.amplitude.clamp(0.0, 1.0);
-  }
-
   void _onTick(Duration elapsed) {
+    final reduce = MediaQuery.disableAnimationsOf(context);
     final t = _mode == SoundVisualMode.complete
         ? 5.0 + (widget.seed % 11) * 0.07
         : elapsed.inMilliseconds / 1000.0;
@@ -397,14 +497,32 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
     _lastElapsed = elapsed;
 
     _adaptQuality(dt);
+    _syncRawTarget();
 
     final volTarget = _isLive
-        ? _rawVolume()
+        ? _rawTarget
         : (_mode == SoundVisualMode.paused
-            ? _smoothedVolume * 0.4
-            : 0.1 + 0.05 * (0.5 + 0.5 * math.sin(t * _tau / 5.0)));
-    _smoothedVolume = _ar(_smoothedVolume, volTarget, 0.11, 0.48, dt);
-    _intensity = _smoothstep(0.06, 0.72, _smoothedVolume);
+            ? _rawTarget * 0.35
+            : 0.08 + 0.04 * (0.5 + 0.5 * math.sin(t * _tau / 5.0)));
+
+    // Dual envelopes — fast → shape; slow → brightness / breath.
+    _frame.fast = _ar(_frame.fast, volTarget, 0.035, 0.18, dt);
+    _frame.slow = _ar(_frame.slow, volTarget, 0.13, 0.42, dt);
+
+    final intensity = _smoothstep(0.05, 0.7, _frame.fast);
+    final flowSpeed = 0.06 + intensity * 0.5;
+    if (!reduce && _mode != SoundVisualMode.complete) {
+      _frame.flowPhase = (_frame.flowPhase + dt * flowSpeed) % 1.0;
+    }
+
+    _frame.time = t;
+    _frame.breath = reduce
+        ? 0.5
+        : 0.5 + 0.5 * math.sin(t * _tau / (_isLive ? 3.8 : 4.5));
+    _frame.mode = _mode;
+    _frame.quality = _profile;
+    _frame.showProgressRing = widget.showProgressRing;
+    _frame.progress = widget.progress;
 
     final profile = _profile;
     if (!_isLive && _mode != SoundVisualMode.complete) {
@@ -413,36 +531,11 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
       _paintEpoch = frame;
     }
 
-    _schedulePaint();
-  }
-
-  void _schedulePaint() {
-    if (!mounted) return;
-    final phase = SchedulerBinding.instance.schedulerPhase;
-    final unsafe = phase == SchedulerPhase.transientCallbacks ||
-        phase == SchedulerPhase.midFrameMicrotasks ||
-        phase == SchedulerPhase.persistentCallbacks;
-    if (unsafe) {
-      if (_paintScheduled) return;
-      _paintScheduled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _paintScheduled = false;
-        if (mounted) setState(() {});
-      });
-      return;
-    }
-    setState(() {});
+    _frame.bump();
   }
 
   @override
   Widget build(BuildContext context) {
-    final reduce = MediaQuery.disableAnimationsOf(context);
-    final t = _mode == SoundVisualMode.complete
-        ? 5.0 + (widget.seed % 11) * 0.07
-        : DateTime.now().difference(_start).inMilliseconds / 1000.0;
-    final breath =
-        reduce ? 0.5 : 0.5 + 0.5 * math.sin(t * _tau / (_isLive ? 3.8 : 4.5));
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxW = constraints.maxWidth;
@@ -460,16 +553,7 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
             height: height,
             child: RepaintBoundary(
               child: CustomPaint(
-                painter: _SoundVisualPainter(
-                  streams: _streams,
-                  mode: reduce ? SoundVisualMode.complete : _mode,
-                  intensity: reduce ? 0.12 : _intensity,
-                  time: reduce ? t * 0.15 : t,
-                  breath: breath,
-                  quality: _profile,
-                  showProgressRing: widget.showProgressRing,
-                  progress: widget.progress,
-                ),
+                painter: _painter,
                 size: Size(width, height),
               ),
             ),

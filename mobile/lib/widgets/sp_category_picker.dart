@@ -21,10 +21,7 @@ class SpCategoryPicker extends StatefulWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.sheet)),
       ),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
-        child: SpCategoryPicker(current: current),
-      ),
+      builder: (ctx) => SpCategoryPicker(current: current),
     );
   }
 
@@ -60,169 +57,194 @@ class _SpCategoryPickerState extends State<SpCategoryPicker> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: ListenableBuilder(
-        listenable: SoundRepository.instance,
-        builder: (context, _) {
-          final categories = SoundRepository.instance.categories;
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
-                child: Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        '选择分类',
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text(
-                        '取消',
-                        style: TextStyle(color: AppColors.textSecondary),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (categories.isEmpty && !_creating)
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 8, 20, 16),
-                  child: Text(
-                    '还没有分类，创建一个',
-                    style: TextStyle(
-                      color: AppColors.textTertiary,
-                      fontSize: 14,
-                    ),
-                  ),
-                )
-              else
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.sizeOf(context).height * 0.4,
-                  ),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: categories.length,
-                    itemBuilder: (context, index) {
-                      final c = categories[index];
-                      final selected = c == widget.current;
-                      return ListTile(
-                        title: Text(
-                          c,
-                          style: TextStyle(
-                            color: selected
-                                ? AppColors.accent
-                                : AppColors.textPrimary,
-                          ),
-                        ),
-                        trailing: selected
-                            ? const Icon(
-                                Icons.check,
-                                color: AppColors.accent,
-                                size: 18,
-                              )
-                            : null,
-                        onTap: () => Navigator.of(context).pop(c),
-                      );
-                    },
-                  ),
-                ),
-              const Divider(height: 1, color: AppColors.border),
-              if (_creating)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                  child: Column(
+    final mq = MediaQuery.of(context);
+    // 键盘弹出时压缩 sheet，列表用 Flexible 让出高度，避免 BOTTOM OVERFLOW。
+    final sheetCap = mq.size.height * 0.72;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: mq.viewInsets.bottom),
+      child: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final maxHeight = constraints.maxHeight.isFinite
+                ? constraints.maxHeight.clamp(0.0, sheetCap)
+                : sheetCap;
+            return ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxHeight),
+              child: ListenableBuilder(
+                listenable: SoundRepository.instance,
+                builder: (context, _) {
+                  final categories = SoundRepository.instance.categories;
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      TextField(
-                        controller: _createCtrl,
-                        autofocus: true,
-                        maxLength: kCategoryNameMaxLength,
-                        style: const TextStyle(color: AppColors.textPrimary),
-                        decoration: InputDecoration(
-                          hintText: '新分类名称',
-                          hintStyle: const TextStyle(
-                            color: AppColors.textTertiary,
-                          ),
-                          errorText: _error,
-                          counterStyle: const TextStyle(
-                            color: AppColors.textTertiary,
-                          ),
-                          filled: true,
-                          fillColor: AppColors.surface1,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(AppRadii.input),
-                            borderSide: const BorderSide(color: AppColors.border),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(AppRadii.input),
-                            borderSide: const BorderSide(color: AppColors.border),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(AppRadii.input),
-                            borderSide: const BorderSide(color: AppColors.accent),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            '选择分类',
+                            style: TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
-                        onChanged: (_) {
-                          if (_error != null) setState(() => _error = null);
-                        },
-                        onSubmitted: (_) => _submitCreate(),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          TextButton(
-                            onPressed: () => setState(() {
-                              _creating = false;
-                              _error = null;
-                              _createCtrl.clear();
-                            }),
-                            child: const Text(
-                              '返回',
-                              style: TextStyle(color: AppColors.textSecondary),
-                            ),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text(
+                            '取消',
+                            style: TextStyle(color: AppColors.textSecondary),
                           ),
-                          const Spacer(),
-                          TextButton(
-                            onPressed: _submitCreate,
-                            child: const Text(
-                              '创建并选用',
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (categories.isEmpty && !_creating)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(20, 8, 20, 16),
+                      child: Text(
+                        '还没有分类，创建一个',
+                        style: TextStyle(
+                          color: AppColors.textTertiary,
+                          fontSize: 14,
+                        ),
+                      ),
+                    )
+                  else
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: categories.length,
+                        itemBuilder: (context, index) {
+                          final c = categories[index];
+                          final selected = c == widget.current;
+                          return ListTile(
+                            title: Text(
+                              c,
                               style: TextStyle(
-                                color: AppColors.accent,
-                                fontWeight: FontWeight.w600,
+                                color: selected
+                                    ? AppColors.accent
+                                    : AppColors.textPrimary,
                               ),
                             ),
+                            trailing: selected
+                                ? const Icon(
+                                    Icons.check,
+                                    color: AppColors.accent,
+                                    size: 18,
+                                  )
+                                : null,
+                            onTap: () => Navigator.of(context).pop(c),
+                          );
+                        },
+                      ),
+                    ),
+                  const Divider(height: 1, color: AppColors.border),
+                  if (_creating)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          TextField(
+                            controller: _createCtrl,
+                            autofocus: true,
+                            maxLength: kCategoryNameMaxLength,
+                            style: const TextStyle(color: AppColors.textPrimary),
+                            decoration: InputDecoration(
+                              hintText: '新分类名称',
+                              hintStyle: const TextStyle(
+                                color: AppColors.textTertiary,
+                              ),
+                              errorText: _error,
+                              counterStyle: const TextStyle(
+                                color: AppColors.textTertiary,
+                              ),
+                              filled: true,
+                              fillColor: AppColors.surface1,
+                              border: OutlineInputBorder(
+                                borderRadius:
+                                    BorderRadius.circular(AppRadii.input),
+                                borderSide:
+                                    const BorderSide(color: AppColors.border),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius:
+                                    BorderRadius.circular(AppRadii.input),
+                                borderSide:
+                                    const BorderSide(color: AppColors.border),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius:
+                                    BorderRadius.circular(AppRadii.input),
+                                borderSide:
+                                    const BorderSide(color: AppColors.accent),
+                              ),
+                            ),
+                            onChanged: (_) {
+                              if (_error != null) {
+                                setState(() => _error = null);
+                              }
+                            },
+                            onSubmitted: (_) => _submitCreate(),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              TextButton(
+                                onPressed: () => setState(() {
+                                  _creating = false;
+                                  _error = null;
+                                  _createCtrl.clear();
+                                }),
+                                child: const Text(
+                                  '返回',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                              const Spacer(),
+                              TextButton(
+                                onPressed: _submitCreate,
+                                child: const Text(
+                                  '创建并选用',
+                                  style: TextStyle(
+                                    color: AppColors.accent,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                )
-              else
-                ListTile(
-                  leading: const Icon(Icons.add, color: AppColors.accent),
-                  title: const Text(
-                    '创建新分类',
-                    style: TextStyle(
-                      color: AppColors.accent,
-                      fontWeight: FontWeight.w600,
+                    )
+                  else
+                    ListTile(
+                      leading: const Icon(Icons.add, color: AppColors.accent),
+                      title: const Text(
+                        '创建新分类',
+                        style: TextStyle(
+                          color: AppColors.accent,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      onTap: () => setState(() => _creating = true),
                     ),
-                  ),
-                  onTap: () => setState(() => _creating = true),
-                ),
-              const SizedBox(height: 8),
-            ],
-          );
-        },
+                  const SizedBox(height: 8),
+                ],
+              );
+                },
+              ),
+            );
+          },
+        ),
       ),
     );
   }

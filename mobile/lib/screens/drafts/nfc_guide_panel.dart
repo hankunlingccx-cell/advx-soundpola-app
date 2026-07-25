@@ -27,6 +27,7 @@ class NfcGuidePanel extends StatelessWidget {
     required this.breath,
     this.soundTitle,
     this.progress = 0,
+    this.statusHint,
     this.chaining = false,
     this.failReason,
     this.onStartDetect,
@@ -45,6 +46,8 @@ class NfcGuidePanel extends StatelessWidget {
   final Animation<double> breath;
   final String? soundTitle;
   final double progress;
+  /// 写入阶段文案（上传云端 / 贴近写入链接等）。
+  final String? statusHint;
   final bool chaining;
   final String? failReason;
   final VoidCallback? onStartDetect;
@@ -121,8 +124,11 @@ class NfcGuidePanel extends StatelessWidget {
           onCancelWrite: onCancelWrite,
           onRetrieve: onRetrieve,
         ),
-      NfcGuidePhase.found => const _FoundBody(),
-      NfcGuidePhase.pressing => _PressingBody(progress: progress),
+      NfcGuidePhase.found => _FoundBody(statusHint: statusHint),
+      NfcGuidePhase.pressing => _PressingBody(
+          progress: progress,
+          statusHint: statusHint,
+        ),
       NfcGuidePhase.complete => _CompleteBody(
           soundTitle: soundTitle ?? '',
           chaining: chaining,
@@ -405,18 +411,20 @@ class _WaitingBodyState extends State<_WaitingBody>
 }
 
 class _FoundBody extends StatelessWidget {
-  const _FoundBody();
+  const _FoundBody({this.statusHint});
+
+  final String? statusHint;
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHead(code: 'SOUND PIECE FOUND', title: '已检测到实体声片'),
-        SizedBox(height: 8),
+        const _SectionHead(code: 'SOUND PIECE FOUND', title: '已检测到实体声片'),
+        const SizedBox(height: 8),
         Text(
-          '请保持声片位置不动。',
-          style: TextStyle(
+          statusHint ?? '正在准备云端链接，随后请再次贴近写入。',
+          style: const TextStyle(
             color: AppColors.textTertiary,
             fontSize: 13,
             height: 1.45,
@@ -428,9 +436,10 @@ class _FoundBody extends StatelessWidget {
 }
 
 class _PressingBody extends StatelessWidget {
-  const _PressingBody({required this.progress});
+  const _PressingBody({required this.progress, this.statusHint});
 
   final double progress;
+  final String? statusHint;
 
   @override
   Widget build(BuildContext context) {
@@ -443,11 +452,12 @@ class _PressingBody extends StatelessWidget {
           title: '正在写入声音',
         ),
         const SizedBox(height: 8),
-        const Text(
-          '请勿移动实体声片。',
-          style: TextStyle(
+        Text(
+          statusHint ?? '请勿移动实体声片。',
+          style: const TextStyle(
             color: AppColors.textTertiary,
             fontSize: 13,
+            height: 1.45,
           ),
         ),
         const SizedBox(height: 14),

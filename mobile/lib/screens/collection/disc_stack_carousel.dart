@@ -8,6 +8,7 @@ import '../../data/disc_rarity.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/disc_texture.dart';
+import '../../widgets/rarity_holo.dart';
 import '../../widgets/ssr_aura_layer.dart';
 
 /// 横向三维声片堆栈：PageController 驱动物理滑动，Stack 控制遮挡层级。
@@ -446,44 +447,40 @@ class DiscFacePainter extends CustomPainter {
       ).createShader(rect);
     canvas.drawCircle(c, r, topSheen);
 
-    // 全等级镭射折射叠层（稀有度差异后续由贴图区分）
-    final holoStrength = elevated ? 0.55 : 0.38;
-    final holo = Paint()
-      ..blendMode = BlendMode.softLight
-      ..shader = SweepGradient(
-        colors: [
-          _mint.withValues(alpha: 0),
-          _mint.withValues(alpha: holoStrength),
-          _blue.withValues(alpha: holoStrength * 0.85),
-          _purple.withValues(alpha: holoStrength * 0.75),
-          _pink.withValues(alpha: holoStrength * 0.75),
-          _mint.withValues(alpha: holoStrength * 0.9),
-          _mint.withValues(alpha: 0),
-        ],
-      ).createShader(rect);
-    canvas.drawCircle(c, r, holo);
+    // 按稀有度分级的镭射叠层（越高光谱越宽、越绚烂）
+    paintRarityHoloOverlay(
+      canvas: canvas,
+      center: c,
+      radius: r,
+      rarity: rarity,
+      elevatedBoost: elevated ? 1.0 : 0.55,
+      phase: (seed % 100) / 100,
+    );
 
     canvas.restore();
 
-    // 统一镭射边缘高光
-    final edgeColor = _mint.withValues(alpha: elevated ? 0.9 : 0.45);
+    final (edgeMain, edgeSecond) = rarityRimColors(rarity, elevated: elevated);
+    final holo = RarityHoloStyle.of(rarity);
     canvas.drawCircle(
       c,
       r - 0.5,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = elevated ? 1.6 : 1.1
-        ..color = edgeColor
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, edgePulse ? 3.2 : 1.6),
+        ..strokeWidth = elevated ? holo.rimWidth : holo.rimWidth * 0.85
+        ..color = edgeMain
+        ..maskFilter = MaskFilter.blur(
+          BlurStyle.normal,
+          edgePulse ? 3.2 : (holo.rarity.index >= DiscRarity.sr.index ? 2.0 : 1.4),
+        ),
     );
-    if (elevated) {
+    if (edgeSecond != null && (elevated || holo.hasSecondaryRim)) {
       canvas.drawCircle(
         c,
         r - 4,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.8
-          ..color = _pink.withValues(alpha: 0.3),
+          ..strokeWidth = 0.85
+          ..color = edgeSecond,
       );
     }
   }

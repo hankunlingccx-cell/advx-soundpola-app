@@ -6,6 +6,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_dimens.dart';
 import 'design_components.dart';
 import 'disc_texture.dart';
+import 'rarity_holo.dart';
 import 'sound_visual.dart';
 import 'ssr_aura_layer.dart';
 
@@ -32,12 +33,9 @@ class SoundNftCard extends StatelessWidget {
   /// 分享场景优先使用稳定贴图，而非重新渲染声音可视化。
   final bool useDiscTexture;
 
+  RarityHoloStyle get _holo => RarityHoloStyle.of(item.discRarity);
   bool get _isSsr => item.discRarity == DiscRarity.ssr;
-
-  Color get _accent => switch (item.discRarity) {
-        DiscRarity.sr => const Color(0xFF4FA9E8),
-        _ => AppColors.accent,
-      };
+  Color get _accent => _holo.accent;
 
   @override
   Widget build(BuildContext context) {
@@ -142,6 +140,11 @@ class SoundNftCard extends StatelessWidget {
   }
 
   Widget _buildVisual(double size) {
+    final holo = _holo;
+    final (rimMain, rimSecond) = rarityRimColors(
+      item.discRarity,
+      elevated: true,
+    );
     final core = ClipOval(
       child: useDiscTexture
           ? Stack(
@@ -158,15 +161,28 @@ class SoundNftCard extends StatelessWidget {
                   ),
                 ),
                 ColoredBox(color: Colors.black.withValues(alpha: 0.28)),
+                RarityHoloOverlay(
+                  rarity: item.discRarity,
+                  intensityScale: 1.05,
+                ),
               ],
             )
-          : SoundVisualCanvas(
-              seed: item.visualSeed,
-              mode: animateVisual
-                  ? SoundVisualMode.playback
-                  : SoundVisualMode.complete,
-              active: animateVisual,
-              dark: true,
+          : Stack(
+              fit: StackFit.expand,
+              children: [
+                SoundVisualCanvas(
+                  seed: item.visualSeed,
+                  mode: animateVisual
+                      ? SoundVisualMode.playback
+                      : SoundVisualMode.complete,
+                  active: animateVisual,
+                  dark: true,
+                ),
+                RarityHoloOverlay(
+                  rarity: item.discRarity,
+                  intensityScale: 0.55,
+                ),
+              ],
             ),
     );
 
@@ -188,19 +204,35 @@ class SoundNftCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.24),
-                    width: 1.2,
+                    color: rimMain,
+                    width: holo.rimWidth,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: _accent.withValues(alpha: _isSsr ? 0.5 : 0.3),
-                      blurRadius: _isSsr ? 34 : 22,
-                      spreadRadius: _isSsr ? 1.5 : 0,
+                      color: _accent.withValues(alpha: holo.glowAlpha),
+                      blurRadius: 18 + holo.glowAlpha * 40,
+                      spreadRadius: _isSsr ? 1.5 : 0.4,
                     ),
+                    if (holo.rarity.index >= DiscRarity.sr.index)
+                      BoxShadow(
+                        color: holo.secondaryAccent.withValues(alpha: 0.18),
+                        blurRadius: 28,
+                      ),
                   ],
                 ),
               ),
             ),
+            if (rimSecond != null)
+              IgnorePointer(
+                child: Container(
+                  width: size - 4,
+                  height: size - 4,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: rimSecond, width: 0.85),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

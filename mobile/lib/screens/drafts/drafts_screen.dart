@@ -1,16 +1,20 @@
 import 'dart:async';
-import 'dart:ui';
+import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:nfc_manager/nfc_manager.dart';
 
+import '../../cloud/cloud_media_client.dart';
+import '../../cloud/cloud_media_models.dart';
 import '../../data/disc_rarity.dart';
 import '../../data/session.dart';
 import '../../data/sound_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/audio_playback_service.dart';
+import '../../services/chain_service.dart';
 import '../../services/nfc_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
@@ -68,6 +72,7 @@ class _DraftsScreenState extends State<DraftsScreen>
   String? _loadedId;
   SoundMemory? _loadedItem;
   double _pressProgress = 0;
+  String? _pressStatus;
   bool _autoListening = false;
   bool _chaining = false;
   bool _nfcBusy = false;
@@ -76,6 +81,7 @@ class _DraftsScreenState extends State<DraftsScreen>
   late final AnimationController _breath;
   final GlobalKey _slotKey = GlobalKey();
   final GlobalKey _stageKey = GlobalKey();
+  final CloudMediaClient _cloud = CloudMediaClient();
 
   @override
   void initState() {
@@ -89,6 +95,7 @@ class _DraftsScreenState extends State<DraftsScreen>
   @override
   void dispose() {
     NfcService.instance.stopSession();
+    _cloud.close();
     _breath.dispose();
     super.dispose();
   }
@@ -154,16 +161,24 @@ class _DraftsScreenState extends State<DraftsScreen>
       item.status == SoundStatus.writeFailed ||
       item.status == SoundStatus.chainFailed;
 
-  Rect? _slotRectGlobal() {
+  Rect? _slotHitRectGlobal() {
     final box = _slotKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize) return null;
     final topLeft = box.localToGlobal(Offset.zero);
+    // Expanded affinity zone for drag targeting.
     return Rect.fromLTWH(
       topLeft.dx - 40,
       topLeft.dy - 56,
       box.size.width + 80,
       box.size.height + 110,
     );
+  }
+
+  /// Exact slot bounds — used for insert path + occlusion clip.
+  Rect? _slotMouthRectGlobal() {
+    final box = _slotKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
   }
 
   Rect? _stageRectGlobal() {
@@ -202,7 +217,7 @@ class _DraftsScreenState extends State<DraftsScreen>
   void _onLongPressMove(LongPressMoveUpdateDetails details) {
     if (_dragPhase != _DragPhase.dragging) return;
     final next = details.globalPosition;
-    final slot = _slotRectGlobal();
+    final slot = _slotHitRectGlobal();
     var mode = PressMachineMode.receiving;
     var scale = 1.04;
     var angle = 0.0;
@@ -211,8 +226,8 @@ class _DraftsScreenState extends State<DraftsScreen>
     if (slot != null) {
       final dist = (next - slot.center).distance;
       final t = (1 - (dist / 280)).clamp(0.0, 1.0);
-      scale = uiLerp(1.04, 0.94, t);
-      angle = uiLerp(_dragAngle, 0.02, t * 0.5);
+      scale = ui.lerpDouble(1.04, 0.94, t)!;
+      angle = ui.lerpDouble(_dragAngle, 0.02, t * 0.5)!;
       if (slot.contains(next) || dist < 95) {
         mode = PressMachineMode.readyToRelease;
         near = true;
@@ -233,7 +248,7 @@ class _DraftsScreenState extends State<DraftsScreen>
 
   Future<void> _onLongPressEnd(LongPressEndDetails details) async {
     if (_dragPhase != _DragPhase.dragging || _dragIndex == null) return;
-    final slot = _slotRectGlobal();
+    final slot = _slotHitRectGlobal();
     final pos = details.globalPosition;
     final inZone = slot != null &&
         (slot.contains(pos) || (pos - slot.center).distance < 100);
@@ -261,41 +276,44 @@ class _DraftsScreenState extends State<DraftsScreen>
     });
   }
 
-  /// 650–900ms 连续插卡：吸附 → 停顿 → 吸入遮挡 → 闭合。
+  /// 吸附到插槽下方 → 停顿 → 上吸入槽（顶部被机身遮挡）→ 消失。
   Future<void> _runInsertAnimation() async {
     final items = _trayItems;
     final index = _dragIndex;
-    final slot = _slotRectGlobal();
-    if (index == null || index >= items.length || slot == null) {
+    final mouth = _slotMouthRectGlobal();
+    if (index == null || index >= items.length || mouth == null) {
       await _springBack();
       return;
     }
     final item = items[index];
+    const cardH = _DragLayer.cardH;
 
     HapticFeedback.mediumImpact();
-    // 1) 快速吸附到插槽中心
+
+    // 1) Snap: card hangs mostly below the downward-facing slot.
+    final snapY = mouth.bottom + cardH * 0.28;
     setState(() {
       _dragPhase = _DragPhase.snapping;
-      _dragGlobal = slot.center.translate(0, 8);
-      _dragScale = 0.9;
+      _dragGlobal = Offset(mouth.center.dx, snapY);
+      _dragScale = 0.88;
       _dragAngle = 0;
-      _insertProgress = 0.05;
+      _insertProgress = 0;
       _machineMode = PressMachineMode.readyToRelease;
     });
-    await Future<void>.delayed(const Duration(milliseconds: 160));
+    await Future<void>.delayed(const Duration(milliseconds: 180));
     if (!mounted) return;
 
-    // 2) 短暂停顿 80–120ms
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await Future<void>.delayed(const Duration(milliseconds: 90));
     if (!mounted) return;
 
-    // 3) 沿插槽吸入，逐步遮挡
+    // 2) Slide up into slot — occlude at mouth so card never covers screen.
     setState(() {
       _dragPhase = _DragPhase.inserting;
       _machineMode = PressMachineMode.inserting;
     });
 
-    const steps = 8;
+    final endY = mouth.top - cardH * 0.42;
+    const steps = 10;
     for (var i = 1; i <= steps; i++) {
       if (!mounted) return;
       final t = i / steps;
@@ -303,16 +321,15 @@ class _DraftsScreenState extends State<DraftsScreen>
       setState(() {
         _insertProgress = eased;
         _dragGlobal = Offset(
-          slot.center.dx,
-          slot.center.dy - 18 - eased * 56,
+          mouth.center.dx,
+          ui.lerpDouble(snapY, endY, eased)!,
         );
-        _dragScale = uiLerp(0.9, 0.78, eased);
+        _dragScale = ui.lerpDouble(0.88, 0.72, eased)!;
       });
-      await Future<void>.delayed(const Duration(milliseconds: 55));
+      await Future<void>.delayed(const Duration(milliseconds: 48));
     }
     if (!mounted) return;
 
-    // 4) 插槽收紧 + 短促扫描感
     setState(() {
       _dragPhase = _DragPhase.idle;
       _dragIndex = null;
@@ -326,7 +343,6 @@ class _DraftsScreenState extends State<DraftsScreen>
     });
     HapticFeedback.selectionClick();
 
-    // 登录前置
     if (!AuthService.instance.isLoggedIn) {
       widget.onLogin();
     }
@@ -339,36 +355,40 @@ class _DraftsScreenState extends State<DraftsScreen>
     await NfcService.instance.stopSession();
     _autoListening = false;
 
-    final slot = _slotRectGlobal();
+    final mouth = _slotMouthRectGlobal();
     final item = _loadedItem!;
-    final tray = _trayItems;
-    // 插回轮播：恢复到列表中（本来就在 repo，只是隐藏）
-    final insertAt = _selectedIndex.clamp(0, tray.length);
+    const cardH = _DragLayer.cardH;
 
     setState(() {
       _dragPhase = _DragPhase.retrieving;
       _machineMode = PressMachineMode.receiving;
       _flow = _FlowPhase.idle;
-      _dragGlobal = slot?.center ?? Offset.zero;
-      _dragScale = 0.82;
-      _insertProgress = 0.85;
+      _dragGlobal = mouth != null
+          ? Offset(mouth.center.dx, mouth.top - cardH * 0.35)
+          : Offset.zero;
+      _dragScale = 0.76;
+      _insertProgress = 0.9;
       _dragIndex = null;
+      _loadedId = null;
+      _loadedItem = item;
     });
 
-    // 边缘露出 → 推出三分之一 → 回中央
-    if (slot != null) {
-      for (var i = 1; i <= 6; i++) {
+    if (mouth != null) {
+      final startY = mouth.top - cardH * 0.35;
+      final endY = mouth.bottom + cardH * 0.28;
+      for (var i = 1; i <= 8; i++) {
         if (!mounted) return;
-        final t = i / 6;
+        final t = i / 8;
+        final eased = Curves.easeOutCubic.transform(t);
         setState(() {
-          _insertProgress = uiLerp(0.85, 0, t);
+          _insertProgress = ui.lerpDouble(0.9, 0, eased)!;
           _dragGlobal = Offset(
-            slot.center.dx,
-            slot.center.dy + t * 120,
+            mouth.center.dx,
+            ui.lerpDouble(startY, endY, eased)!,
           );
-          _dragScale = uiLerp(0.82, 1.0, t);
+          _dragScale = ui.lerpDouble(0.76, 1.0, eased)!;
         });
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await Future<void>.delayed(const Duration(milliseconds: 42));
       }
     }
 
@@ -379,8 +399,6 @@ class _DraftsScreenState extends State<DraftsScreen>
       _insertProgress = 0;
       _loadedId = null;
       _loadedItem = null;
-      _selectedIndex = insertAt;
-      // 把取回的声音放回视觉队列后选中它
       final idx = _trayItems.indexWhere((s) => s.id == item.id);
       if (idx >= 0) _selectedIndex = idx;
       _syncMachineIdle();
@@ -395,6 +413,7 @@ class _DraftsScreenState extends State<DraftsScreen>
     if (!mounted) return;
     setState(() {
       _failReason = reason;
+      _pressStatus = null;
       _flow = _FlowPhase.interrupted;
       _machineMode = PressMachineMode.interrupted;
       _autoListening = false;
@@ -514,10 +533,11 @@ class _DraftsScreenState extends State<DraftsScreen>
         _flow = _FlowPhase.found;
         _machineMode = PressMachineMode.found;
         _autoListening = false;
+        _pressStatus = '正在准备云端链接…';
       });
 
-      // 短暂停顿后开启第二段写入会话（需再次贴近）
-      await Future<void>.delayed(const Duration(milliseconds: 480));
+      // 识别后：先拉云端链接，再开第二段 NFC 写入会话
+      await Future<void>.delayed(const Duration(milliseconds: 320));
       if (!mounted || _loadedItem == null) return;
       if (_flow != _FlowPhase.found) return;
       await _startNfcWrite();
@@ -526,7 +546,7 @@ class _DraftsScreenState extends State<DraftsScreen>
     }
   }
 
-  /// 第二阶段：新会话写入，贴近后立刻写，不再拖延。
+  /// 云端就绪（上传 / 轮询 READY）→ 拿到 nfc_url → 新会话写入该链接。
   Future<void> _startNfcWrite() async {
     final item = _loadedItem;
     final discId = PressSession.discId;
@@ -539,7 +559,44 @@ class _DraftsScreenState extends State<DraftsScreen>
     setState(() {
       _flow = _FlowPhase.pressing;
       _machineMode = PressMachineMode.pressing;
-      _pressProgress = 0.1;
+      _pressProgress = 0.08;
+      _pressStatus = '正在连接云端…';
+      _autoListening = false;
+      _failReason = null;
+    });
+
+    ContentSummary ready;
+    try {
+      final token = await AuthService.instance.requireCloudToken();
+      await _cloud.assertReachable();
+      ready = await _ensureCloudReady(item, token);
+    } catch (e) {
+      await _failPress(_friendlyCloudError(e));
+      return;
+    }
+
+    final nfcUrl = ready.nfcUrl?.trim();
+    if (nfcUrl == null || nfcUrl.isEmpty) {
+      await _failPress('云端未返回可写入链接，请稍后重试。');
+      return;
+    }
+
+    if (!mounted || _flow != _FlowPhase.pressing) return;
+
+    SoundRepository.instance.update(
+      item.id,
+      (s) => s.copyWith(
+        contentId: ready.contentId,
+        nfcUrl: nfcUrl,
+        cloudState: ready.state.wire,
+        status: SoundStatus.writing,
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _pressProgress = 0.55;
+      _pressStatus = '请再次贴近声片，写入云端链接…';
       _autoListening = true;
     });
 
@@ -548,20 +605,26 @@ class _DraftsScreenState extends State<DraftsScreen>
 
     try {
       await NfcService.instance.startSession(
-        alertMessage: '请保持贴近，正在写入…',
+        alertMessage: '请保持贴近，正在写入云端链接…',
         invalidateAfterFirstRead: false,
         onDiscovered: (tag) async {
           if (completer.isCompleted) return;
           try {
-            // 再次确认未绑定
             final binding = await NfcService.instance.readBinding(tag);
             if (binding != null) {
               await NfcService.instance.stopSession();
-              if (!completer.isCompleted) completer.completeError(StateError('声片已绑定'));
+              if (!completer.isCompleted) {
+                completer.completeError(StateError('声片已绑定'));
+              }
               return;
             }
 
-            if (mounted) setState(() => _pressProgress = 0.35);
+            if (mounted) {
+              setState(() {
+                _pressProgress = 0.68;
+                _pressStatus = '正在写入云端链接…';
+              });
+            }
 
             final factory = DiscFactoryProfile(
               discId: discId,
@@ -583,6 +646,8 @@ class _DraftsScreenState extends State<DraftsScreen>
                   soundId: item.id,
                   discId: discId,
                   title: item.title,
+                  contentId: ready.contentId,
+                  nfcUrl: nfcUrl,
                   rarity: rarity,
                   series: PressSession.series,
                   factory: factory,
@@ -591,7 +656,6 @@ class _DraftsScreenState extends State<DraftsScreen>
             try {
               await doWrite();
             } catch (e) {
-              // 常见：贴合不稳导致 IOException，同会话立即重试一次
               final blob = e.toString().toLowerCase();
               if (blob.contains('ioexception') || blob.contains('tag')) {
                 await Future<void>.delayed(const Duration(milliseconds: 120));
@@ -609,17 +673,6 @@ class _DraftsScreenState extends State<DraftsScreen>
         },
       );
 
-      // 进度动画与等待写入并行
-      unawaited(() async {
-        for (final p in [0.45, 0.58, 0.7]) {
-          await Future<void>.delayed(const Duration(milliseconds: 160));
-          if (!mounted || completer.isCompleted) return;
-          if (_flow == _FlowPhase.pressing) {
-            setState(() => _pressProgress = p);
-          }
-        }
-      }());
-
       await completer.future.timeout(const Duration(seconds: 40));
     } on TimeoutException {
       await _failPress('写入超时。请保持声片贴近 NFC 区域后重试。');
@@ -632,17 +685,31 @@ class _DraftsScreenState extends State<DraftsScreen>
     _nfcBusy = false;
     if (!mounted) return;
 
-    for (final p in [0.85, 1.0]) {
-      setState(() => _pressProgress = p);
-      await Future<void>.delayed(const Duration(milliseconds: 80));
-      if (!mounted) return;
-    }
+    setState(() {
+      _pressProgress = 0.82;
+      _pressStatus = '正在上链…';
+      _autoListening = false;
+      _chaining = true;
+    });
+
+    final assetId = await ChainService.instance.submitAsset(
+      soundId: item.id,
+      discId: discId,
+      rarityCode: rarity.code,
+      series: PressSession.series,
+    );
+
+    if (!mounted) return;
+    setState(() => _pressProgress = 1.0);
 
     SoundRepository.instance.markCollected(
       item.id,
       discId,
-      'asset_${item.id}',
+      assetId,
       nfcTagId: PressSession.tagIdHex,
+      contentId: ready.contentId,
+      nfcUrl: nfcUrl,
+      cloudState: ready.state.wire,
       discRarity: rarity,
       discSeries: PressSession.series,
     );
@@ -655,12 +722,124 @@ class _DraftsScreenState extends State<DraftsScreen>
       _machineMode = PressMachineMode.complete;
       _chaining = true;
       _loadedId = null;
-      _autoListening = false;
+      _pressStatus = null;
       _failReason = null;
     });
     Future<void>.delayed(const Duration(milliseconds: 1600), () {
       if (mounted) setState(() => _chaining = false);
     });
+  }
+
+  Future<ContentSummary> _ensureCloudReady(
+    SoundMemory item,
+    String token,
+  ) async {
+    var contentId = item.contentId;
+
+    if (contentId != null && contentId.isNotEmpty) {
+      var summary = await _cloud.getContent(token: token, contentId: contentId);
+      if (summary.state == CloudContentState.ready) {
+        if (mounted) {
+          setState(() {
+            _pressProgress = 0.48;
+            _pressStatus = '云端链接已就绪';
+          });
+        }
+        return summary;
+      }
+      if (summary.state == CloudContentState.failed) {
+        if (mounted) {
+          setState(() {
+            _pressProgress = 0.18;
+            _pressStatus = '云端处理失败，正在重试…';
+          });
+        }
+        summary = await _cloud.retryContent(token: token, contentId: contentId);
+      }
+      if (summary.state == CloudContentState.ready) return summary;
+      if (mounted) {
+        setState(() {
+          _pressProgress = 0.28;
+          _pressStatus = '云端处理中…';
+        });
+      }
+      return _cloud.waitUntilReady(
+        token: token,
+        contentId: contentId,
+        onUpdate: (s) {
+          if (!mounted) return;
+          setState(() {
+            _pressStatus = '云端处理：${s.state.wire}';
+            _pressProgress =
+                s.state == CloudContentState.processing ? 0.4 : 0.3;
+          });
+        },
+      );
+    }
+
+    final path = item.audioPath;
+    if (path == null || path.isEmpty || !File(path).existsSync()) {
+      throw StateError('缺少本地录音文件，无法上传云端');
+    }
+
+    if (mounted) {
+      setState(() {
+        _pressProgress = 0.15;
+        _pressStatus = '正在上传音频到云端…';
+      });
+    }
+    final created = await _cloud.uploadAudio(
+      token: token,
+      file: File(path),
+      filename: path.split(Platform.pathSeparator).last,
+    );
+    contentId = created.contentId;
+    SoundRepository.instance.update(
+      item.id,
+      (s) => s.copyWith(contentId: contentId, cloudState: created.state.wire),
+    );
+
+    if (mounted) {
+      setState(() {
+        _pressProgress = 0.28;
+        _pressStatus = '云端处理中…';
+      });
+    }
+    return _cloud.waitUntilReady(
+      token: token,
+      contentId: contentId,
+      onUpdate: (s) {
+        if (!mounted) return;
+        setState(() {
+          _pressStatus = '云端处理：${s.state.wire}';
+          _pressProgress =
+              s.state == CloudContentState.processing ? 0.42 : 0.32;
+        });
+      },
+    );
+  }
+
+  String _friendlyCloudError(Object e) {
+    if (e is CloudMediaException) {
+      final msg = e.message.trim();
+      if (msg.isEmpty) return '云端服务异常，请稍后重试。';
+      if (msg.length > 100) return '${msg.substring(0, 100)}…';
+      return msg;
+    }
+    if (e is StateError) {
+      return e.message;
+    }
+    final blob = e.toString().toLowerCase();
+    if (blob.contains('socket') ||
+        blob.contains('network') ||
+        blob.contains('failed host') ||
+        blob.contains('connection')) {
+      return '网络不可用，无法上传云端。请检查网络后重试。';
+    }
+    if (blob.contains('token') || blob.contains('401') || blob.contains('403')) {
+      return '云端登录已失效，请重新登录后再写入。';
+    }
+    return '云端准备失败，请稍后重试。';
   }
 
   String _friendlyNfcError(Object e) {
@@ -723,26 +902,63 @@ class _DraftsScreenState extends State<DraftsScreen>
       _failReason = null;
       _flow = _FlowPhase.found;
       _machineMode = PressMachineMode.found;
+      _pressStatus = '模拟：准备云端链接…';
     });
-    await Future<void>.delayed(const Duration(milliseconds: 400));
+    await Future<void>.delayed(const Duration(milliseconds: 280));
     if (!mounted) return;
+
     setState(() {
       _flow = _FlowPhase.pressing;
       _machineMode = PressMachineMode.pressing;
-      _pressProgress = 0;
+      _pressProgress = 0.1;
+      _pressStatus = '模拟：上传并获取链接…';
     });
-    for (var i = 1; i <= 12; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 70));
+
+    String? contentId = item.contentId;
+    String? nfcUrl = item.nfcUrl;
+    try {
+      final token = await AuthService.instance.requireCloudToken();
+      await _cloud.assertReachable();
+      final ready = await _ensureCloudReady(item, token);
+      contentId = ready.contentId;
+      nfcUrl = ready.nfcUrl;
+      if (mounted) {
+        setState(() {
+          _pressProgress = 0.7;
+          _pressStatus = '模拟：已拿到云端链接（跳过真机 NFC）';
+        });
+      }
+    } catch (_) {
+      // 调试机允许无网络完成流程
+      if (mounted) {
+        setState(() {
+          _pressProgress = 0.7;
+          _pressStatus = '模拟写入（未连云端）';
+        });
+      }
+    }
+
+    for (var i = 8; i <= 12; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 60));
       if (!mounted) return;
       setState(() => _pressProgress = i / 12);
     }
+
     final discId = NfcService.instance.generateDiscId('DEMO');
     final rarity =
         DiscRarity.values[item.visualSeed % DiscRarity.values.length];
+    final assetId = await ChainService.instance.submitAsset(
+      soundId: item.id,
+      discId: discId,
+      rarityCode: rarity.code,
+      series: 'Genesis-Sim',
+    );
     SoundRepository.instance.markCollected(
       item.id,
       discId,
-      'asset_${item.id}',
+      assetId,
+      contentId: contentId,
+      nfcUrl: nfcUrl,
       discRarity: rarity,
       discSeries: 'Genesis-Sim',
     );
@@ -754,6 +970,7 @@ class _DraftsScreenState extends State<DraftsScreen>
       _chaining = true;
       _loadedId = null;
       _loadedItem = item;
+      _pressStatus = null;
       _failReason = null;
     });
     Future<void>.delayed(const Duration(milliseconds: 1600), () {
@@ -767,10 +984,11 @@ class _DraftsScreenState extends State<DraftsScreen>
     if (!mounted) return;
     setState(() {
       _autoListening = false;
+      _pressStatus = null;
+      _pressProgress = 0;
       if (_flow == _FlowPhase.pressing || _flow == _FlowPhase.found) {
         _flow = _FlowPhase.waitingNfc;
         _machineMode = PressMachineMode.loaded;
-        _pressProgress = 0;
       } else {
         _flow = _FlowPhase.waitingNfc;
         _machineMode = PressMachineMode.loaded;
@@ -784,6 +1002,7 @@ class _DraftsScreenState extends State<DraftsScreen>
       _loadedItem = null;
       _loadedId = null;
       _pressProgress = 0;
+      _pressStatus = null;
       _chaining = false;
       _syncMachineIdle();
       if (_trayItems.isNotEmpty) {
@@ -831,16 +1050,17 @@ class _DraftsScreenState extends State<DraftsScreen>
             _dragPhase == _DragPhase.inserting ||
             _dragPhase == _DragPhase.retrieving;
         final screenH = MediaQuery.sizeOf(context).height;
-        final machineMaxH = (screenH * 0.22).clamp(118.0, 150.0);
+        final machineMaxH = (screenH * 0.24).clamp(132.0, 172.0);
 
         return ColoredBox(
-          color: AppColors.bgPrimary,
+          color: const Color(0xFF030505),
           child: SafeArea(
             bottom: false,
             child: Stack(
               key: _stageKey,
               clipBehavior: Clip.none,
               children: [
+                const Positioned.fill(child: _WorkbenchBackdrop()),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -917,9 +1137,9 @@ class _DraftsScreenState extends State<DraftsScreen>
 
                     // 写入设备（动态高度，不抢满屏）
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
                       child: SizedBox(
-                        height: machineMaxH + 20,
+                        height: machineMaxH + 22,
                         child: PressMachine(
                           mode: _machineMode,
                           breath: _breath,
@@ -942,6 +1162,7 @@ class _DraftsScreenState extends State<DraftsScreen>
                             breath: _breath,
                             soundTitle: _loadedItem?.title,
                             progress: _pressProgress,
+                            statusHint: _pressStatus,
                             chaining: _chaining,
                             failReason: _failReason,
                             autoListening: _autoListening,
@@ -958,8 +1179,32 @@ class _DraftsScreenState extends State<DraftsScreen>
                         ),
                       )
                     else ...[
+                      SizedBox(
+                        height: 20,
+                        child: Center(
+                          child: AnimatedOpacity(
+                            duration: AppMotion.fast,
+                            opacity: dragging ? 0.9 : 0.4,
+                            child: Container(
+                              width: 1.2,
+                              height: 14,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(1),
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    AppColors.accent.withValues(alpha: 0.32),
+                                    AppColors.accent.withValues(alpha: 0.02),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 10, 24, 4),
+                        padding: const EdgeInsets.fromLTRB(28, 0, 28, 6),
                         child: AnimatedOpacity(
                           duration: AppMotion.fast,
                           opacity: dragging ? 0.95 : 1,
@@ -968,13 +1213,14 @@ class _DraftsScreenState extends State<DraftsScreen>
                                 ? (_machineMode ==
                                         PressMachineMode.readyToRelease
                                     ? '松开以插入设备'
-                                    : '向上拖入写入插槽')
+                                    : '向上拖入设备封存')
                                 : '长按中央声卡，向上拖入设备封存',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: dragging
                                   ? AppColors.accent
-                                  : AppColors.textSecondary,
+                                  : AppColors.textSecondary
+                                      .withValues(alpha: 0.85),
                               fontSize: 13,
                               height: 1.35,
                             ),
@@ -983,31 +1229,32 @@ class _DraftsScreenState extends State<DraftsScreen>
                       ),
                       if (_showCarousel)
                         Expanded(
-                          child: DraftTrayCarousel(
-                            items: tray,
-                            selectedIndex: selected,
-                            onIndexChanged: (i) =>
-                                setState(() => _selectedIndex = i),
-                            onOpenDetail: (id) {
-                              if (_trayLocked) return;
-                              widget.onOpenDetail(id);
-                            },
-                            onLongPressCenter: _onLongPressCenter,
-                            onLongPressMove: _onLongPressMove,
-                            onLongPressEnd: _onLongPressEnd,
-                            dimmed: dragging,
-                            locked: _trayLocked &&
-                                _dragPhase != _DragPhase.dragging,
-                            placeholderIndex:
-                                (_dragPhase == _DragPhase.dragging ||
-                                        _dragPhase == _DragPhase.snapping)
-                                    ? _dragIndex
-                                    : null,
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: DraftTrayCarousel(
+                              items: tray,
+                              selectedIndex: selected,
+                              onIndexChanged: (i) =>
+                                  setState(() => _selectedIndex = i),
+                              onOpenDetail: (id) {
+                                if (_trayLocked) return;
+                                widget.onOpenDetail(id);
+                              },
+                              onLongPressCenter: _onLongPressCenter,
+                              onLongPressMove: _onLongPressMove,
+                              onLongPressEnd: _onLongPressEnd,
+                              dimmed: dragging,
+                              spreadPeers: dragging,
+                              locked: _trayLocked,
+                              placeholderIndex:
+                                  (_dragPhase == _DragPhase.dragging ||
+                                          _dragPhase == _DragPhase.snapping)
+                                      ? _dragIndex
+                                      : null,
+                            ),
                           ),
                         ),
                     ],
-
-                    const SizedBox(height: 4),
                   ],
                 ),
                 if ((_dragPhase == _DragPhase.dragging ||
@@ -1024,6 +1271,8 @@ class _DraftsScreenState extends State<DraftsScreen>
                     angle: _dragAngle,
                     insertProgress: _insertProgress,
                     stageGlobal: _stageRectGlobal(),
+                    slotMouthGlobal: _slotMouthRectGlobal(),
+                    draftNumber: (_dragIndex ?? 0) + 1,
                   ),
               ],
             ),
@@ -1032,6 +1281,53 @@ class _DraftsScreenState extends State<DraftsScreen>
       },
     );
   }
+}
+
+class _WorkbenchBackdrop extends StatelessWidget {
+  const _WorkbenchBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: CustomPaint(
+        painter: _WorkbenchPainter(),
+        size: Size.infinite,
+      ),
+    );
+  }
+}
+
+class _WorkbenchPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width * 0.5;
+    final cy = size.height * 0.38;
+    final rect = Offset.zero & size;
+    final radial = Paint()
+      ..shader = ui.Gradient.radial(
+        Offset(cx, cy),
+        size.shortestSide * 0.85,
+        [
+          const Color(0xFF0A1614).withValues(alpha: 0.07),
+          const Color(0xFF030505).withValues(alpha: 0),
+        ],
+      );
+    canvas.drawRect(rect, radial);
+
+    final grid = Paint()
+      ..color = Colors.white.withValues(alpha: 0.025)
+      ..strokeWidth = 0.6;
+    const step = 28.0;
+    for (var x = 0.0; x < size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), grid);
+    }
+    for (var y = 0.0; y < size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _FrostAccountButton extends StatelessWidget {
@@ -1045,7 +1341,7 @@ class _FrostAccountButton extends StatelessWidget {
       onTap: onTap,
       child: ClipOval(
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
           child: Container(
             width: 34,
             height: 34,
@@ -1076,6 +1372,8 @@ class _DragLayer extends StatelessWidget {
     required this.angle,
     required this.insertProgress,
     required this.stageGlobal,
+    this.slotMouthGlobal,
+    this.draftNumber = 1,
   });
 
   final SoundMemory? item;
@@ -1084,14 +1382,30 @@ class _DragLayer extends StatelessWidget {
   final double angle;
   final double insertProgress;
   final Rect? stageGlobal;
+  /// Exact slot bounds in global coords — clip card above mouth.
+  final Rect? slotMouthGlobal;
+  final int draftNumber;
+
+  static const cardW = 178.0;
+  static const cardH = 232.0;
 
   @override
   Widget build(BuildContext context) {
     if (item == null) return const SizedBox.shrink();
     final origin = stageGlobal?.topLeft ?? Offset.zero;
     final local = globalPosition - origin;
-    const cardH = 228.0;
-    final clipTop = insertProgress * cardH;
+    final cardTop = local.dy - cardH / 2;
+
+    // Occlude everything above the slot mouth (inside the machine body).
+    // Fallback to progress-based clip if mouth rect unavailable.
+    double hiddenTop;
+    final mouth = slotMouthGlobal;
+    if (mouth != null && insertProgress > 0.001) {
+      final mouthLocalY = mouth.top - origin.dy;
+      hiddenTop = (mouthLocalY - cardTop).clamp(0.0, cardH);
+    } else {
+      hiddenTop = 0;
+    }
 
     return Positioned.fill(
       child: IgnorePointer(
@@ -1099,18 +1413,22 @@ class _DragLayer extends StatelessWidget {
           clipBehavior: Clip.none,
           children: [
             Positioned(
-              left: local.dx - 88,
-              top: local.dy - 114,
+              left: local.dx - cardW / 2,
+              top: cardTop,
+              width: cardW,
+              height: cardH,
               child: Transform.rotate(
                 angle: angle,
                 child: Transform.scale(
                   scale: scale,
+                  alignment: Alignment.topCenter,
                   child: ClipRect(
-                    clipper: _BottomRevealClipper(hiddenTop: clipTop),
+                    clipper: _SlotOcclusionClipper(hiddenTop: hiddenTop),
                     child: Opacity(
-                      opacity: (1 - insertProgress * 0.15).clamp(0.55, 1),
+                      opacity: (1 - insertProgress * 0.2).clamp(0.45, 1),
                       child: DraftTrayCard(
                         item: item!,
+                        draftNumber: draftNumber,
                         elevated: true,
                         onTap: () {},
                       ),
@@ -1126,9 +1444,9 @@ class _DragLayer extends StatelessWidget {
   }
 }
 
-/// 从顶部逐渐裁掉，模拟卡片下半部先进入插槽后被外壳遮挡。
-class _BottomRevealClipper extends CustomClipper<Rect> {
-  _BottomRevealClipper({required this.hiddenTop});
+/// Hide the portion of the card that has entered above the slot mouth.
+class _SlotOcclusionClipper extends CustomClipper<Rect> {
+  _SlotOcclusionClipper({required this.hiddenTop});
 
   final double hiddenTop;
 
@@ -1139,7 +1457,7 @@ class _BottomRevealClipper extends CustomClipper<Rect> {
   }
 
   @override
-  bool shouldReclip(covariant _BottomRevealClipper old) =>
+  bool shouldReclip(covariant _SlotOcclusionClipper old) =>
       old.hiddenTop != hiddenTop;
 }
 

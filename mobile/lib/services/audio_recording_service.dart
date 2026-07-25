@@ -26,6 +26,9 @@ class AudioRecordingService {
   AudioFeatureAnalyzer? _analyzer;
   ValueNotifier<AudioFeatures>? get featuresNotifier => _analyzer?.features;
 
+  /// Normalized 0–1 amplitude at amp-callback rate (~20ms) for fast visual shape.
+  final ValueNotifier<double> liveVolume = ValueNotifier(0.0);
+
   /// 已成功调用 start，可暂停／完成。
   bool get isRecording => _startedAt != null;
   bool _paused = false;
@@ -74,10 +77,14 @@ class AudioRecordingService {
     _analyzer!.setActive(true);
     _ampSub?.cancel();
     _ampSub = _recorder
-        .onAmplitudeChanged(const Duration(milliseconds: 40))
+        .onAmplitudeChanged(const Duration(milliseconds: 20))
         .listen((amp) {
-      _amplitudeController.add(amp.current);
-      _analyzer?.pushAmplitude(amp.current);
+      final v = amp.current;
+      _amplitudeController.add(v);
+      _analyzer?.pushAmplitude(v);
+      // Normalize dBFS (−60…0) or already 0–1 for fast visual envelope.
+      final n = (v <= 1.0 && v >= 0.0) ? v : ((v + 60) / 60).clamp(0.0, 1.0);
+      liveVolume.value = n;
     });
   }
 
@@ -87,6 +94,7 @@ class AudioRecordingService {
       _paused = true;
       _pausedAt = DateTime.now();
       _analyzer?.setActive(false);
+      liveVolume.value = 0;
     }
   }
 
@@ -115,6 +123,8 @@ class AudioRecordingService {
     await _ampSub?.cancel();
     _ampSub = null;
     _analyzer?.setActive(false);
+
+    liveVolume.value = 0;
 
     final end = DateTime.now();
     final started = _startedAt ?? end;
@@ -169,6 +179,7 @@ class AudioRecordingService {
     await _ampSub?.cancel();
     _ampSub = null;
     _analyzer?.setActive(false);
+    liveVolume.value = 0;
     final path = _currentPath;
     _currentPath = null;
     if (path != null) {
@@ -197,6 +208,7 @@ class AudioRecordingService {
   void dispose() {
     _ampSub?.cancel();
     _amplitudeController.close();
+    liveVolume.dispose();
     _analyzer?.dispose();
     _analyzer = null;
     _recorder.dispose();

@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -12,6 +11,7 @@ import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
 import '../../widgets/disc_texture.dart';
 import '../../widgets/empty_state_panel.dart';
+import '../../widgets/rarity_holo.dart';
 import '../../widgets/ssr_aura_layer.dart';
 
 /// 玻璃跑道胶囊色值（半透明，配合 BackdropFilter）。
@@ -779,7 +779,7 @@ class _SoundDiscState extends State<_SoundDisc> {
   }
 }
 
-/// 稀有度暂以贴图区分（后续按等级换贴图）；卡面统一叠加镭射扫光。
+/// 声片面：贴图 + 按稀有度分级的镭射扫光（等级越高越绚烂）。
 class _DiscVisual extends StatefulWidget {
   const _DiscVisual({
     required this.size,
@@ -804,6 +804,7 @@ class _DiscVisual extends StatefulWidget {
 class _DiscVisualState extends State<_DiscVisual>
     with SingleTickerProviderStateMixin {
   AnimationController? _laser;
+  RarityHoloStyle get _holo => RarityHoloStyle.of(widget.rarity);
 
   bool get _needsLaser => !widget.dimmed;
 
@@ -816,17 +817,24 @@ class _DiscVisualState extends State<_DiscVisual>
   @override
   void didUpdateWidget(covariant _DiscVisual oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.dimmed != widget.dimmed) {
+    if (oldWidget.dimmed != widget.dimmed ||
+        oldWidget.rarity != widget.rarity) {
       _syncLaser();
     }
   }
 
   void _syncLaser() {
     if (_needsLaser) {
-      _laser ??= AnimationController(
-        vsync: this,
-        duration: const Duration(milliseconds: 3600),
-      )..repeat();
+      final ms = (_holo.sweepSeconds * 1000).round();
+      if (_laser == null) {
+        _laser = AnimationController(
+          vsync: this,
+          duration: Duration(milliseconds: ms),
+        )..repeat();
+      } else if (_laser!.duration?.inMilliseconds != ms) {
+        _laser!.duration = Duration(milliseconds: ms);
+        if (!_laser!.isAnimating) _laser!.repeat();
+      }
     } else {
       _laser?.stop();
     }
@@ -845,9 +853,14 @@ class _DiscVisualState extends State<_DiscVisual>
     final pressed = widget.pressed;
     final dimmed = widget.dimmed;
     final rim = size * 0.035;
+    final holo = _holo;
+    final (rimMain, rimSecond) = rarityRimColors(
+      widget.rarity,
+      elevated: floating,
+    );
 
-    final glow = AppColors.accent.withValues(
-      alpha: floating ? 0.36 : 0.18,
+    final glow = holo.accent.withValues(
+      alpha: floating ? holo.glowAlpha * 1.15 : holo.glowAlpha * 0.7,
     );
 
     final face = Stack(
@@ -860,9 +873,7 @@ class _DiscVisualState extends State<_DiscVisual>
             child: Stack(
               fit: StackFit.expand,
               children: [
-                ColoredBox(
-                  color: Colors.white,
-                ),
+                const ColoredBox(color: Colors.white),
                 Opacity(
                   opacity: dimmed ? 0.18 : 0.48,
                   child: Image.asset(
@@ -882,9 +893,10 @@ class _DiscVisualState extends State<_DiscVisual>
                     animation: _laser!,
                     builder: (context, _) {
                       return CustomPaint(
-                        painter: _HoloSheenPainter(
+                        painter: RarityHoloSheenPainter(
                           t: _laser!.value,
-                          intensity: 0.9,
+                          style: holo,
+                          intensityScale: floating ? 1.1 : 0.95,
                         ),
                       );
                     },
@@ -925,15 +937,13 @@ class _DiscVisualState extends State<_DiscVisual>
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
-                color: floating
-                    ? AppColors.accent.withValues(alpha: 0.75)
-                    : AppColors.accent.withValues(alpha: 0.55),
-                width: floating ? 1.6 : 1.3,
+                color: rimMain,
+                width: floating ? holo.rimWidth + 0.2 : holo.rimWidth,
               ),
             ),
           ),
         ),
-        if (!dimmed)
+        if (!dimmed && rimSecond != null)
           IgnorePointer(
             child: Container(
               width: size - 3,
@@ -941,8 +951,8 @@ class _DiscVisualState extends State<_DiscVisual>
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: const Color(0xFFD879C8).withValues(alpha: 0.28),
-                  width: 0.8,
+                  color: rimSecond,
+                  width: 0.85,
                 ),
               ),
             ),
@@ -1005,7 +1015,13 @@ class _DiscVisualState extends State<_DiscVisual>
           if (floating || !dimmed)
             BoxShadow(
               color: glow,
-              blurRadius: 26,
+              blurRadius: 18 + holo.glowAlpha * 28,
+              spreadRadius: holo.rarity.index >= DiscRarity.sr.index ? 1.2 : 0.4,
+            ),
+          if (!dimmed && holo.rarity == DiscRarity.ssr)
+            BoxShadow(
+              color: holo.secondaryAccent.withValues(alpha: 0.22),
+              blurRadius: 36,
               spreadRadius: 1,
             ),
           BoxShadow(
@@ -1026,63 +1042,6 @@ class _DiscVisualState extends State<_DiscVisual>
       ),
     );
   }
-}
-
-/// 全等级镭射折射扫光（稀有度差异后续由贴图承担）。
-class _HoloSheenPainter extends CustomPainter {
-  _HoloSheenPainter({required this.t, required this.intensity});
-
-  final double t;
-  final double intensity;
-
-  static const _colors = [
-    Color(0x0063E0CB),
-    Color(0xA663E0CB),
-    Color(0x994FA9E8),
-    Color(0x997667E8),
-    Color(0x99D879C8),
-    Color(0xA663E0CB),
-    Color(0x0063E0CB),
-  ];
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final angle = t * math.pi * 2;
-    final paint = Paint()
-      ..blendMode = BlendMode.softLight
-      ..shader = SweepGradient(
-        startAngle: angle,
-        endAngle: angle + math.pi * 2,
-        colors: _colors
-            .map(
-              (c) => c.withValues(alpha: (c.a * intensity).clamp(0.0, 1.0)),
-            )
-            .toList(),
-        stops: const [0.0, 0.14, 0.32, 0.48, 0.64, 0.82, 1.0],
-      ).createShader(rect);
-    canvas.drawRect(rect, paint);
-
-    // 斜向高亮带
-    final band = Paint()
-      ..blendMode = BlendMode.plus
-      ..shader = LinearGradient(
-        begin: Alignment(-1 + 2 * t, -1),
-        end: Alignment(t, 1),
-        colors: [
-          Colors.transparent,
-          Colors.white.withValues(alpha: 0.18 * intensity),
-          const Color(0xFF63E0CB).withValues(alpha: 0.22 * intensity),
-          Colors.transparent,
-        ],
-        stops: const [0.35, 0.48, 0.55, 0.7],
-      ).createShader(rect);
-    canvas.drawRect(rect, band);
-  }
-
-  @override
-  bool shouldRepaint(covariant _HoloSheenPainter oldDelegate) =>
-      oldDelegate.t != t || oldDelegate.intensity != intensity;
 }
 
 class _CollectionEmpty extends StatelessWidget {

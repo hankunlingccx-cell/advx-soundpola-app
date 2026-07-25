@@ -15,6 +15,7 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
 import '../../widgets/empty_state_panel.dart';
+import '../../widgets/rarity_holo.dart';
 import '../../widgets/sound_nft_card.dart';
 import '../../widgets/sound_visual.dart';
 import '../../widgets/ssr_aura_layer.dart';
@@ -611,12 +612,7 @@ class _PressRevealScreenState extends State<PressRevealScreen>
     super.dispose();
   }
 
-  Color get _accent => switch (_rarity) {
-        DiscRarity.n => const Color(0xFF9AA3A1),
-        DiscRarity.r => AppColors.accent,
-        DiscRarity.sr => const Color(0xFF4FA9E8),
-        DiscRarity.ssr => AppColors.accent,
-      };
+  Color get _accent => RarityHoloStyle.of(_rarity).accent;
 
   @override
   Widget build(BuildContext context) {
@@ -670,13 +666,26 @@ class _PressRevealScreenState extends State<PressRevealScreen>
                             burst: _ssrBurst,
                             playing: _ssrBurst,
                             energy: _ssrBurst ? 0.9 : 0.35,
-                            child: SoundVisualCanvas(
-                              seed: item?.visualSeed ?? 0,
-                              mode: SoundVisualMode.complete,
-                              dark: true,
-                              active: revealed &&
-                                  (_rarity == DiscRarity.sr ||
-                                      _rarity == DiscRarity.ssr),
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                SoundVisualCanvas(
+                                  seed: item?.visualSeed ?? 0,
+                                  mode: SoundVisualMode.complete,
+                                  dark: true,
+                                  active: revealed &&
+                                      (_rarity == DiscRarity.sr ||
+                                          _rarity == DiscRarity.ssr),
+                                ),
+                                if (revealed)
+                                  ClipOval(
+                                    child: RarityHoloOverlay(
+                                      rarity: _rarity,
+                                      intensityScale: 0.85 +
+                                          0.15 * (_rarity.index / 3),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                         ),

@@ -267,6 +267,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                             ? SoundVisualMode.recording
                             : SoundVisualMode.idle),
                     features: features,
+                    liveVolume: _recorder.liveVolume,
                   ),
                 ),
                 TimerText(seconds: _seconds),
