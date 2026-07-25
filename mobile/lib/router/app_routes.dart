@@ -20,8 +20,14 @@ abstract final class AppRoutes {
   static const privateKeyBackup = '/auth/private-key';
   static const account = '/account';
   static const pairDevice = '/account/pair-device';
+  static const myDevices = '/account/devices';
+  static const deviceDetail = '/account/devices/:deviceId';
   static const serverSettings = '/settings/server';
+  /// 开发测试页：Sound Lab 声音实验室（不进底部导航）。
+  static const soundLab = '/lab/sound';
   static const resolveContent = '/c/:contentId';
+  /// Press 硬件写入路径（与手机 NFC 并存）。
+  static const pressHardware = '/press/hardware/:id';
 
   static String mainTab(int tab) => '/?tab=$tab';
   static String resultPath(int duration) => '/result?duration=$duration';
@@ -36,6 +42,9 @@ abstract final class AppRoutes {
   static String pressRevealPath(String id) => '/press/reveal/$id';
   static String pressConfirmPath(String id) => '/press/confirm/$id';
   static String pressDonePath(String id) => '/press/done/$id';
+  static String pressHardwarePath(String id) => '/press/hardware/$id';
+  static String deviceDetailPath(String deviceId) =>
+      '/account/devices/${Uri.encodeComponent(deviceId)}';
   static String contentPath(String contentId) => '/c/$contentId';
 
   /// 生成分类播放页路径；分类名用 [Uri.encodeComponent] 编码以兼容中文。

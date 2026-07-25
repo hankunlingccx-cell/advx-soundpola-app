@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../../cloud/cloud_media_client.dart';
 import '../../cloud/cloud_media_config.dart';
 import '../../cloud/cloud_media_models.dart';
+import '../../data/bay_disc_store.dart';
 import '../../data/disc_rarity.dart';
 import '../../data/session.dart';
 import '../../data/sound_repository.dart';
@@ -76,8 +77,8 @@ class _DraftsScreenState extends State<DraftsScreen>
 
   String? _loadedId;
   SoundMemory? _loadedItem;
-  /// 仓内圆形声片：仅 NFC 写入成功后落入。
-  SoundMemory? _bayDiscItem;
+  /// 仓内圆形声片：NFC 写入成功后落入，保留至多 7 天／5 张。
+  List<BayStoredDisc> _bayDiscs = const [];
   String? _pressStatus;
   /// 失败是否发生在云端准备（无需 NFC）阶段。
   bool _failWasCloud = false;
@@ -100,10 +101,35 @@ class _DraftsScreenState extends State<DraftsScreen>
       vsync: this,
       duration: const Duration(milliseconds: 2800),
     )..repeat(reverse: true);
+    AuthService.instance.addListener(_onAuthChanged);
+    _loadBayDiscs();
+  }
+
+  String? get _bayOwnerId => AuthService.instance.currentUser?.userId;
+
+  void _onAuthChanged() {
+    _loadBayDiscs();
+  }
+
+  Future<void> _loadBayDiscs() async {
+    final discs = await BayDiscStore.instance.load(userId: _bayOwnerId);
+    if (!mounted) return;
+    setState(() => _bayDiscs = discs);
+  }
+
+  Future<void> _recordBayDrop(SoundMemory item) async {
+    final discs = await BayDiscStore.instance.addDrop(
+      userId: _bayOwnerId,
+      id: item.id,
+      visualSeed: item.visualSeed,
+    );
+    if (!mounted) return;
+    setState(() => _bayDiscs = discs);
   }
 
   @override
   void dispose() {
+    AuthService.instance.removeListener(_onAuthChanged);
     NfcService.instance.stopSession();
     _cloud.close();
     _breath.dispose();
@@ -342,7 +368,6 @@ class _DraftsScreenState extends State<DraftsScreen>
       _dragPhase = _DragPhase.inserting;
       _machineMode = PressMachineMode.inserting;
       _dragScale = 1.0;
-      _bayDiscItem = null;
     });
 
     final endY = mouth.bottom + cardH * 0.42;
@@ -395,7 +420,6 @@ class _DraftsScreenState extends State<DraftsScreen>
       _dragPhase = _DragPhase.retrieving;
       _machineMode = PressMachineMode.receiving;
       _flow = _FlowPhase.idle;
-      _bayDiscItem = null;
       _nfcWriting = false;
       _failWasCloud = false;
       _dragGlobal = mouth != null
@@ -678,12 +702,12 @@ class _DraftsScreenState extends State<DraftsScreen>
     }
 
     setState(() {
-      _bayDiscItem = item;
       _pressStatus = '正在上链…';
       _autoListening = false;
       _nfcWriting = false;
       _chaining = true;
     });
+    await _recordBayDrop(item);
 
     final assetId = await ChainService.instance.submitAsset(
       soundId: item.id,
@@ -928,9 +952,7 @@ class _DraftsScreenState extends State<DraftsScreen>
     if (!mounted) return;
 
     // 模拟写入成功 → 声片落入毛玻璃仓。
-    setState(() {
-      _bayDiscItem = item;
-    });
+    await _recordBayDrop(item);
 
     final discId = NfcService.instance.generateDiscId('DEMO');
     final rarity =
@@ -989,7 +1011,6 @@ class _DraftsScreenState extends State<DraftsScreen>
       _flow = _FlowPhase.idle;
       _loadedItem = null;
       _loadedId = null;
-      _bayDiscItem = null;
       _pressStatus = null;
       _chaining = false;
       _nfcWriting = false;
@@ -1135,7 +1156,7 @@ class _DraftsScreenState extends State<DraftsScreen>
                           breath: _breath,
                           slotKey: _slotKey,
                           loadedTitle: _loadedItem?.title,
-                          storedItem: _bayDiscItem,
+                          storedDiscs: _bayDiscs,
                           maxHeight: machineMaxH,
                         ),
                       ),

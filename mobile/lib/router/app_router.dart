@@ -14,6 +14,7 @@ import '../screens/record/permission_screen.dart';
 import '../screens/record/record_home_screen.dart';
 import '../screens/record/recording_screen.dart';
 import '../screens/record/result_screen.dart';
+import '../screens/lab/sound_lab_screen.dart';
 import '../screens/settings/server_settings_screen.dart';
 import '../screens/splash/splash_screen.dart';
 import '../services/auth_service.dart';
@@ -137,6 +138,10 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
         builder: (context, state) => const ServerSettingsScreen(),
       ),
       GoRoute(
+        path: AppRoutes.soundLab,
+        builder: (context, state) => const SoundLabScreen(),
+      ),
+      GoRoute(
         path: AppRoutes.resolveContent,
         builder: (context, state) => ContentResolveScreen(
           contentId: state.pathParameters['contentId']!,
@@ -175,10 +180,17 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
               return ResultScreen(
                 durationSec: duration,
                 audioPath: audioPath,
+                fromImport: RecordingSession.fromImport,
+                suggestedTitle: RecordingSession.suggestedTitle,
                 onSaved: () => context.go(AppRoutes.mainTab(1)),
                 onReRecord: () {
+                  final wasImport = RecordingSession.fromImport;
                   RecordingSession.clear();
-                  context.pushReplacement(AppRoutes.recording);
+                  if (wasImport) {
+                    context.pop();
+                  } else {
+                    context.pushReplacement(AppRoutes.recording);
+                  }
                 },
               );
             },
@@ -332,7 +344,20 @@ class _MainShellState extends State<MainShell> {
       body: IndexedStack(
         index: _tab,
         children: [
-          RecordHomeScreen(onStartRecord: () => context.push(AppRoutes.recording)),
+          RecordHomeScreen(
+            onStartRecord: () => context.push(AppRoutes.recording),
+            onImported: (result) {
+              RecordingSession.set(
+                path: result.path,
+                duration: result.durationSec,
+                seed: result.visualSeed,
+                timeline: result.timeline,
+                imported: true,
+                titleHint: result.suggestedTitle,
+              );
+              context.push(AppRoutes.resultPath(result.durationSec));
+            },
+          ),
           DraftsScreen(
             onOpenDetail: (id) => context.push(AppRoutes.draftPath(id)),
             onStartRecord: () {

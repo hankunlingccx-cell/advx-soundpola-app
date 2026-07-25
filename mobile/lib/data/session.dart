@@ -9,17 +9,24 @@ class RecordingSession {
   static int durationSec = 0;
   static int visualSeed = 0;
   static AudioFeatureTimeline? featureTimeline;
+  /// True when audio came from local file import (not live mic).
+  static bool fromImport = false;
+  static String? suggestedTitle;
 
   static void set({
     required String path,
     required int duration,
     int? seed,
     AudioFeatureTimeline? timeline,
+    bool imported = false,
+    String? titleHint,
   }) {
     audioPath = path;
     durationSec = duration;
     if (seed != null) visualSeed = seed;
     if (timeline != null) featureTimeline = timeline;
+    fromImport = imported;
+    if (titleHint != null) suggestedTitle = titleHint;
   }
 
   static void clear() {
@@ -27,6 +34,8 @@ class RecordingSession {
     durationSec = 0;
     visualSeed = 0;
     featureTimeline = null;
+    fromImport = false;
+    suggestedTitle = null;
   }
 }
 

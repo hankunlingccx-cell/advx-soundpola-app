@@ -98,7 +98,7 @@ Draft 阶段为「待揭晓」
 
 稀有度体系（前期）：N 普通 · R 稀有 · SR 超稀有 · SSR 极稀有。UR（隐藏限定）预留，本版不启用。
 
-等级视觉：各等级卡面叠加分级镭射扫光——等级越高光谱越宽、扫光越绚烂；动态为左上→右下对角平移扫带（非旋转）。N 银灰薄荷弱镭射；R 薄荷青主色＋轻冷蓝；SR 青→蓝→紫三色棱镜＋双扫光带＋次描边；SSR 青→蓝→紫→粉全光谱多带棱镜＋粉紫描边／强光晕，并独占外围反馈（不改声片尺寸）：边缘微粒逸散（静止呼吸／播放随能量增强／非中心弱化）、拖动或堆叠滑动时的薄片视差、播放态进度环外侧能量环；声片鉴定揭晓为 SSR 时触发终章粒子与加强触觉。贴图资源可继续按等级配置，但稀有度即时识别以镭射色与附加效果为准。
+等级视觉：各等级卡面叠加逼真全息箔片（`RarityHoloOverlay`）——虹彩底膜（Sweep 干涉）＋斜向衍射光栅＋RGB 色散镜面扫光＋等级微闪＋边缘菲涅尔焦散；等级越高光谱越宽、光栅更密、扫光更快更炫。N 银灰冷箔弱虹彩；R 薄荷青箔＋冷蓝折射／轻微闪；SR 青→蓝→紫棱镜箔＋双高光／边缘焦散／次描边；SSR 全光谱箔＋密集微闪＋强边缘彩虹焦散，并独占外围反馈（不改声片尺寸）：边缘微粒逸散、拖动／堆叠薄片视差、播放态进度环外侧能量环；鉴定揭晓为 SSR 时终章粒子与加强触觉。贴图可按等级配置，稀有度即时识别以全息箔色与附加效果为准。
 
 不可变约束：
 
@@ -168,7 +168,7 @@ Press：从 Drafts 卡片或暂存声音详情发起。
 
 麦克风权限在开始录音时按需申请（不再作为启动门槛）。
 
-退出登录后返回登录页，本地 Drafts 仍保留。
+退出登录后返回登录页；本机 Drafts 按账号隔离暂存（换号不可见他人草稿／收藏），同一账号再次登录可恢复本机 Drafts。Collection 以云端同步为准。
 
 （产品远期仍可支持 Record / Drafts 本地未登录使用；本版按「先登录」落地。）
 
@@ -384,9 +384,11 @@ Collection
 
 01 启动页
 
-SoundPola 标识。
+SoundPola 标识与标语水平居中。
 
-黑底声音视觉动效。
+黑底声音视觉动效（待机呼吸态，非录音态；轻幅度 idle；居中 220²）。
+
+底部加载指示居中。
 
 登录状态检查：已登录 → 主 Tab；未登录 → 登录页。
 
@@ -426,17 +428,21 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 未授权麦克风（阻断态，非普通空态）：`MIC ACCESS REQUIRED` / 需要麦克风权限；中央为关闭的麦克风端口视觉；主按钮「允许麦克风权限」或「前往系统设置」。
 
-已授权待机（非空态）：四象限严格镜像交叠声场（右上象限多峰母体＋偶／奇反向线束交叠＋层级交换＋中心桥接 → 水平／垂直镜像；纯 `drawCircle`；待机即含缓慢折叠漂移）；`LISTENING STANDBY` / 等待捕捉声音；录音按钮为页内唯一主操作（60dp 实心青圆＋黑点，录音时平滑变为圆角方停止符）。
+已授权待机（非空态）：四象限严格镜像线性声场（仅生成 Q1 纯圆形粒子线性排列，其余三象限由 Canvas scale 镜像；待机缓慢折叠漂移）；`LISTENING STANDBY` / 等待捕捉声音；录音按钮为页内唯一主操作（60dp 实心青圆＋黑点，录音时平滑变为圆角方停止符）。主操作下方提供次级文字入口「导入本地音频」（不抢主按钮焦点）；无麦克风权限时亦可导入。
 
 主录音按钮靠底部导航上方；与可视化间距缩短；极细垂直能量线关联（非分割线）。视觉中心约在屏高 39%–43%，主体宽约屏宽 74%–82%。
 
 底部三项导航（Record / Drafts / Collection）；底栏降低高光／边框与非选中对比度，焦点依次为可视化 → 录音钮 → 状态文 → 导航。
 
+04b 导入本地音频
+
+从系统文件选择器选取本地音频（m4a／mp3／wav／aac／ogg／flac／caf）。复制至应用 `recordings/`；探测时长；不足 3 秒拒绝；超过 90 秒按 bake 上限截断会话时长。生成 visualSeed 与确定性合成 AudioDrive 时间序列（导入暂不做真 PCM 分析），进入结果页（标题「导入结果」，名称预填文件名），保存路径与录音结果一致 → Drafts。
+
 05 录音中
 
 关闭 / 取消入口。
 
-实时声音可视化：伪 3D 几何球体（SPHERE）。经纬网格约 24×28 采样点，球面分布圆／方／菱／斜线／九宫格等多种符号；持续旋转＋透视前后层级。Isolate 输出 `AudioFeatures`（128-bin spectrum、PixMusic 式快攻慢释 AGC）；CustomPainter 只读快照。局部频谱映射驱动单元尺寸，整体半径仅作轻度律动。待机确定性 idleEnergy 缓慢旋转。支持拖转／惯性／双击恢复自转／双指缩放 0.8–1.3。禁止万花筒镜像、整图 scale、随机闪烁。
+实时声音可视化：参考 visuallization Axis Field 线性声场，Flutter 端为四象限严格镜像。几何只在第一象限计算并绘制一次（纯 `drawCircle` 圆形粒子：径向／弧向／弦向平行珠串），其余三象限用 Canvas `scale(±1,±1)` 镜像，不重复生成粒子。Isolate 输出 `AudioFeatures`；CustomPainter 只读快照。声音主要驱动亮度、流速与轻弯曲；粒子半径仅轻微变化、整体外轮廓几乎固定，禁止随音量胀糊。待机持续慢漂移。禁止球体点阵、线段／非圆粒子、整图 scale、每帧随机闪烁。
 
 录音计时。
 
@@ -478,9 +484,9 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 顶部：主标题 `Drafts` +「待封存的声音」；数量胶囊；账户入口。
 
-拟物设备：冷白 ABS（#F3F5F2／#C9CECB）、内凹前面板、黑色玻璃屏、凹陷插槽嵌于外壳顶缘（自上向下插入）、状态灯；机身下方叠一层更高的毛玻璃存储仓。声卡插入仅进入待写入态；NFC 写入并封存成功后，一张带贴图的圆形声片（按 visualSeed 稳定映射，与 Collection 同源）落入仓内，模拟重力下落、地面／侧壁碰撞回弹后静止；空仓无装饰。待机：`READY TO PRESS`／`SELECT A SOUND CARD`；靠近：`CARD DETECTED`／`RELEASE TO INSERT`；写入：`PRESSING MEMORY`＋进度；完成：`MEMORY PRESSED`。拖拽仅跟手；松手进入释放区后对齐顶部插口并下吸入槽（遮挡仅发生在插入动画，口下被机身裁切）。设备整体放大，约占屏高约 38%。
+拟物设备：冷白 ABS（#F3F5F2／#C9CECB）、内凹前面板、黑色玻璃屏、凹陷插槽嵌于外壳顶缘（自上向下插入）、状态灯；机身下方叠一层更高的毛玻璃存储仓。声卡插入仅进入待写入态；NFC 写入并封存成功后，带贴图的圆形声片（按 visualSeed 稳定映射，与 Collection 同源）落入仓内，模拟重力下落、地面／侧壁／声片两两碰撞回弹后静止（中心距约束，不允许完全重合叠成一张）；仓内可同时保留多张（至多 5 张、各保留约 7 天），数据本地存储但按登录账户隔离（换号不可见他人仓内声片），空仓无装饰。待机：`READY TO PRESS`／`SELECT A SOUND CARD`；靠近：`CARD DETECTED`／`RELEASE TO INSERT`；写入：`PRESSING MEMORY`＋进度；完成：`MEMORY PRESSED`。拖拽仅跟手；松手进入释放区后对齐顶部插口并下吸入槽（遮挡仅发生在插入动画，口下被机身裁切）。设备整体放大，约占屏高约 38%。
 
-NFC 指引：插入成功后展开；Browsing 不提前展开。流程：云端上传／处理（明确提示无需贴近）→ 单次贴近同时检查是否已写入并完成写入 → 上链（无需贴近）。云端失败与 NFC 写入失败分开引导重试。
+NFC 指引：插入成功后展开；Browsing 不提前展开。流程：明确提示「音频将上传到云端」→ 云端处理（无需贴近）→ 单次贴近同时检查是否已写入并完成写入 → 上链（无需贴近）。云端失败与 NFC 写入失败分开引导重试。
 
 暂存卡组：横向错位堆叠；冷白半硬质卡面与设备同材质系统；含 DRAFT 编号、圆形视觉、分类色带。
 
@@ -668,7 +674,7 @@ NFC 已成功时只允许重试上链。
 
 18.1 顶部播放区
 
-视觉主体：当前选中声音的几何球体可视化（SoundVisualCanvas，可带进度环），占页面上部主要空间并尽量放大；播放时随音频变化，点击切换播放／暂停。不在主视觉区重复展示标题／稀有度角标／时长文案，也不再叠放大号贴图声卡（贴图仅出现在横向堆叠，与 Collection 跑道一致）。
+视觉主体：当前选中声音的四象限线性声场可视化（SoundVisualCanvas，可带进度环），占页面上部主要空间并尽量放大；播放时随音频变化，点击切换播放／暂停。不在主视觉区重复展示标题／稀有度角标／时长文案，也不再叠放大号贴图声卡（贴图仅出现在横向堆叠，与 Collection 跑道一致）。
 
 下方横向堆叠使用跑道贴图，整体尺寸小于可视化主体，仅作切换导航。
 
@@ -835,8 +841,9 @@ App 经局域网原始 TCP Socket 向设备 `POST /pair`（不用 package:http�
 硬件端 Memory Terminal HMI（权威：`hadwareui.md` + `docs/hardware-ui-preview/index.html`）：
 
 - 分辨率 480×320；三层结构：顶部状态轨（PHONE／NET／NFC／HOLO）→ 中央任务舞台 → 底部 IN／NFC／OUT 机械引导托盘。
+- **00 配对页**：LCD 展示二维码载荷 `SNDPOLA1|<ipv4>|<port>|<nonce>|<devid>`；与 App Account →「配对 NFC 设备」扫码对接；约 3 分钟 TTL，可刷新；配对中不接收入卡。
 - 无模式选择：手机发声写入，或投已绑定卡显影；事件自动推进。
-- 状态：01 待机 → 02／02b 接收就绪 → 03 等待空白卡 → 04 识别 → 05／05b 写入校验 → 07 完成出卡取卡；或 06a／b／c 显影；异常仅 08a 已绑定冲突、08b 凭证延迟（已取消机械卡滞用户页）。
+- 状态：00 配对 → 01 待机 → 02／02b 接收就绪 → 03 等待空白卡 → 04 识别 → 05／05b 写入校验 → 07 完成出卡取卡；或 06a／b／c 显影；异常仅 08a 已绑定冲突、08b 凭证延迟（已取消机械卡滞用户页）。
 - LCD 黑白青工业语言，禁止声音可视化；球体／全息光谱仅全息装置。与 App Drafts 写入机拟物 UI 视觉分离、任务衔接。
 
 智能戒指的连接、电量和录音触发设置。
@@ -1029,7 +1036,7 @@ NFC 写入成功后立即本地落盘绑定结果，再发起上链。
 
 上链失败只重试上链，不得再次写入同一声片。
 
-退出登录不删除本地 Draft；再次登录时明确询问是否归入当前账号。
+退出登录不删除本机为该账号暂存的 Draft；换号不可见。再次登录同一账号后恢复本机 Drafts。Collection 仅显示当前账号云端资产。
 
 更换账号时不自动把本地 Draft 合并到新账号。
 
@@ -1041,8 +1048,9 @@ App
 │   ├── 产品引导
 │   └── 权限申请
 ├── Record
-│   ├── 录音首页
+│   ├── 录音首页（含导入本地音频次级入口）
 │   ├── 录音中
+│   ├── 导入本地音频 → 结果页
 │   └── 录音结果
 ├── Drafts
 │   ├── 写入工作台（机器 + 暂存托盘）
@@ -1066,10 +1074,25 @@ App
 │       └── 分享与编辑展示信息
 └── Account
     ├── 个人中心
+    ├── Sound Lab 声音实验室（测试页，旁路路由 `/lab/sound`，不进底栏）
     ├── 我的数字资产
     ├── 声片与设备
     ├── 账号与安全
     └── 权限与隐私
+
+9.1 Sound Lab 声音实验室（测试页）
+
+定位：开发与验收用旁路页面，不进入底部三 Tab；入口在 Account「Sound Lab 声音实验室」。
+
+**用户流程**：点选 1–4 段声音 →「按节拍轮播试听」→ 分析主声音 BPM，生成轮播计划，按拍点轮流切换播放所选音频。可选导出作品。无需拖拽 / 手动改拍。
+
+**「生成节拍」含义**：不是叠加 kick/snare 鼓点，而是按节拍网格轮播用户选中的声音（`sourceIndex` 轮转，每拍一切换）。
+
+音源仅限：当前录音 / Drafts / Collection。
+
+**API**：`BeatGenerationApiGateway`（`mobile/lib/lab/beat_generation_api.dart`）。请求 FeatureSummary（含 sourceCount），响应 BeatPlan（events：timeMs / sourceIndex / playDurationMs / sliceOffsetMs）。默认本地回退；后端就绪后 `RemoteBeatGenerationApi(enabled: true)` → `POST /api/v1/lab/beat-plan`。
+
+实现：`mobile/lib/lab/`、`mobile/lib/screens/lab/sound_lab_screen.dart`。
 
 10. MVP 边界建议
 
@@ -1095,9 +1118,9 @@ Account 首页。
 
 全站深色主题（#000000 + #63E0CB），对齐 designstyle.md V2。
 
-声音视觉：伪 3D 几何球体 SPHERE（经纬点阵＋多几何符号＋透视排序）；Isolate AGC（快攻慢释）＋ 128-bin spectrum 局部映射；CustomPainter + RepaintBoundary；High/Medium/Low 动态降密。录音钮：实心青圆＋黑点，录音变圆角方停止符。
+声音视觉：四象限镜像线性粒子线束（Q1 纯圆粒子确定性生成一次 → Canvas scale 镜像三象限）；参考 visuallization 线性万花筒密度与流动感；Isolate AGC＋spectrum 局部映射；CustomPainter + RepaintBoundary。**性能**：idle／complete／列表缩略静态单帧（不停 60fps ticker）；仅录音／当前播放／暂停保留动画，并按实际帧率分档降粒子与目标 fps；全息／SSR 粒子仅主卡或选中卡；播放 Indexed-MJPEG 解码去重＋小 LRU／封面兜底；录音特征 UI 约 25Hz；大面积毛玻璃降低 sigma。录音钮：实心青圆＋黑点，录音变圆角方停止符。
 
-可视化留存：录音中记录 AudioDrive 时间序列；保存后离屏确定性 bake → Indexed-MJPEG（512²／12fps／q≈80）＋idx＋manifest＋cover；播放按 audioPositionMs 随机访问帧；`rendererVersion=soundpola_sphere_v1`。
+可视化留存：录音中记录 AudioDrive 时间序列；保存后离屏确定性 bake（低粒子档、逐帧向 UI yield）→ Indexed-MJPEG（512²／12fps／q≈80）＋idx＋manifest＋cover；播放按 audioPositionMs 随机访问帧（最新帧优先、旧解码丢弃）；`rendererVersion=soundpola_kaleido_linear_v1`。
 
 三 Tab：Record / Drafts / Collection；Press / 分类声片播放页 / Account 不进底栏。
 
@@ -1109,15 +1132,17 @@ Account 首页。
 
 Press：multipart 上传源音频 → 轮询至 READY（FAILED 可 retry）→ NFC 写入 `contentId` + `nfc_url`（兼容 Trigger）→ 本地仍模拟 NFT 上链；可选经已配对 Memory Terminal 硬件完成物理写入／出卡（HMI 见 `hadwareui.md`）。
 
-Drafts 保持本地优先；Collection 登录后同步 READY 内容；列表按分类胶囊双列瀑布流；点击跑道进入 `/collection/category/:categoryId` 分类声片播放页（贴图环形进度 + 横向堆叠 + 完整记忆／声片／NFT）；取消独立 Memory 路由；长按声卡可拖入其他分类调整展示分类。
+Drafts 保持本地优先且按账户隔离；Collection 登录后同步当前账号 READY 内容；列表按分类胶囊双列瀑布流；点击跑道进入 `/collection/category/:categoryId` 分类声片播放页（贴图环形进度 + 横向堆叠 + 完整记忆／声片／NFT）；取消独立 Memory 路由；长按声卡可拖入其他分类调整展示分类。
 
-稀有度分级镭射（`RarityHoloStyle` / `RarityHoloOverlay`）：N 银灰弱扫、R 薄荷＋冷蓝、SR 青蓝紫棱镜＋双带、SSR 全光谱绚烂＋粉紫描边／强光晕／独占微粒视差；扫光为左上→右下对角平移，仅在高光扫带上叠色散（非整圆染色；色带 srcOver＋screen 提亮，白芯压窄以免冲色）；已接入 Collection 胶囊、分类堆叠、NFT 卡与鉴定揭晓。
+稀有度分级全息箔片（`RarityHoloStyle` / `RarityHoloOverlay`）：虹彩底膜＋衍射光栅＋RGB 色散高光＋微闪＋边缘焦散；N 银灰冷箔、R 薄荷青箔、SR 青蓝紫棱镜、SSR 全光谱＋密集微闪／强焦散／独占微粒视差；已接入 Collection 胶囊、分类堆叠、NFT 卡与鉴定揭晓。
 
 统一空状态：`EmptyStatePanel` 覆盖 Record 权限阻断／过短、Drafts 三类空态、Collection 空／待封存／同步中／未登录、分类空、Press 无声音等；同步失败与空收藏分离。
 
 真实麦克风录音、本地播放、NFC 读写（设备支持时）；云媒体契约见 `docs/openapi-cloud-media.yaml`。
 
-Account 首页：昵称、收藏/声片数量、数字资产账户缩写、退出登录（不清 Drafts）。
+Account 首页：昵称、收藏/声片数量、数字资产账户缩写、退出登录（Drafts／Collection 按账号隔离；换号清空视图）；测试入口 **Sound Lab**（`/lab/sound`）：点选音源 → 按节拍轮播试听；计划经 `BeatGenerationApiGateway`。
+
+Drafts 本地优先且按登录账户隔离；Collection 登录后仅同步当前账号 READY 内容（不同账号互不串数据）。
 
 待后续：完整首次引导、Account 子树完整页、真实链上 Mint（本 OpenAPI 不含 NFT）。地点 GPS 已在录音结果页写入并在播放页只读展示。
 

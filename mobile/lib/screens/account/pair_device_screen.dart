@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../cloud/cloud_media_config.dart';
+import '../../device/device_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/device_pair_service.dart';
 import '../../services/permission_service.dart';
@@ -60,7 +61,7 @@ class _PairDeviceScreenState extends State<PairDeviceScreen> {
 
     try {
       final token = await AuthService.instance.requireCloudToken();
-      await DevicePairService.sendToken(
+      await soundPolaDeviceService.bindViaQr(
         target: target,
         token: token,
         userId: AuthService.instance.cloudUserId,

@@ -31,6 +31,7 @@ dependencies:
   geocoding: ^5.0.0
   mobile_scanner: ^7.4.0
   image: ^4.8.0
+  file_picker: 10.3.8
 
 dev_dependencies:
   flutter_test:
@@ -42,3 +43,4 @@ flutter:
   assets:
     - assets/icons/
     - assets/disc_textures/
+    - assets/beats/

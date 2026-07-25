@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -958,70 +959,112 @@ class _ShareSheet extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.pageHorizontal,
-          AppSpacing.item,
+          8,
           AppSpacing.pageHorizontal,
           AppSpacing.item,
         ),
-        child: Container(
-          padding: const EdgeInsets.all(AppSpacing.cardPadding),
-          decoration: BoxDecoration(
-            color: AppColors.surface1,
-            borderRadius: BorderRadius.circular(AppRadii.sheet),
-            border: Border.all(color: AppColors.borderSubtle),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(2),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadii.sheet),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
+              decoration: BoxDecoration(
+                color: const Color(0xE60C100F),
+                borderRadius: BorderRadius.circular(AppRadii.sheet),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  width: 0.7,
                 ),
-              ),
-              const SizedBox(height: AppSpacing.item),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  '分享声片',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.item),
-              SoundNftCard(
-                item: item,
-                animateVisual: false,
-                compact: true,
-                variant: SoundNftCardVariant.share,
-                useDiscTexture: true,
-              ),
-              const SizedBox(height: AppSpacing.section),
-              Row(
-                children: [
-                  Expanded(
-                    child: SecondaryButton(
-                      text: '关闭',
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.tight),
-                  Expanded(
-                    child: PrimaryButton(
-                      text: '保存卡片',
-                      onPressed: () => _saveCard(context),
-                    ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    blurRadius: 32,
+                    offset: const Offset(0, 12),
                   ),
                 ],
               ),
-            ],
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.22),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          '分享收藏卡',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        'SoundPola',
+                        style: TextStyle(
+                          color: AppColors.accent.withValues(alpha: 0.7),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.6,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '游戏化稀有度收藏卡 · 可保存分享',
+                      style: TextStyle(
+                        color: AppColors.textTertiary.withValues(alpha: 0.95),
+                        fontSize: 12,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SoundNftCard(
+                    item: item,
+                    animateVisual: false,
+                    compact: true,
+                    variant: SoundNftCardVariant.share,
+                    useDiscTexture: true,
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SecondaryButton(
+                          text: '关闭',
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.tight),
+                      Expanded(
+                        child: PrimaryButton(
+                          text: '保存卡片',
+                          onPressed: () => _saveCard(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 }
+

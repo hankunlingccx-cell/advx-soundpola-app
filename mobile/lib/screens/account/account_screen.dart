@@ -17,7 +17,10 @@ class AccountScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('退出登录？'),
-        content: const Text('本地 Drafts 不会被删除。Collection 云端同步需重新登录后查看。'),
+        content: const Text(
+          '本机为该账号保留的 Drafts 会在再次登录同一账号后恢复；其他账号不可见。'
+          'Collection 以云端为准，需重新登录后同步。',
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
           TextButton(
@@ -235,8 +238,13 @@ class AccountScreen extends StatelessWidget {
                   ],
                   const SizedBox(height: AppSpacing.block),
                   SecondaryButton(
-                    text: '配对 NFC 设备（扫码）',
-                    onPressed: () => context.push(AppRoutes.pairDevice),
+                    text: '我的设备',
+                    onPressed: () => context.push(AppRoutes.myDevices),
+                  ),
+                  const SizedBox(height: AppSpacing.item),
+                  SecondaryButton(
+                    text: 'Sound Lab 声音实验室',
+                    onPressed: () => context.push(AppRoutes.soundLab),
                   ),
                   const SizedBox(height: AppSpacing.item),
                   SecondaryButton(

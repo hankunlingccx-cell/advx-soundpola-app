@@ -294,7 +294,7 @@ class _PlayDisc extends StatelessWidget {
           ColoredBox(
             color: Colors.white.withValues(alpha: elevated ? 0.06 : 0.12),
           ),
-          // 玻璃高光 + 其上的扫带镭射（非整面染色）
+          // 玻璃高光 + 全息箔片
           DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -314,6 +314,7 @@ class _PlayDisc extends StatelessWidget {
             RarityHoloOverlay(
               rarity: rarity,
               intensityScale: elevated ? 1.2 : 1.0,
+              enabled: elevated,
             ),
           Container(
             decoration: BoxDecoration(
@@ -363,7 +364,7 @@ class _PlayDisc extends StatelessWidget {
           ),
           SsrAuraLayer(
             size: size,
-            enabled: isSsr,
+            enabled: isSsr && elevated,
             intensity: elevated ? 1.0 : 0.2,
             parallax: isSsr
                 ? ssrParallaxFromDelta(

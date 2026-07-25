@@ -4,6 +4,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../cloud/cloud_media_client.dart';
 import '../cloud/cloud_media_models.dart';
+import '../data/bay_disc_store.dart';
+import '../data/session.dart';
+import '../data/sound_repository.dart';
 import '../data/user_account.dart';
 
 class AuthException implements Exception {
@@ -116,6 +119,7 @@ class AuthService extends ChangeNotifier {
       }
     }
 
+    await _onAccountBound(user.userId);
     notifyListeners();
     return user;
   }
@@ -148,6 +152,7 @@ class AuthService extends ChangeNotifier {
       agreedAt: DateTime.now(),
     );
     await _persistSession(user, token: session.token, cloudUserId: session.userId);
+    await _onAccountBound(user.userId);
     notifyListeners();
     return user;
   }
@@ -158,7 +163,17 @@ class AuthService extends ChangeNotifier {
     _cloudToken = null;
     _cloudUserId = null;
     _pendingPrivateKey = null;
+    BayDiscStore.instance.clearSession();
+    await SoundRepository.instance.bindToAccount(null);
+    RecordingSession.clear();
+    PressSession.clear();
     notifyListeners();
+  }
+
+  Future<void> _onAccountBound(String userId) async {
+    await SoundRepository.instance.bindToAccount(userId);
+    RecordingSession.clear();
+    PressSession.clear();
   }
 
   /// Reads the locally stored private key for the active user, if any.

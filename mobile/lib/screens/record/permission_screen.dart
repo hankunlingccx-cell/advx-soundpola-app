@@ -80,7 +80,11 @@ class _PermissionScreenState extends State<PermissionScreen> {
               const Spacer(),
               const AspectRatio(
                 aspectRatio: 1,
-                child: SoundVisualCanvas(seed: 2048, active: true),
+                child: SoundVisualCanvas(
+                  seed: 2048,
+                  mode: SoundVisualMode.idle,
+                  amplitude: 0.08,
+                ),
               ),
               const Spacer(),
               PrimaryButton(

@@ -8,11 +8,16 @@ import 'package:flutter/scheduler.dart';
 import '../audio/audio_features.dart';
 import '../theme/app_colors.dart';
 import '../visual/audio_feature_timeline.dart';
-import 'sphere_visual_engine.dart';
+import 'kaleido_linear_engine.dart';
 
 enum SoundVisualMode { idle, recording, paused, complete, playback }
 
-/// Live SoundPola SPHERE visual — PixMusic-style geometric sphere.
+/// Live SoundPola visual — Q1 pure-circle particle ribbons, Canvas-mirrored
+/// to the other three quadrants (inspired by visuallization/ Axis Field).
+///
+/// **Performance:** ticker runs only while [animate] is true (or auto for
+/// recording / playback / paused). Idle / complete paint a frozen frame and
+/// do not drive 60fps setState.
 class SoundVisualCanvas extends StatefulWidget {
   const SoundVisualCanvas({
     super.key,
@@ -25,6 +30,8 @@ class SoundVisualCanvas extends StatefulWidget {
     this.liveVolume,
     this.showProgressRing = false,
     this.progress = 0,
+    /// `null` = auto (live modes only). Force `true` for splash breath etc.
+    this.animate,
   });
 
   final int seed;
@@ -36,6 +43,7 @@ class SoundVisualCanvas extends StatefulWidget {
   final ValueListenable<double>? liveVolume;
   final bool showProgressRing;
   final double progress;
+  final bool? animate;
 
   @override
   State<SoundVisualCanvas> createState() => _SoundVisualCanvasState();
@@ -44,12 +52,13 @@ class SoundVisualCanvas extends StatefulWidget {
 class _SoundVisualCanvasState extends State<SoundVisualCanvas>
     with SingleTickerProviderStateMixin {
   late final Ticker _ticker;
-  late SphereVisualEngine _engine;
+  late KaleidoLinearEngine _engine;
   Duration _lastElapsed = Duration.zero;
-  VisualQuality _tier = VisualQuality.high;
+  VisualQuality _tier = VisualQuality.medium;
   final _frameTimes = <double>[];
   int _paintEpoch = 0;
   double _pinchBase = 1.0;
+  double _fpsAccum = 0;
 
   SoundVisualMode get _mode =>
       widget.mode ??
@@ -58,11 +67,39 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
   bool get _isLive =>
       _mode == SoundVisualMode.recording || _mode == SoundVisualMode.playback;
 
+  bool get _wantsTicker => _tickerWanted(
+        mode: _mode,
+        animate: widget.animate,
+      );
+
+  static bool _tickerWanted({
+    required SoundVisualMode mode,
+    required bool? animate,
+  }) {
+    if (animate != null) return animate;
+    return mode == SoundVisualMode.recording ||
+        mode == SoundVisualMode.playback ||
+        mode == SoundVisualMode.paused;
+  }
+
+  static SoundVisualMode _resolveMode({
+    required SoundVisualMode? mode,
+    required bool active,
+  }) =>
+      mode ?? (active ? SoundVisualMode.recording : SoundVisualMode.idle);
+
   @override
   void initState() {
     super.initState();
-    _engine = SphereVisualEngine(seed: widget.seed);
-    _ticker = createTicker(_onTick)..start();
+    _tier = _wantsTicker ? VisualQuality.medium : VisualQuality.low;
+    _engine = KaleidoLinearEngine(seed: widget.seed)
+      ..configureQuality(
+        _wantsTicker
+            ? VisualQualityProfile.forTier(_tier)
+            : VisualQualityProfile.idle,
+      );
+    _ticker = createTicker(_onTick);
+    _settleStaticOrStart();
   }
 
   @override
@@ -70,13 +107,30 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.seed != widget.seed) {
       final zoom = _engine.zoom;
-      final urx = _engine.userRotX;
-      final ury = _engine.userRotY;
-      _engine = SphereVisualEngine(seed: widget.seed)
-        ..configureQuality(VisualQualityProfile.forTier(_tier))
+      final phase = _engine.userPhase;
+      _engine = KaleidoLinearEngine(seed: widget.seed)
+        ..configureQuality(
+          _wantsTicker
+              ? VisualQualityProfile.forTier(_tier)
+              : VisualQualityProfile.idle,
+        )
         ..zoom = zoom
-        ..userRotX = urx
-        ..userRotY = ury;
+        ..userPhase = phase;
+    }
+    final oldWanted = _tickerWanted(
+      mode: _resolveMode(mode: oldWidget.mode, active: oldWidget.active),
+      animate: oldWidget.animate,
+    );
+    if (oldWanted != _wantsTicker ||
+        oldWidget.mode != widget.mode ||
+        oldWidget.active != widget.active ||
+        oldWidget.animate != widget.animate ||
+        oldWidget.seed != widget.seed) {
+      _settleStaticOrStart();
+    } else if (!_wantsTicker &&
+        (oldWidget.showProgressRing != widget.showProgressRing ||
+            oldWidget.progress != widget.progress)) {
+      _paintEpoch++;
     }
   }
 
@@ -86,22 +140,63 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
     super.dispose();
   }
 
+  void _settleStaticOrStart() {
+    if (_wantsTicker) {
+      if (!_ticker.isActive) {
+        _lastElapsed = Duration.zero;
+        _fpsAccum = 0;
+        _ticker.start();
+      }
+      return;
+    }
+    if (_ticker.isActive) _ticker.stop();
+    _lastElapsed = Duration.zero;
+    // Frozen deterministic pose — one paint, no continuous setState.
+    _engine.time = 5.0 + (widget.seed % 11) * 0.07;
+    _engine.flowPhase = (_engine.time * 0.08) % 1.0;
+    _engine.configureQuality(VisualQualityProfile.idle);
+    final breath = 0.05 + widget.amplitude * 0.04;
+    _engine.updateAudio(
+      AudioFeatures(
+        rms: breath,
+        gatedRms: breath,
+        fastEnvelope: breath,
+        slowEnvelope: breath,
+        spectralCentroid: 0.35,
+      ),
+      1 / 30,
+    );
+    _paintEpoch++;
+    if (mounted) setState(() {});
+  }
+
   void _onTick(Duration elapsed) {
+    if (!_wantsTicker) {
+      _ticker.stop();
+      return;
+    }
+
     final dtMs = _lastElapsed == Duration.zero
         ? 16.0
         : (elapsed - _lastElapsed).inMicroseconds / 1000.0;
     _lastElapsed = elapsed;
     final dt = (dtMs / 1000.0).clamp(0.0, 0.05);
 
+    // Cap paint rate to profile targetFps (still advance engine time).
+    final targetFps = VisualQualityProfile.forTier(_tier).targetFps;
+    _fpsAccum += dt;
+    final minDt = 1.0 / targetFps.clamp(20.0, 60.0);
+    final shouldPaint = _fpsAccum >= minDt;
+    if (shouldPaint) _fpsAccum = 0;
+
     _frameTimes.add(dt);
     if (_frameTimes.length > 45) _frameTimes.removeAt(0);
     if (_frameTimes.length >= 20) {
-      final avg =
-          _frameTimes.reduce((a, b) => a + b) / _frameTimes.length;
+      final avg = _frameTimes.reduce((a, b) => a + b) / _frameTimes.length;
       final fps = 1.0 / avg.clamp(0.008, 0.1);
-      final next = fps < 42
+      final next = fps < 38
           ? VisualQuality.low
-          : (fps < 52 ? VisualQuality.medium : VisualQuality.high);
+          : (fps < 50 ? VisualQuality.medium : VisualQuality.high);
       if (next != _tier) {
         _tier = next;
         _engine.configureQuality(VisualQualityProfile.forTier(_tier));
@@ -112,13 +207,7 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
     _engine.tick(dt);
     _engine.updateAudio(f, dt);
 
-    // Freeze complete mode at deterministic time from seed.
-    if (_mode == SoundVisualMode.complete) {
-      _engine.time = 5.0 + (widget.seed % 11) * 0.07;
-      _engine.autoRotX = _engine.time * 0.4;
-      _engine.autoRotY = _engine.time * 0.6;
-    }
-
+    if (!shouldPaint) return;
     _paintEpoch++;
     if (mounted) setState(() {});
   }
@@ -145,7 +234,6 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
         slowEnvelope: v,
       );
     }
-    // Idle / complete: soft deterministic breath (engine also adds idleEnergy)
     final breath = 0.04 +
         0.02 * math.sin(_engine.time * 0.55) +
         widget.amplitude * 0.05;
@@ -159,41 +247,66 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncTickerMode();
+  }
+
+  void _syncTickerMode() {
+    final enabled = TickerMode.valuesOf(context).enabled;
+    if (!enabled && _ticker.isActive) {
+      _ticker.stop();
+    } else if (enabled && _wantsTicker && !_ticker.isActive) {
+      _lastElapsed = Duration.zero;
+      _ticker.start();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onScaleStart: (d) {
-        _pinchBase = _engine.zoom;
-      },
-      onScaleUpdate: (d) {
-        if (d.pointerCount >= 2) {
-          _engine.setZoom(_pinchBase * d.scale);
-        } else {
-          _engine.applyManualDelta(d.focalPointDelta.dx, d.focalPointDelta.dy);
-        }
-      },
-      onDoubleTap: _engine.resetAutoSpin,
-      child: CustomPaint(
-        painter: _SpherePainter(
-          engine: _engine,
-          epoch: _paintEpoch,
-          showProgressRing: widget.showProgressRing,
-          progress: widget.progress,
+    return RepaintBoundary(
+      child: GestureDetector(
+        onScaleStart: _wantsTicker
+            ? (_) {
+                _pinchBase = _engine.zoom;
+              }
+            : null,
+        onScaleUpdate: _wantsTicker
+            ? (d) {
+                if (d.pointerCount >= 2) {
+                  _engine.setZoom(_pinchBase * d.scale);
+                } else {
+                  _engine.applyManualDelta(
+                    d.focalPointDelta.dx,
+                    d.focalPointDelta.dy,
+                  );
+                }
+              }
+            : null,
+        onDoubleTap: _wantsTicker ? _engine.resetAutoSpin : null,
+        child: CustomPaint(
+          painter: _KaleidoPainter(
+            engine: _engine,
+            epoch: _paintEpoch,
+            showProgressRing: widget.showProgressRing,
+            progress: widget.progress,
+          ),
+          child: const SizedBox.expand(),
         ),
-        child: const SizedBox.expand(),
       ),
     );
   }
 }
 
-class _SpherePainter extends CustomPainter {
-  _SpherePainter({
+class _KaleidoPainter extends CustomPainter {
+  _KaleidoPainter({
     required this.engine,
     required this.epoch,
     required this.showProgressRing,
     required this.progress,
   });
 
-  final SphereVisualEngine engine;
+  final KaleidoLinearEngine engine;
   final int epoch;
   final bool showProgressRing;
   final double progress;
@@ -209,32 +322,30 @@ class _SpherePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _SpherePainter old) =>
+  bool shouldRepaint(covariant _KaleidoPainter old) =>
       old.epoch != epoch ||
       old.showProgressRing != showProgressRing ||
       old.progress != progress;
 }
 
-/// Offline SPHERE bake — same engine as live canvas.
+/// Offline bake — same 4-quadrant linear engine as live canvas.
 class SoundVisualOffscreen {
   SoundVisualOffscreen({
     required this.seed,
     this.quality = VisualQuality.medium,
-  }) : _engine = SphereVisualEngine(seed: seed) {
+  }) : _engine = KaleidoLinearEngine(seed: seed) {
     _engine.configureQuality(VisualQualityProfile.forTier(quality));
   }
 
   final int seed;
   final VisualQuality quality;
-  final SphereVisualEngine _engine;
+  final KaleidoLinearEngine _engine;
 
   void seek(AudioFeatureTimeline timeline, int timeMs, {required double dt}) {
     final f = timeline.sampleAt(timeMs);
     final t = timeMs / 1000.0;
     _engine.time = t + (seed % 11) * 0.001;
-    _engine.autoSpin = true;
-    _engine.autoRotX = _engine.time * 0.4;
-    _engine.autoRotY = _engine.time * 0.6;
+    _engine.flowPhase = (_engine.time * 0.08) % 1.0;
     _engine.updateAudio(f, dt);
   }
 
@@ -259,7 +370,7 @@ class SoundVisualOffscreen {
   }
 }
 
-/// NFC detect ripple (unchanged public API for Press flow).
+/// NFC detect ripple (Press flow).
 class NfcRippleVisual extends StatefulWidget {
   const NfcRippleVisual({super.key, this.active = true});
   final bool active;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../services/audio_import_service.dart';
 import '../../services/permission_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
@@ -9,9 +10,14 @@ import '../../widgets/empty_state_panel.dart';
 import '../../widgets/sound_visual.dart';
 
 class RecordHomeScreen extends StatefulWidget {
-  const RecordHomeScreen({super.key, required this.onStartRecord});
+  const RecordHomeScreen({
+    super.key,
+    required this.onStartRecord,
+    required this.onImported,
+  });
 
   final VoidCallback onStartRecord;
+  final void Function(AudioImportResult result) onImported;
 
   @override
   State<RecordHomeScreen> createState() => _RecordHomeScreenState();
@@ -20,6 +26,7 @@ class RecordHomeScreen extends StatefulWidget {
 class _RecordHomeScreenState extends State<RecordHomeScreen> {
   bool? _micGranted;
   bool _permanentlyDenied = false;
+  bool _importing = false;
 
   @override
   void initState() {
@@ -54,6 +61,61 @@ class _RecordHomeScreenState extends State<RecordHomeScreen> {
       return;
     }
     await _requestMic();
+  }
+
+  Future<void> _importLocal() async {
+    if (_importing) return;
+    setState(() => _importing = true);
+    try {
+      final result = await AudioImportService.instance.pickAndImport();
+      if (!mounted) return;
+      if (result == null) return;
+      widget.onImported(result);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e is StateError ? e.message : '导入失败：$e',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  Widget _importEntry({required bool compact}) {
+    return TextButton(
+      onPressed: _importing ? null : _importLocal,
+      style: TextButton.styleFrom(
+        foregroundColor: AppColors.textSecondary,
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 8 : 12,
+          vertical: compact ? 4 : 8,
+        ),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: _importing
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.6,
+                color: AppColors.accent,
+              ),
+            )
+          : Text(
+              '导入本地音频',
+              style: TextStyle(
+                fontSize: compact ? 12.5 : 13.5,
+                fontWeight: FontWeight.w500,
+                color: AppColors.accent.withValues(alpha: 0.85),
+                letterSpacing: 0.2,
+              ),
+            ),
+    );
   }
 
   @override
@@ -93,25 +155,31 @@ class _RecordHomeScreenState extends State<RecordHomeScreen> {
                   ? EmptyStatePanel(
                       statusCode: 'MIC ACCESS REQUIRED',
                       title: '需要麦克风权限',
-                      description: '没有 SoundPola 无法捕捉声音。\n权限仅用于录制，不会后台监听。',
+                      description: '没有 SoundPola 无法捕捉声音。\n权限仅用于录制，不会后台监听。'
+                          '${_importing ? '' : '\n也可先导入本地音频。'}',
                       visual: const EmptyMicPortVisual(locked: true),
                       variant: EmptyStateVariant.blocked,
                       primaryLabel: _permanentlyDenied
                           ? '前往系统设置'
                           : '允许麦克风权限',
                       onPrimary: _requestMic,
+                      secondaryLabel: _importing ? '导入中…' : '导入本地音频',
+                      onSecondary: _importing ? null : _importLocal,
                     )
                   : LayoutBuilder(
                       builder: (context, constraints) {
                         final h = constraints.maxHeight;
                         final w = constraints.maxWidth;
-                        const bottomBlock = 168.0;
-                        final visualBudget = (h - bottomBlock - 8).clamp(120.0, h);
+                        const bottomBlock = 188.0;
+                        final visualBudget =
+                            (h - bottomBlock - 8).clamp(120.0, h);
                         // 主体宽 74%–82%；视觉中心约在可用区 39%–43%。
                         final visualW =
                             (w * 0.78).clamp(0.0, visualBudget * 0.92);
-                        final visualCenterY = (h * 0.40)
-                            .clamp(visualW * 0.48, h - bottomBlock - visualW * 0.35);
+                        final visualCenterY = (h * 0.40).clamp(
+                          visualW * 0.48,
+                          h - bottomBlock - visualW * 0.35,
+                        );
                         final visualTop =
                             (visualCenterY - visualW / 2).clamp(0.0, h * 0.18);
 
@@ -180,6 +248,8 @@ class _RecordHomeScreenState extends State<RecordHomeScreen> {
                                         fontSize: 12.5,
                                       ),
                                     ),
+                                    const SizedBox(height: 6),
+                                    _importEntry(compact: true),
                                   ],
                                 ),
                               ),

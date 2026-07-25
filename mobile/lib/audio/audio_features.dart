@@ -183,33 +183,34 @@ class VisualQualityProfile {
   static const high = VisualQualityProfile(
     tier: VisualQuality.high,
     bloom: false,
-    particleCount: 672,
+    particleCount: 480,
     resolutionScale: 1.0,
-    targetFps: 60,
+    targetFps: 48,
   );
 
   static const medium = VisualQualityProfile(
     tier: VisualQuality.medium,
     bloom: false,
-    particleCount: 480,
+    particleCount: 320,
     resolutionScale: 1.0,
-    targetFps: 60,
+    targetFps: 36,
   );
 
   static const low = VisualQualityProfile(
     tier: VisualQuality.low,
     bloom: false,
-    particleCount: 320,
-    resolutionScale: 0.95,
-    targetFps: 45,
+    particleCount: 180,
+    resolutionScale: 0.9,
+    targetFps: 24,
   );
 
+  /// Frozen / list thumbnails — never drives a live ticker by default.
   static const idle = VisualQualityProfile(
-    tier: VisualQuality.medium,
+    tier: VisualQuality.low,
     bloom: false,
-    particleCount: 480,
-    resolutionScale: 1.0,
-    targetFps: 30,
+    particleCount: 120,
+    resolutionScale: 0.85,
+    targetFps: 20,
   );
 
   static VisualQualityProfile forTier(VisualQuality t) => switch (t) {

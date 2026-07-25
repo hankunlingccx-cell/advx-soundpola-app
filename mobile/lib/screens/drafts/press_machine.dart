@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
-import '../../data/sound_repository.dart';
+import '../../data/bay_disc_store.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/disc_texture.dart';
 
@@ -122,7 +122,7 @@ class PressMachine extends StatelessWidget {
     required this.breath,
     this.slotKey,
     this.loadedTitle,
-    this.storedItem,
+    this.storedDiscs = const [],
     this.pressProgress = 0,
     this.maxHeight = 196,
   });
@@ -131,8 +131,8 @@ class PressMachine extends StatelessWidget {
   final Animation<double> breath;
   final GlobalKey? slotKey;
   final String? loadedTitle;
-  /// Virtual textured disc in the frosted bay — only after NFC write success.
-  final SoundMemory? storedItem;
+  /// Textured discs retained in the frosted bay (up to 7 days / 5 discs).
+  final List<BayStoredDisc> storedDiscs;
   final double pressProgress;
   final double maxHeight;
 
@@ -219,7 +219,7 @@ class PressMachine extends StatelessWidget {
                         width: bodyW * 0.78,
                         height: bayH,
                         breath: breath.value,
-                        storedItem: storedItem,
+                        storedDiscs: storedDiscs,
                       ),
                     ),
                     // ABS body — slot carved into the top face.
@@ -344,19 +344,45 @@ class PressMachine extends StatelessWidget {
   }
 }
 
-/// Frosted acrylic bin — textured circular disc drops in with gravity.
+/// One physical disc body inside the frosted bay (center coordinates).
+class _BayDiscBody {
+  _BayDiscBody({
+    required this.id,
+    required this.seed,
+    required this.x,
+    required this.y,
+    required this.vx,
+    required this.vy,
+    required this.angle,
+    required this.omega,
+    required this.settled,
+  });
+
+  final String id;
+  final int seed;
+  double x;
+  double y;
+  double vx;
+  double vy;
+  double angle;
+  double omega;
+  bool settled;
+}
+
+/// Frosted acrylic bin — discs drop in with gravity, wall/floor bounce,
+/// and disc–disc collision (centers must not fully coincide).
 class _FrostedStorageBay extends StatefulWidget {
   const _FrostedStorageBay({
     required this.width,
     required this.height,
     required this.breath,
-    this.storedItem,
+    this.storedDiscs = const [],
   });
 
   final double width;
   final double height;
   final double breath;
-  final SoundMemory? storedItem;
+  final List<BayStoredDisc> storedDiscs;
 
   @override
   State<_FrostedStorageBay> createState() => _FrostedStorageBayState();
@@ -364,25 +390,19 @@ class _FrostedStorageBay extends StatefulWidget {
 
 class _FrostedStorageBayState extends State<_FrostedStorageBay>
     with SingleTickerProviderStateMixin {
-  static const _discSize = 52.0;
+  static const _discSize = 46.0;
   static const _gravity = 2200.0;
-  static const _restitution = 0.52;
+  static const _wallRest = 0.52;
+  static const _discRest = 0.46;
   static const _friction = 0.82;
   static const _settleVy = 28.0;
   static const _pad = 6.0;
+  /// Minimum center distance — rims may kiss, never fully stack as one.
+  static const _minCenterDist = _discSize * 0.98;
 
   Ticker? _ticker;
   Duration _lastElapsed = Duration.zero;
-  String? _activeId;
-
-  double _x = 0;
-  double _y = 0;
-  double _vx = 0;
-  double _vy = 0;
-  double _angle = 0;
-  double _omega = 0;
-  bool _settled = false;
-  bool _visible = false;
+  final List<_BayDiscBody> _bodies = [];
 
   double get _r => _discSize / 2;
   double get _floor => widget.height - _pad - _r;
@@ -393,106 +413,28 @@ class _FrostedStorageBayState extends State<_FrostedStorageBay>
   void initState() {
     super.initState();
     _ticker = createTicker(_onTick);
-    _syncItem(widget.storedItem, restart: true);
+    _syncDiscs(widget.storedDiscs, animateNewest: false);
   }
 
   @override
   void didUpdateWidget(covariant _FrostedStorageBay oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.storedItem?.id != widget.storedItem?.id) {
-      _syncItem(widget.storedItem, restart: true);
+    final oldIds = oldWidget.storedDiscs.map((d) => d.id).join('|');
+    final newIds = widget.storedDiscs.map((d) => d.id).join('|');
+    if (oldIds != newIds) {
+      final newestId =
+          widget.storedDiscs.isEmpty ? null : widget.storedDiscs.last.id;
+      final isNewDrop = newestId != null &&
+          !oldWidget.storedDiscs.any((d) => d.id == newestId);
+      _syncDiscs(widget.storedDiscs, animateNewest: isNewDrop);
     } else if (oldWidget.width != widget.width ||
         oldWidget.height != widget.height) {
-      _clampInside();
-    }
-  }
-
-  void _syncItem(SoundMemory? item, {required bool restart}) {
-    if (item == null) {
-      _activeId = null;
-      _visible = false;
-      _settled = true;
-      _ticker?.stop();
-      _lastElapsed = Duration.zero;
-      if (mounted) setState(() {});
-      return;
-    }
-    if (!restart && _activeId == item.id && _visible) return;
-    _activeId = item.id;
-    _visible = true;
-    _settled = false;
-    // Drop from top-center with slight lateral kick + spin.
-    final rng = math.Random(item.visualSeed);
-    _x = widget.width * 0.5 + (rng.nextDouble() - 0.5) * 18;
-    _y = _r + 2;
-    _vx = (rng.nextDouble() - 0.5) * 160;
-    _vy = 40 + rng.nextDouble() * 60;
-    _angle = (rng.nextDouble() - 0.5) * 0.6;
-    _omega = (rng.nextDouble() - 0.5) * 6.5;
-    _lastElapsed = Duration.zero;
-    _ticker?.stop();
-    _ticker?.start();
-    if (mounted) setState(() {});
-  }
-
-  void _clampInside() {
-    _x = _x.clamp(_left, _right);
-    _y = _y.clamp(_r + 1, _floor);
-  }
-
-  void _onTick(Duration elapsed) {
-    if (_settled || !_visible) return;
-    final dtMs = _lastElapsed == Duration.zero
-        ? 16.0
-        : (elapsed - _lastElapsed).inMicroseconds / 1000.0;
-    _lastElapsed = elapsed;
-    var dt = (dtMs / 1000.0).clamp(0.0, 0.033);
-
-    _vy += _gravity * dt;
-    _x += _vx * dt;
-    _y += _vy * dt;
-    _angle += _omega * dt;
-
-    // Side walls.
-    if (_x < _left) {
-      _x = _left;
-      _vx = -_vx * _restitution;
-      _omega *= -0.7;
-    } else if (_x > _right) {
-      _x = _right;
-      _vx = -_vx * _restitution;
-      _omega *= -0.7;
-    }
-
-    // Floor bounce.
-    if (_y >= _floor) {
-      _y = _floor;
-      if (_vy > 0) {
-        _vy = -_vy * _restitution;
-        _vx *= _friction;
-        _omega *= 0.78;
-        // Nudge spin from bounce friction.
-        _omega += -_vx * 0.012;
+      for (final b in _bodies) {
+        _clampBody(b);
       }
-      if (_vy.abs() < _settleVy && _vx.abs() < 18) {
-        _vy = 0;
-        _vx = 0;
-        _omega *= 0.5;
-        if (_omega.abs() < 0.15) {
-          _omega = 0;
-          _settled = true;
-          _ticker?.stop();
-        }
-      }
+      _separateOverlaps(iterations: 6);
+      _wakeIfNeeded();
     }
-
-    // Soft ceiling (under machine lip).
-    if (_y < _r + 1) {
-      _y = _r + 1;
-      if (_vy < 0) _vy = -_vy * 0.2;
-    }
-
-    if (mounted) setState(() {});
   }
 
   @override
@@ -501,9 +443,258 @@ class _FrostedStorageBayState extends State<_FrostedStorageBay>
     super.dispose();
   }
 
+  void _syncDiscs(List<BayStoredDisc> discs, {required bool animateNewest}) {
+    if (discs.isEmpty) {
+      _bodies.clear();
+      _ticker?.stop();
+      _lastElapsed = Duration.zero;
+      if (mounted) setState(() {});
+      return;
+    }
+
+    final keep = <_BayDiscBody>[];
+    for (var i = 0; i < discs.length; i++) {
+      final d = discs[i];
+      _BayDiscBody? existing;
+      for (final b in _bodies) {
+        if (b.id == d.id) {
+          existing = b;
+          break;
+        }
+      }
+      if (existing != null) {
+        keep.add(existing);
+      } else {
+        final isNewest = animateNewest && d.id == discs.last.id;
+        keep.add(_spawnBody(d, dropFromTop: isNewest, index: keep.length));
+      }
+    }
+    _bodies
+      ..clear()
+      ..addAll(keep);
+
+    _separateOverlaps(iterations: 8);
+    _wakeIfNeeded();
+    if (mounted) setState(() {});
+  }
+
+  _BayDiscBody _spawnBody(
+    BayStoredDisc d, {
+    required bool dropFromTop,
+    required int index,
+  }) {
+    final rng = math.Random(d.visualSeed);
+    if (dropFromTop) {
+      return _BayDiscBody(
+        id: d.id,
+        seed: d.visualSeed,
+        x: widget.width * 0.5 + (rng.nextDouble() - 0.5) * 28,
+        y: _r + 2,
+        vx: (rng.nextDouble() - 0.5) * 160,
+        vy: 40 + rng.nextDouble() * 60,
+        angle: (rng.nextDouble() - 0.5) * 0.6,
+        omega: (rng.nextDouble() - 0.5) * 6.5,
+        settled: false,
+      );
+    }
+
+    final n = math.max(1, widget.storedDiscs.length);
+    final span = math.max(8.0, _right - _left);
+    final slot = span / n;
+    final x = _left + slot * index + slot * 0.5;
+    return _BayDiscBody(
+      id: d.id,
+      seed: d.visualSeed,
+      x: x.clamp(_left, _right),
+      y: _floor,
+      vx: 0,
+      vy: 0,
+      angle: (rng.nextDouble() - 0.5) * 0.35,
+      omega: 0,
+      settled: true,
+    );
+  }
+
+  bool _anyOverlap() {
+    for (var i = 0; i < _bodies.length; i++) {
+      for (var j = i + 1; j < _bodies.length; j++) {
+        final a = _bodies[i];
+        final b = _bodies[j];
+        final dx = b.x - a.x;
+        final dy = b.y - a.y;
+        if (dx * dx + dy * dy < _minCenterDist * _minCenterDist) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  void _separateOverlaps({int iterations = 3}) {
+    for (var iter = 0; iter < iterations; iter++) {
+      for (var i = 0; i < _bodies.length; i++) {
+        for (var j = i + 1; j < _bodies.length; j++) {
+          _resolvePair(_bodies[i], _bodies[j], applyImpulse: false);
+        }
+      }
+      for (final b in _bodies) {
+        _clampBody(b);
+      }
+    }
+  }
+
+  void _resolvePair(
+    _BayDiscBody a,
+    _BayDiscBody b, {
+    required bool applyImpulse,
+  }) {
+    var dx = b.x - a.x;
+    var dy = b.y - a.y;
+    var dist = math.sqrt(dx * dx + dy * dy);
+
+    // Fully coincident: deterministic push axis from seeds.
+    if (dist < 1e-4) {
+      final angle = ((a.seed * 31) ^ (b.seed * 17)) * 0.001;
+      dx = math.cos(angle);
+      dy = math.sin(angle);
+      dist = 1e-4;
+    }
+
+    if (dist >= _minCenterDist) return;
+
+    final nx = dx / dist;
+    final ny = dy / dist;
+    final overlap = _minCenterDist - dist;
+    final push = overlap * 0.5 + 0.2;
+    a.x -= nx * push;
+    a.y -= ny * push;
+    b.x += nx * push;
+    b.y += ny * push;
+    a.settled = false;
+    b.settled = false;
+
+    if (!applyImpulse) return;
+
+    final rvx = b.vx - a.vx;
+    final rvy = b.vy - a.vy;
+    final velN = rvx * nx + rvy * ny;
+    if (velN >= 0) return;
+
+    final impulse = -(1 + _discRest) * velN / 2;
+    a.vx -= impulse * nx;
+    a.vy -= impulse * ny;
+    b.vx += impulse * nx;
+    b.vy += impulse * ny;
+    // Spin from tangential relative motion.
+    final tx = -ny;
+    final ty = nx;
+    final velT = rvx * tx + rvy * ty;
+    a.omega -= velT * 0.008;
+    b.omega += velT * 0.008;
+  }
+
+  void _clampBody(_BayDiscBody b) {
+    b.x = b.x.clamp(_left, _right);
+    b.y = b.y.clamp(_r + 1, _floor);
+  }
+
+  void _wakeIfNeeded() {
+    if (_bodies.any((b) => !b.settled) || _anyOverlap()) {
+      _lastElapsed = Duration.zero;
+      _ticker?.stop();
+      _ticker?.start();
+    } else {
+      _ticker?.stop();
+      _lastElapsed = Duration.zero;
+    }
+  }
+
+  void _onTick(Duration elapsed) {
+    if (_bodies.isEmpty) {
+      _ticker?.stop();
+      return;
+    }
+
+    final dtMs = _lastElapsed == Duration.zero
+        ? 16.0
+        : (elapsed - _lastElapsed).inMicroseconds / 1000.0;
+    _lastElapsed = elapsed;
+    final dt = (dtMs / 1000.0).clamp(0.0, 0.033);
+
+    for (final b in _bodies) {
+      if (b.settled) continue;
+      b.vy += _gravity * dt;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.angle += b.omega * dt;
+
+      if (b.x < _left) {
+        b.x = _left;
+        b.vx = -b.vx * _wallRest;
+        b.omega *= -0.7;
+      } else if (b.x > _right) {
+        b.x = _right;
+        b.vx = -b.vx * _wallRest;
+        b.omega *= -0.7;
+      }
+
+      if (b.y >= _floor) {
+        b.y = _floor;
+        if (b.vy > 0) {
+          b.vy = -b.vy * _wallRest;
+          b.vx *= _friction;
+          b.omega *= 0.78;
+          b.omega += -b.vx * 0.012;
+        }
+        if (b.vy.abs() < _settleVy && b.vx.abs() < 18) {
+          b.vy = 0;
+          b.vx = 0;
+          b.omega *= 0.5;
+          if (b.omega.abs() < 0.15) {
+            b.omega = 0;
+            b.settled = true;
+          }
+        }
+      }
+
+      if (b.y < _r + 1) {
+        b.y = _r + 1;
+        if (b.vy < 0) b.vy = -b.vy * 0.2;
+      }
+    }
+
+    for (var pass = 0; pass < 3; pass++) {
+      for (var i = 0; i < _bodies.length; i++) {
+        for (var j = i + 1; j < _bodies.length; j++) {
+          _resolvePair(_bodies[i], _bodies[j], applyImpulse: true);
+        }
+      }
+      for (final b in _bodies) {
+        _clampBody(b);
+      }
+    }
+
+    if (_anyOverlap()) {
+      for (final b in _bodies) {
+        if (b.settled) {
+          b.settled = false;
+          b.vx += ((b.seed % 5) - 2) * 14.0;
+        }
+      }
+    }
+
+    final allQuiet = _bodies.every((b) => b.settled) && !_anyOverlap();
+    if (allQuiet) {
+      _ticker?.stop();
+      _lastElapsed = Duration.zero;
+    }
+
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
-    final occupied = widget.storedItem != null;
+    final occupied = widget.storedDiscs.isNotEmpty;
     final pulse = 0.55 + 0.45 * widget.breath;
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(
@@ -560,16 +751,16 @@ class _FrostedStorageBayState extends State<_FrostedStorageBay>
                   ),
                 ),
               ),
-              if (_visible && widget.storedItem != null)
+              for (final b in _bodies)
                 Positioned(
-                  left: _x - _r,
-                  top: _y - _r,
+                  left: b.x - _r,
+                  top: b.y - _r,
                   width: _discSize,
                   height: _discSize,
                   child: Transform.rotate(
-                    angle: _angle,
+                    angle: b.angle,
                     child: _BayTexturedDisc(
-                      seed: widget.storedItem!.visualSeed,
+                      seed: b.seed,
                       size: _discSize,
                     ),
                   ),

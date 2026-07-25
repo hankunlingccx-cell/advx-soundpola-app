@@ -511,6 +511,46 @@
     .weak .meta { opacity: .7; }
     .weak .code { opacity: .6; }
 
+    /* Pair / QR — side-by-side to fit 480×320 */
+    .pair-row {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      margin-top: 4px;
+    }
+    .qr-frame {
+      flex-shrink: 0;
+      width: 128px;
+      height: 128px;
+      padding: 6px;
+      background: #fff;
+      border-radius: 2px;
+      box-shadow: 0 0 0 1px rgba(99,224,203,.25);
+    }
+    .qr-frame canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+    }
+    .pair-copy {
+      flex: 1;
+      min-width: 0;
+      text-align: left;
+    }
+    .pair-copy .headline { font-size: 18px; }
+    .pair-copy .plate {
+      margin: 8px 0 0;
+      display: inline-block;
+    }
+    .pair-copy .meta { margin-top: 8px; }
+    .pair-ttl {
+      color: var(--warn);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      margin-top: 6px;
+    }
+
     @keyframes lampPulse {
       0%, 100% { opacity: 1; }
       50% { opacity: .35; }
@@ -546,6 +586,50 @@
 
   <div class="bezel">
     <div class="screen" id="screen">
+
+      <!-- 00 PAIR QR -->
+      <section class="ui" data-id="00">
+        <header class="top-rail">
+          <div class="brand">SOUNDPOLA<em>MEMORY TERMINAL</em></div>
+          <div class="mods">
+            <span class="mod"><i class="lamp"></i>PHONE</span>
+            <span class="mod"><i class="lamp on pulse"></i>NET</span>
+            <span class="mod"><i class="lamp on"></i>NFC</span>
+            <span class="mod"><i class="lamp"></i>HOLO</span>
+            <span>23:40</span>
+          </div>
+        </header>
+        <main class="stage">
+          <div class="code">PAIR / <span>00</span></div>
+          <div class="pair-row">
+            <div class="qr-frame" id="pair-qr" aria-label="配对二维码"></div>
+            <div class="pair-copy">
+              <div class="headline">用手机扫描<br>配对此设备</div>
+              <div class="plate teal">APP · 账号 · 配对 NFC</div>
+              <div class="meta">
+                <span class="name">DEV&nbsp;&nbsp;SP-MT-0042</span>
+                192.168.1.42:8080<br>
+                载荷 SNDPOLA1｜一次性 nonce
+              </div>
+              <div class="pair-ttl">有效剩余 02:48</div>
+            </div>
+          </div>
+          <div class="actions">
+            <span class="btn ghost">刷新二维码</span>
+            <span class="btn ghost">退出配对</span>
+          </div>
+        </main>
+        <footer class="guide">
+          <div class="guide-row">
+            <span class="dir">配对模式 · 请保持同一 Wi-Fi</span>
+            <span>暂不接收入卡</span>
+          </div>
+          <div class="tray">
+            <div class="marks"><span>IN</span><span>NFC</span><span>OUT</span></div>
+            <div class="slot dim" style="--x:8%"></div>
+          </div>
+        </footer>
+      </section>
 
       <!-- 01 IDLE -->
       <section class="ui active" data-id="01">
@@ -1094,6 +1178,8 @@
   <div class="screen-label" id="label">01 · 待机：等待一段声音 · 480×320</div>
 
   <nav class="nav" id="nav">
+    <div class="group">Setup</div>
+    <button data-id="00">00 配对二维码</button>
     <div class="group">Core</div>
     <button data-id="01" class="active">01 待机</button>
     <button data-id="02">02 接收</button>
@@ -1116,8 +1202,14 @@
     <button data-id="08b">08 凭证延迟</button>
   </nav>
 
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
   <script>
+    // Matches App DevicePairService: SNDPOLA1|<ipv4>|<port>|<nonce>|<devid>
+    const PAIR_PAYLOAD =
+      "SNDPOLA1|192.168.1.42|8080|a7f3c91e2b04d6e8|SP-MT-0042";
+
     const names = {
+      "00": "配对：手机扫码",
       "01": "待机：等待一段声音",
       "02": "手机声音接收",
       "02b": "声音已准备好",
@@ -1140,6 +1232,28 @@
     const label = document.getElementById("label");
     const screens = [...document.querySelectorAll(".ui")];
 
+    function renderPairQr() {
+      const host = document.getElementById("pair-qr");
+      if (!host || typeof QRCode === "undefined") return;
+      host.innerHTML = "";
+      QRCode.toCanvas(
+        PAIR_PAYLOAD,
+        {
+          width: 116,
+          margin: 1,
+          color: { dark: "#070808", light: "#ffffff" },
+          errorCorrectionLevel: "M",
+        },
+        (err, canvas) => {
+          if (err || !canvas) {
+            host.textContent = "QR";
+            return;
+          }
+          host.appendChild(canvas);
+        },
+      );
+    }
+
     function show(id) {
       screens.forEach((el) => el.classList.toggle("active", el.dataset.id === id));
       nav.querySelectorAll("button").forEach((btn) => {
@@ -1147,6 +1261,7 @@
       });
       label.textContent = `${id} · ${names[id] || ""} · 480×320`;
       history.replaceState(null, "", "#" + id);
+      if (id === "00") renderPairQr();
     }
 
     nav.addEventListener("click", (e) => {
@@ -1164,6 +1279,9 @@
       if (e.key === "ArrowRight" && i < order.length - 1) show(order[i + 1]);
       if (e.key === "ArrowLeft" && i > 0) show(order[i - 1]);
     });
+
+    // Prefetch QR asset so Setup page is instant
+    if (typeof QRCode !== "undefined") renderPairQr();
   </script>
 </body>
 </html>

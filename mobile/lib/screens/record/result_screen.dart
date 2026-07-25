@@ -21,19 +21,23 @@ class ResultScreen extends StatefulWidget {
     required this.audioPath,
     required this.onSaved,
     required this.onReRecord,
+    this.fromImport = false,
+    this.suggestedTitle,
   });
 
   final int durationSec;
   final String audioPath;
   final VoidCallback onSaved;
   final VoidCallback onReRecord;
+  final bool fromImport;
+  final String? suggestedTitle;
 
   @override
   State<ResultScreen> createState() => _ResultScreenState();
 }
 
 class _ResultScreenState extends State<ResultScreen> {
-  final _nameCtrl = TextEditingController(text: '未命名声音');
+  final _nameCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   String? _category;
   late final int _seed;
@@ -46,6 +50,9 @@ class _ResultScreenState extends State<ResultScreen> {
   @override
   void initState() {
     super.initState();
+    final hint = widget.suggestedTitle?.trim();
+    _nameCtrl.text =
+        (hint != null && hint.isNotEmpty) ? hint : '未命名声音';
     _seed = RecordingSession.visualSeed != 0
         ? RecordingSession.visualSeed
         : DateTime.now().millisecondsSinceEpoch % 10000;
@@ -173,7 +180,9 @@ class _ResultScreenState extends State<ResultScreen> {
     final estMb = (estBytes / (1024 * 1024)).toStringAsFixed(1);
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
-      appBar: AppBar(title: const Text('录音结果')),
+      appBar: AppBar(
+        title: Text(widget.fromImport ? '导入结果' : '录音结果'),
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.symmetric(
@@ -271,13 +280,11 @@ class _ResultScreenState extends State<ResultScreen> {
             ),
             const SizedBox(height: AppSpacing.item),
             TextButton(
-              onPressed: _saving
-                  ? null
-                  : () {
-                      RecordingSession.clear();
-                      widget.onReRecord();
-                    },
-              child: const Text('重新录音', style: TextStyle(color: AppColors.accent)),
+              onPressed: _saving ? null : widget.onReRecord,
+              child: Text(
+                widget.fromImport ? '重新选择' : '重新录音',
+                style: const TextStyle(color: AppColors.accent),
+              ),
             ),
             const SizedBox(height: AppSpacing.block),
           ],

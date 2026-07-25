@@ -270,7 +270,7 @@ class _CollectionWaterfallState extends State<_CollectionWaterfall> {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(14),
               child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                 child: Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(
@@ -473,8 +473,8 @@ class _CategoryCapsule extends StatelessWidget {
                       Positioned.fill(
                         child: BackdropFilter(
                           filter: ImageFilter.blur(
-                            sigmaX: hot ? 22 : 16,
-                            sigmaY: hot ? 22 : 16,
+                            sigmaX: hot ? 14 : 10,
+                            sigmaY: hot ? 14 : 10,
                           ),
                           child: const SizedBox.expand(),
                         ),
@@ -888,7 +888,7 @@ class _DiscVisualState extends State<_DiscVisual>
                     alpha: dimmed ? 0.28 : 0.06,
                   ),
                 ),
-                // 陶瓷高光：镭射叠在高光扫带上，非整面染色
+                // 陶瓷高光 + 全息箔片叠层
                 DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -1026,7 +1026,7 @@ class _DiscVisualState extends State<_DiscVisual>
       ),
       child: SsrAuraLayer(
         size: size,
-        enabled: SsrAuraLayer.isSsr(widget.rarity) && !dimmed,
+        enabled: SsrAuraLayer.isSsr(widget.rarity) && !dimmed && floating,
         intensity: floating ? 1.0 : 0.55,
         parallax: floating
             ? const Offset(2.5, -1.5)

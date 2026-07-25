@@ -78,7 +78,7 @@ class VisualBakeService {
 
       final engine = SoundVisualOffscreen(
         seed: item.visualSeed,
-        quality: VisualQuality.medium,
+        quality: VisualQuality.low,
       );
 
       final mjpgPath = (await store.mjpgFile(soundId)).path;
@@ -115,6 +115,7 @@ class VisualBakeService {
           'w': size,
           'h': size,
           'q': jpegQuality,
+          // Copy — ByteData view is not reliably transferable across isolates.
           'rgba': Uint8List.fromList(rgba),
         });
 
@@ -144,9 +145,8 @@ class VisualBakeService {
           }
         }
 
-        if (i % 4 == 0) {
-          await Future<void>.delayed(Duration.zero);
-        }
+        // Yield every frame so recording / playback UI can keep a frame budget.
+        await Future<void>.delayed(Duration.zero);
       }
 
       await sink.flush();

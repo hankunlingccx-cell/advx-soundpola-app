@@ -23,6 +23,11 @@ class AudioFeatureAnalyzer {
   StreamSubscription? _sub;
   bool _active = false;
   bool _disposed = false;
+  /// Cap UI notifier updates (~25 Hz) even if isolate emits faster.
+  static const _uiMinIntervalUs = 40000; // 25 Hz
+  int _lastUiEmitUs = 0;
+  Map? _pendingUiMsg;
+  Timer? _uiFlushTimer;
 
   static Future<AudioFeatureAnalyzer> spawn() async {
     final ready = ReceivePort();
@@ -35,17 +40,42 @@ class AudioFeatureAnalyzer {
     ready.close();
     final analyzer = AudioFeatureAnalyzer._(worker, toWorker);
     analyzer._sub = analyzer._fromWorker.listen((msg) {
-      if (msg is Map) {
-        final f = AudioFeatures.fromMap(msg);
-        analyzer.features.value = f;
-        analyzer.liveVolume.value = f.gatedRms.clamp(0.0, 1.0);
-      }
+      if (msg is! Map) return;
+      analyzer._queueUi(msg);
     });
     toWorker.send({
       'cmd': 'init',
       'port': analyzer._fromWorker.sendPort,
     });
     return analyzer;
+  }
+
+  void _queueUi(Map msg) {
+    if (_disposed) return;
+    final now = DateTime.now().microsecondsSinceEpoch;
+    if (now - _lastUiEmitUs >= _uiMinIntervalUs) {
+      _publishUi(msg, now);
+      return;
+    }
+    _pendingUiMsg = msg;
+    _uiFlushTimer ??= Timer(
+      Duration(microseconds: _uiMinIntervalUs - (now - _lastUiEmitUs)),
+      () {
+        _uiFlushTimer = null;
+        final pending = _pendingUiMsg;
+        _pendingUiMsg = null;
+        if (pending != null && !_disposed) {
+          _publishUi(pending, DateTime.now().microsecondsSinceEpoch);
+        }
+      },
+    );
+  }
+
+  void _publishUi(Map msg, int nowUs) {
+    _lastUiEmitUs = nowUs;
+    final f = AudioFeatures.fromMap(msg);
+    features.value = f;
+    liveVolume.value = f.gatedRms.clamp(0.0, 1.0);
   }
 
   void pushAmplitude(double amp) {
@@ -70,6 +100,9 @@ class AudioFeatureAnalyzer {
   void dispose() {
     _disposed = true;
     _active = false;
+    _uiFlushTimer?.cancel();
+    _uiFlushTimer = null;
+    _pendingUiMsg = null;
     _sub?.cancel();
     _fromWorker.close();
     features.dispose();
@@ -81,7 +114,7 @@ class AudioFeatureAnalyzer {
 
 // ─── Worker isolate ─────────────────────────────────────────────────────────
 
-const _emitHz = 40.0;
+const _emitHz = 28.0;
 const _ringSize = 128;
 const _specBins = AudioFeatures.spectrumBinCount;
 const _minGain = 0.8;

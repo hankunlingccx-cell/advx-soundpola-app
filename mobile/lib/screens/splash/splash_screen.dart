@@ -31,49 +31,65 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    return Scaffold(
       backgroundColor: AppColors.bgPrimary,
       body: SafeArea(
-        child: Column(
-          children: [
-            Spacer(flex: 2),
-            Text(
-              'SoundPola',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 34,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.6,
-              ),
-            ),
-            SizedBox(height: 10),
-            Text(
-              '把声音收成可以回看的记忆',
-              style: TextStyle(
-                color: AppColors.textTertiary,
-                fontSize: 14,
-                height: 1.4,
-              ),
-            ),
-            SizedBox(height: AppSpacing.section),
-            SizedBox(
-              width: 220,
-              height: 220,
-              child: SoundVisualCanvas(seed: 2048, active: true),
-            ),
-            Spacer(flex: 3),
-            Padding(
-              padding: EdgeInsets.only(bottom: AppSpacing.section),
-              child: SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.accent,
+        child: SizedBox.expand(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Spacer(flex: 2),
+              const Text(
+                'SoundPola',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 34,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.6,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 10),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  '把声音收成可以回看的记忆',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: AppColors.textTertiary,
+                    fontSize: 14,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.section),
+              const Center(
+                child: SizedBox(
+                  width: 220,
+                  height: 220,
+                  child: SoundVisualCanvas(
+                    seed: 2048,
+                    mode: SoundVisualMode.idle,
+                    amplitude: 0.08,
+                  ),
+                ),
+              ),
+              const Spacer(flex: 3),
+              const Padding(
+                padding: EdgeInsets.only(bottom: AppSpacing.section),
+                child: Center(
+                  child: SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppColors.accent,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

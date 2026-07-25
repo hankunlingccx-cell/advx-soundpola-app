@@ -109,7 +109,7 @@ class NfcGuidePanel extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(26),
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
             child: AnimatedContainer(
               duration: AppMotion.normal,
               curve: Curves.easeOutCubic,
@@ -518,7 +518,8 @@ class _CheckPromptBody extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          '先上传并生成声片链接（无需贴近）\n准备完成后，只需贴近声片一次即可检查并写入',
+          '音频将上传到云端并生成声片链接（此步骤无需贴近声片）\n'
+          '准备完成后，只需贴近声片一次即可检查并写入',
           style: TextStyle(
             color: AppColors.textTertiary,
             fontSize: 13,

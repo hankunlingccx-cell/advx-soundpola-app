@@ -51,6 +51,15 @@ class NfcBinding {
         if (series != null) 'series': series,
       };
 
+  /// Compact payload for small NTAG capacity.
+  Map<String, dynamic> toCompactJson() => {
+        'v': 3,
+        'soundId': soundId,
+        'discId': discId,
+        if (contentId != null) 'contentId': contentId,
+        if (rarity != null) 'rarity': rarity!.code,
+      };
+
   static NfcBinding? fromJson(Map<String, dynamic> json) {
     final soundId = json['soundId'] as String?;
     final discId = json['discId'] as String?;
@@ -65,6 +74,23 @@ class NfcBinding {
       series: json['series'] as String? ?? json['batch'] as String?,
     );
   }
+}
+
+/// One-shot inspection (single NDEF read) before writing.
+class NfcTagInspection {
+  const NfcTagInspection({
+    required this.writable,
+    this.binding,
+    this.factory,
+    this.maxNdefBytes,
+    this.existingFactoryOnTag = false,
+  });
+
+  final bool writable;
+  final NfcBinding? binding;
+  final DiscFactoryProfile? factory;
+  final int? maxNdefBytes;
+  final bool existingFactoryOnTag;
 }
 
 class NfcService {
@@ -124,33 +150,63 @@ class NfcService {
     return null;
   }
 
+  /// Single I/O pass: read NDEF once, resolve binding / factory / capacity.
+  /// Prefer this over chaining [readBinding] + [canWriteTag] + [readFactoryProfile].
+  Future<NfcTagInspection> inspectTag(
+    NfcTag tag, {
+    bool allowDemoFallback = true,
+  }) async {
+    NdefMessage? message;
+    try {
+      message = await _readMessage(tag);
+    } catch (_) {
+      message = null;
+    }
+    message ??= _cachedMessage(tag);
+
+    final binding = message != null ? _parseBinding(message) : null;
+    var factory = message != null ? _parseFactory(message) : null;
+    final hadFactory = factory != null;
+    if (factory != null && !factory.isAuthentic) {
+      throw StateError('声片防伪校验失败');
+    }
+    if (factory == null && allowDemoFallback) {
+      final demo = DiscFactoryProfile.demoFromTagId(tagIdHex(tag));
+      if (!demo.isAuthentic) {
+        throw StateError('声片防伪校验失败');
+      }
+      factory = demo;
+    }
+
+    final writable = await _isWritable(tag);
+    return NfcTagInspection(
+      writable: writable && binding == null && !(factory?.bound ?? false),
+      binding: binding,
+      factory: factory,
+      maxNdefBytes: _maxNdefBytes(tag),
+      existingFactoryOnTag: hadFactory,
+    );
+  }
+
+  int? _maxNdefBytes(NfcTag tag) {
+    if (Platform.isAndroid) {
+      return NdefAndroid.from(tag)?.maxSize;
+    }
+    return null;
+  }
+
   /// 读取出厂声片档案；无正式记录时用 tagId 派生演示档案（仅开发）。
   Future<DiscFactoryProfile?> readFactoryProfile(
     NfcTag tag, {
     bool allowDemoFallback = true,
   }) async {
-    final message = await _readMessage(tag) ?? _cachedMessage(tag);
-    if (message != null) {
-      final factory = _parseFactory(message);
-      if (factory != null) {
-        if (!factory.isAuthentic) {
-          throw StateError('声片防伪校验失败');
-        }
-        return factory;
-      }
-    }
-    if (!allowDemoFallback) return null;
-    final tagId = tagIdHex(tag);
-    final demo = DiscFactoryProfile.demoFromTagId(tagId);
-    if (!demo.isAuthentic) {
-      throw StateError('声片防伪校验失败');
-    }
-    return demo;
+    final snap = await inspectTag(tag, allowDemoFallback: allowDemoFallback);
+    return snap.factory;
   }
 
   Future<bool> canWriteTag(NfcTag tag) async {
-    if (await readBinding(tag) != null) return false;
-    return _isWritable(tag);
+    final snap = await inspectTag(tag);
+    return snap.writable;
   }
 
   NdefMessage? _cachedMessage(NfcTag tag) {
@@ -225,13 +281,13 @@ class NfcService {
     DiscRarity? rarity,
     String? series,
     DiscFactoryProfile? factory,
+    bool existingFactoryOnTag = false,
+    int? maxNdefBytes,
   }) async {
     final writable = await _isWritable(tag);
     if (!writable) {
       throw StateError('该声片不可写入');
     }
-    // Prefer absolute URL from the currently configured cloud base so the
-    // written link opens in-browser against the active server.
     final linkUrl = (contentId != null && contentId.isNotEmpty)
         ? '${CloudMediaConfig.baseUrl}/c/$contentId'
         : ((nfcUrl != null && nfcUrl.isNotEmpty) ? nfcUrl : null);
@@ -244,68 +300,157 @@ class NfcService {
       rarity: rarity,
       series: series,
     );
-    final records = <NdefRecord>[];
 
-    final factoryRecord = factory?.copyWith(bound: true) ??
-        (rarity != null
-            ? DiscFactoryProfile(
-                discId: discId,
-                rarity: rarity,
-                series: series ?? 'Unknown',
-                signature: DiscFactoryProfile.computeSignature(
-                  discId: discId,
-                  rarity: rarity,
-                  series: series ?? 'Unknown',
-                  demo: true,
-                ),
-                bound: true,
-                demo: true,
-              )
-            : null);
-    if (factoryRecord != null) {
-      records.add(
-        NdefRecord(
-          typeNameFormat: TypeNameFormat.media,
-          type: Uint8List.fromList(utf8.encode(soundpolaFactoryMimeType)),
-          identifier: Uint8List(0),
-          payload: Uint8List.fromList(
-            utf8.encode(jsonEncode(factoryRecord.toJson())),
+    final capacity = maxNdefBytes ?? _maxNdefBytes(tag);
+
+    // Prefer slim message: small tags (NTAG213 ~144B) cannot hold full MIME set.
+    // Demo rarity can still be derived from tagId on read; only rewrite factory
+    // when it already exists on the tag (update bound flag).
+    final factoryToWrite = existingFactoryOnTag && factory != null
+        ? factory.copyWith(bound: true)
+        : null;
+
+    List<NdefRecord> build({
+      required bool includeFactory,
+      required bool compactBinding,
+      required bool includeUri,
+      required bool includeText,
+      required bool includeMimeBinding,
+    }) {
+      final records = <NdefRecord>[];
+      if (includeFactory && factoryToWrite != null) {
+        records.add(
+          NdefRecord(
+            typeNameFormat: TypeNameFormat.media,
+            type: Uint8List.fromList(utf8.encode(soundpolaFactoryMimeType)),
+            identifier: Uint8List(0),
+            payload: Uint8List.fromList(
+              utf8.encode(jsonEncode(factoryToWrite.toJson())),
+            ),
           ),
-        ),
+        );
+      }
+      if (includeMimeBinding) {
+        final json = compactBinding
+            ? binding.toCompactJson()
+            : binding.toJson();
+        records.add(
+          NdefRecord(
+            typeNameFormat: TypeNameFormat.media,
+            type: Uint8List.fromList(utf8.encode(soundpolaMimeType)),
+            identifier: Uint8List(0),
+            payload: Uint8List.fromList(utf8.encode(jsonEncode(json))),
+          ),
+        );
+      }
+      if (includeUri && linkUrl != null && linkUrl.isNotEmpty) {
+        records.add(
+          NdefRecord(
+            typeNameFormat: TypeNameFormat.wellKnown,
+            type: Uint8List.fromList([0x55]),
+            identifier: Uint8List(0),
+            payload: _encodeUriPayload(linkUrl),
+          ),
+        );
+      }
+      if (includeText) {
+        final textPayload = contentId != null && contentId.isNotEmpty
+            ? 'SOUNDPOLA:$soundId:$discId:$contentId'
+            : 'SOUNDPOLA:$soundId:$discId';
+        records.add(
+          NdefRecord(
+            typeNameFormat: TypeNameFormat.wellKnown,
+            type: Uint8List.fromList([0x54]),
+            identifier: Uint8List(0),
+            payload: _encodeTextPayload(textPayload),
+          ),
+        );
+      }
+      return records;
+    }
+
+    // Candidate payloads from richest → leanest.
+    final candidates = <List<NdefRecord>>[
+      build(
+        includeFactory: true,
+        compactBinding: false,
+        includeUri: true,
+        includeText: true,
+        includeMimeBinding: true,
+      ),
+      build(
+        includeFactory: existingFactoryOnTag,
+        compactBinding: true,
+        includeUri: true,
+        includeText: true,
+        includeMimeBinding: true,
+      ),
+      build(
+        includeFactory: false,
+        compactBinding: true,
+        includeUri: true,
+        includeText: true,
+        includeMimeBinding: true,
+      ),
+      build(
+        includeFactory: false,
+        compactBinding: true,
+        includeUri: true,
+        includeText: true,
+        includeMimeBinding: false,
+      ),
+      build(
+        includeFactory: false,
+        compactBinding: true,
+        includeUri: true,
+        includeText: false,
+        includeMimeBinding: false,
+      ),
+    ];
+
+    List<NdefRecord>? chosen;
+    for (final records in candidates) {
+      if (records.isEmpty) continue;
+      final size = _estimateNdefSize(records);
+      if (capacity == null || size <= capacity) {
+        chosen = records;
+        break;
+      }
+    }
+    if (chosen == null) {
+      throw StateError(
+        '声片存储空间不足（约需写入云端链接）。请使用容量更大的 SoundPola 声片。',
       );
     }
 
-    records.add(
-      NdefRecord(
-        typeNameFormat: TypeNameFormat.media,
-        type: Uint8List.fromList(utf8.encode(soundpolaMimeType)),
-        identifier: Uint8List(0),
-        payload: Uint8List.fromList(utf8.encode(jsonEncode(binding.toJson()))),
-      ),
-    );
-    // Prefer URI for Trigger boards that resolve nfc_url; keep text fallback.
-    if (linkUrl != null && linkUrl.isNotEmpty) {
-      records.add(
-        NdefRecord(
-          typeNameFormat: TypeNameFormat.wellKnown,
-          type: Uint8List.fromList([0x55]), // 'U'
-          identifier: Uint8List(0),
-          payload: _encodeUriPayload(linkUrl),
-        ),
-      );
+    Object? lastError;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (attempt > 0) {
+          await Future<void>.delayed(Duration(milliseconds: 140 * attempt));
+        }
+        await _writeMessage(tag, NdefMessage(records: chosen));
+        return;
+      } catch (e) {
+        lastError = e;
+        final blob = e.toString().toLowerCase();
+        final lost = blob.contains('tag') ||
+            blob.contains('ioexception') ||
+            blob.contains('lost') ||
+            blob.contains('abort');
+        if (!lost || attempt == 2) rethrow;
+      }
     }
-    final textPayload = contentId != null && contentId.isNotEmpty
-        ? 'SOUNDPOLA:$soundId:$discId:$contentId'
-        : 'SOUNDPOLA:$soundId:$discId';
-    records.add(
-      NdefRecord(
-        typeNameFormat: TypeNameFormat.wellKnown,
-        type: Uint8List.fromList([0x54]),
-        identifier: Uint8List(0),
-        payload: _encodeTextPayload(textPayload),
-      ),
-    );
-    await _writeMessage(tag, NdefMessage(records: records));
+    throw lastError ?? StateError('写入失败');
+  }
+
+  /// Rough NDEF message byte length (Android user-memory oriented).
+  int _estimateNdefSize(List<NdefRecord> records) {
+    var total = 2; // NDEF + terminator TLV overhead approx
+    for (final r in records) {
+      total += 2 + r.type.length + r.payload.length + r.identifier.length + 4;
+    }
+    return total;
   }
 
   /// NDEF URI payload: code 0x00 = full URI in UTF-8 (no abbreviation).

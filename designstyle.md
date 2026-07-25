@@ -187,33 +187,31 @@ Info
 
 3.1 形态
 
-伪 3D 几何球体（SPHERE）：固定经纬网格（默认 24×28，约 672 点）采样于球面；透视投影到 Canvas；按深度排序绘制。单元为确定性几何符号（实心／空心圆与方、菱形、交叉、单／双斜线、九宫格、方框加点），非粒子 Widget。
+四象限严格镜像线性声场（参考 visuallization Axis Field 密度与流动，对称改为四象限）：只在第一象限用 visualSeed 确定性随机生成多层纯圆形粒子线性排列（径向／弧向／弦向平行珠串），录成单次 Picture 后以 Canvas `scale(±1,±1)` 镜像出其余三象限——不重复计算、不四象限各画一遍。内层密、外层疏；整体呈放射＋回环线束感，而非球体点阵或块状粒子云。
 
-主体宽约屏宽 74%–82%。球体持续旋转（time×0.4 / 0.6）；前后层级清晰（远小暗、近大亮）。
+主体宽约屏宽 74%–82%。
 
-禁止：四象限万花筒镜像、花瓣／圆环线束、整图统一 scale、光盘纹理、霓虹外发光、每帧随机图案类型。
+禁止：伪 3D 球体、整图统一 scale、每帧随机重排线束、破坏四象限镜像。
 
 3.2 色彩
 
-背景 #000000；主色 #63E0CB；辅以白、深青、少量青蓝与极少量蓝紫。光谱质心控制色相插值；强 onset 时仅前侧高能单元短暂偏白。无随机彩点、无大面积模糊光晕。
+背景 #000000；主色 #63E0CB；辅以白、深青、少量青蓝与极少量蓝紫。光谱质心插值；onset 时外层高能珠短暂偏白。
 
 3.3 动态节奏
 
-空闲：球体缓慢旋转；idleEnergy 确定性微波动（约 8–14s）；图案保持基础尺寸，不塌缩。
+空闲／完成／列表缩略：单帧静态（不跑 ticker）；录音／当前播放／暂停才连续动画。
 
-录音：128-bin spectrum 按经纬度映射到局部单元；尺寸／线宽／局部旋转跟随 localEnergy；整体半径仅 0.9＋energy×0.3 轻律动。低频偏厚重、人声中频活跃、高频细碎线条、拍手 onset 短促前侧膨胀后 200–350ms 回落。
+录音：spectrum／频段驱动弯曲、折叠、流速与亮度；粒子半径仅 ±约 18% 轻变，整体半径几乎固定，禁止随音量胀成一团。按设备帧率分档降粒子数与目标 fps（约 24–48）。
 
-暂停／完成／播放：同一球体拓扑；完成态冻结确定性时间戳。
-
-交互：单指拖转＋惯性；双击恢复自转；双指缩放 0.8–1.3；与自动旋转角叠加。
+交互：拖动微调相位／折叠；双击复位；双指缩放 0.8–1.3（仅活动态）。
 
 3.4 音频驱动（与视觉分离）
 
-麦克风幅度 → Isolate：DC／RMS／自适应噪声底 → PixMusic 式快攻慢释峰值 AGC → soft gate → 多频段包络 → 128-bin 调制频谱 → flux／onset → `AudioFeatures`。CustomPainter 禁止直接处理原始 PCM／幅度。
+麦克风幅度 → Isolate：DC／RMS／自适应噪声底 → PixMusic 式快攻慢释峰值 AGC → soft gate → 多频段包络 → 128-bin 调制频谱 → flux／onset → `AudioFeatures`（Isolate 可更高频；UI 通知约 25Hz）。CustomPainter 禁止直接处理原始 PCM／幅度。
 
 3.5 可视化留存（Indexed-MJPEG）
 
-实时显示 60fps；录音中保存 AudioDrive 时间序列，不在 60fps 下截屏。保存后离屏按 visualSeed＋特征确定性重绘（`rendererVersion=soundpola_sphere_v1`），输出 12～15fps 独立 JPEG 帧流（`visual.mjpg`）＋字节偏移索引（`visual.idx`）＋`visual_manifest.json`＋`cover.jpg`。播放以音频时间为轴按索引取帧；算法升级不改写旧帧流。
+实时活动态按画质档目标 fps；录音中保存 AudioDrive 时间序列，不在实时帧率下截屏。保存后离屏按 visualSeed＋特征确定性重绘（低粒子档、逐帧 yield；`rendererVersion=soundpola_kaleido_linear_v1`），输出 12～15fps 独立 JPEG 帧流（`visual.mjpg`）＋字节偏移索引（`visual.idx`）＋`visual_manifest.json`＋`cover.jpg`。播放以音频时间为轴按索引取帧（解码去重＋小 LRU，未就绪用 cover／静态 canvas）；算法升级不改写旧帧流。
 
 4. 字体与排版
 
@@ -465,11 +463,13 @@ Record
 
 实时声音视觉
 
-录音按钮与计时
+录音按钮与计时（主操作）
+
+导入本地音频（次级文字入口）
 
 权限和帮助
 
-录音结果
+录音结果／导入结果
 
 生成视觉
 
@@ -634,7 +634,7 @@ Record / Drafts / Collection
 
 SoundVisualCanvas
 
-伪 3D 几何球体 SPHERE（经纬点阵＋多符号＋透视）
+四象限镜像线性粒子线束（参考 visuallization；静态单帧／活动态分档）
 
 RecordControl
 
@@ -646,7 +646,7 @@ Draft 横向错位暂存卡片（圆形贴图 + 环形进度）
 
 PressMachine
 
-拟物化声音写入机器（顶部插口 + 毛玻璃仓内贴图圆形声片重力掉落 + 像素状态屏）
+拟物化声音写入机器（顶部插口 + 毛玻璃仓内多张贴图圆形声片重力掉落／两两碰撞防重合 + 像素状态屏）
 
 CollectionCapsule
 

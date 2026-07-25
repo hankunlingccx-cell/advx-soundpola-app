@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../cloud/cloud_media_models.dart';
+import '../services/auth_service.dart';
 import '../services/visual_shape_service.dart';
 import '../visual/audio_feature_timeline.dart';
 import 'disc_rarity.dart';
@@ -40,6 +41,7 @@ class SoundMemory {
     this.assetId,
     this.audioPath,
     this.nfcTagId,
+    this.boundDeviceId,
     this.pressedAt,
     this.chainedAt,
     this.networkLabel = 'SoundPola Chain (模拟)',
@@ -86,6 +88,8 @@ class SoundMemory {
   final String? assetId;
   final String? audioPath;
   final String? nfcTagId;
+  /// Hardware device that performed NFC write (path B), if any.
+  final String? boundDeviceId;
   final DateTime? pressedAt;
   final DateTime? chainedAt;
   final String networkLabel;
@@ -135,6 +139,7 @@ class SoundMemory {
     String? assetId,
     String? audioPath,
     String? nfcTagId,
+    String? boundDeviceId,
     DateTime? pressedAt,
     DateTime? chainedAt,
     String? networkLabel,
@@ -175,6 +180,7 @@ class SoundMemory {
       assetId: assetId ?? this.assetId,
       audioPath: audioPath ?? this.audioPath,
       nfcTagId: nfcTagId ?? this.nfcTagId,
+      boundDeviceId: boundDeviceId ?? this.boundDeviceId,
       pressedAt: pressedAt ?? this.pressedAt,
       chainedAt: chainedAt ?? this.chainedAt,
       networkLabel: networkLabel ?? this.networkLabel,
@@ -235,18 +241,28 @@ String formatRecordedAt(DateTime dt) {
 class SoundRepository extends ChangeNotifier {
   SoundRepository._() {
     _seedCategoriesFromSounds();
-    _loadPersistedCategories();
   }
   static final SoundRepository instance = SoundRepository._();
 
   /// Kept for App boot compatibility (l branch persistence path).
-  Future<void> init() async {}
+  Future<void> init() async {
+    final uid = AuthService.instance.currentUser?.userId;
+    await bindToAccount(uid);
+  }
 
-  static const _prefsCategoriesKey = 'user_categories';
+  static const _prefsCategoriesPrefix = 'user_categories_v2_';
+  static const _legacyCategoriesKey = 'user_categories';
 
   /// 本会话内草稿清空原因（用于「清空 / 全部封存」文案；展示一次后消费）。
   DraftsEmptyKind? draftsEmptyKind;
   bool _everHadDrafts = false;
+
+  /// Active account — drafts / categories are scoped to this id.
+  String? _boundUserId;
+
+  /// In-memory draft stash per account (survives logout within process).
+  final Map<String, List<SoundMemory>> _draftStash = {};
+  final Map<String, List<String>> _categoryStash = {};
 
   /// 用户已创建／已使用的分类名（顺序：声音出现顺序，再追加持久化自建名）。
   final List<String> _categories = [];
@@ -254,6 +270,7 @@ class SoundRepository extends ChangeNotifier {
   bool get everHadDrafts => _everHadDrafts;
   bool get hasCollectionAssets => collection.isNotEmpty;
   int get draftCount => drafts.length;
+  String? get boundUserId => _boundUserId;
 
   /// 可供选择的分类列表（用户自定义）。
   List<String> get categories => List.unmodifiable(_categories);
@@ -267,6 +284,54 @@ class SoundRepository extends ChangeNotifier {
 
   List<SoundMemory> get collection =>
       _sounds.where((s) => s.status == SoundStatus.collected).toList();
+
+  String _categoriesKey(String userId) => '$_prefsCategoriesPrefix$userId';
+
+  /// Switch active library to [userId]. Null = logged out (empty UI).
+  /// Drafts for the previous account are stashed and restored on next bind.
+  /// Collection is never carried across accounts (cloud-synced per user).
+  Future<void> bindToAccount(String? userId) async {
+    final next = (userId == null || userId.isEmpty) ? null : userId;
+    if (_boundUserId == next) {
+      // Still ensure categories loaded once for this session.
+      if (next != null && _categories.isEmpty) {
+        await _loadCategoriesFor(next);
+      }
+      return;
+    }
+
+    _stashCurrentAccount();
+
+    _boundUserId = next;
+    _sounds.clear();
+    _categories.clear();
+    draftsEmptyKind = null;
+    _everHadDrafts = false;
+
+    if (next != null) {
+      final drafts = _draftStash[next];
+      if (drafts != null && drafts.isNotEmpty) {
+        _sounds.addAll(drafts.map((d) => d));
+        _everHadDrafts = true;
+      }
+      final cats = _categoryStash[next];
+      if (cats != null && cats.isNotEmpty) {
+        _categories.addAll(cats);
+      }
+      await _loadCategoriesFor(next);
+      _seedCategoriesFromSounds();
+    }
+
+    notifyListeners();
+  }
+
+  void _stashCurrentAccount() {
+    final uid = _boundUserId;
+    if (uid == null) return;
+    _draftStash[uid] = drafts.map((d) => d).toList(growable: false);
+    _categoryStash[uid] = List<String>.from(_categories);
+    unawaited(_persistCategoriesFor(uid));
+  }
 
   /// 按分类分组；顺序跟随 [categories]，未知分类靠后。
   List<CollectionGroup> get collectionGroups {
@@ -303,9 +368,13 @@ class SoundRepository extends ChangeNotifier {
     }
   }
 
-  Future<void> _loadPersistedCategories() async {
+  Future<void> _loadCategoriesFor(String userId) async {
     final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getStringList(_prefsCategoriesKey) ?? const [];
+    // Drop legacy global categories — they cannot be attributed safely.
+    if (prefs.containsKey(_legacyCategoriesKey)) {
+      await prefs.remove(_legacyCategoriesKey);
+    }
+    final stored = prefs.getStringList(_categoriesKey(userId)) ?? const [];
     var changed = false;
     for (final raw in stored) {
       final name = raw.trim();
@@ -313,13 +382,21 @@ class SoundRepository extends ChangeNotifier {
       _categories.add(name);
       changed = true;
     }
-    await _persistCategories();
-    if (changed) notifyListeners();
+    if (changed) {
+      _categoryStash[userId] = List<String>.from(_categories);
+    }
+  }
+
+  Future<void> _persistCategoriesFor(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_categoriesKey(userId), _categories);
   }
 
   Future<void> _persistCategories() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_prefsCategoriesKey, _categories);
+    final uid = _boundUserId;
+    if (uid == null) return;
+    _categoryStash[uid] = List<String>.from(_categories);
+    await _persistCategoriesFor(uid);
   }
 
   /// 规范化并加入分类表；已存在则原样返回。失败返回 null。
@@ -449,6 +526,7 @@ class SoundRepository extends ChangeNotifier {
     String discId,
     String assetId, {
     String? nfcTagId,
+    String? boundDeviceId,
     String? contentId,
     String? nfcUrl,
     String? cloudState,
@@ -463,6 +541,7 @@ class SoundRepository extends ChangeNotifier {
         discId: discId,
         assetId: assetId,
         nfcTagId: nfcTagId ?? s.nfcTagId,
+        boundDeviceId: boundDeviceId ?? s.boundDeviceId,
         pressedAt: s.pressedAt ?? now,
         chainedAt: now,
         contractLabel: s.contractLabel ?? '0xSoundPola…mock',
@@ -603,7 +682,10 @@ class SoundRepository extends ChangeNotifier {
   }
 
   /// Merge READY cloud contents into local collection (Drafts stay local-only).
+  /// Replaces prior Collection entries — never inherits another account's assets.
   void syncCloudCollection(List<ContentSummary> remote) {
+    _sounds.removeWhere((s) => s.status == SoundStatus.collected);
+
     for (final item in remote) {
       if (item.state != CloudContentState.ready) continue;
       final existingIndex = _sounds.indexWhere(

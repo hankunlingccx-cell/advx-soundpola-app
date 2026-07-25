@@ -3,11 +3,13 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import '../../cloud/cloud_media_client.dart';
 import '../../cloud/cloud_media_models.dart';
 import '../../data/disc_rarity.dart';
 import '../../data/session.dart';
 import '../../data/sound_repository.dart';
+import '../../router/app_routes.dart';
 import '../../services/auth_service.dart';
 import '../../services/chain_service.dart';
 import '../../services/nfc_service.dart';
@@ -142,18 +144,16 @@ class _PressMethodScreenState extends State<PressMethodScreen> {
             ),
           ],
           const SizedBox(height: AppSpacing.tight),
-          const _MethodCard(
+          _MethodCard(
             title: '硬件设备写入',
-            subtitle: '即将推出',
-            enabled: false,
-            onTap: _noop,
+            subtitle: '发送到已绑定的 Memory Terminal',
+            enabled: !_loading,
+            onTap: () => context.push(AppRoutes.pressHardwarePath(widget.id)),
           ),
         ],
       ),
     );
   }
-
-  static void _noop() {}
 
   Widget _buildScaffold({required SoundMemory? item, required Widget body}) {
     return Scaffold(
