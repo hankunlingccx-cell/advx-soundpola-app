@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../data/session.dart';
 import '../../services/audio_recording_service.dart';
@@ -8,7 +7,6 @@ import '../../services/permission_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../visual/audio_feature_timeline.dart';
-import '../../widgets/audio_drive_debug.dart';
 import '../../widgets/design_components.dart';
 import '../../widgets/empty_state_panel.dart';
 import '../../widgets/sound_visual.dart';
@@ -44,8 +42,6 @@ class _RecordingScreenState extends State<RecordingScreen> {
   int _visualSeed = DateTime.now().millisecondsSinceEpoch % 900000 + 1000;
   AudioFeatureTimeline? _shortTimeline;
   static const _minDurationSec = 3;
-  /// Debug HUD for AGC calibration (kDebugMode only).
-  bool _showAudioDebug = kDebugMode;
 
   @override
   void initState() {
@@ -75,7 +71,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
     try {
       _visualSeed = DateTime.now().millisecondsSinceEpoch % 900000 + 1000;
       await _recorder.start(visualSeed: _visualSeed).timeout(
-        const Duration(seconds: 12),
+        const Duration(seconds: 8),
         onTimeout: () => throw TimeoutException('麦克风启动超时，请重试'),
       );
       if (!mounted) return;
@@ -282,22 +278,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    if (kDebugMode)
-                      TextButton(
-                        onPressed: () =>
-                            setState(() => _showAudioDebug = !_showAudioDebug),
-                        child: Text(
-                          _showAudioDebug ? 'DBG' : 'dbg',
-                          style: TextStyle(
-                            color: _showAudioDebug
-                                ? AppColors.accent
-                                : AppColors.textTertiary,
-                            fontSize: 12,
-                          ),
-                        ),
-                      )
-                    else
-                      const SizedBox(width: 48),
+                    const SizedBox(width: 48),
                   ],
                 ),
                 if (_error != null) ...[
@@ -327,24 +308,15 @@ class _RecordingScreenState extends State<RecordingScreen> {
                         child: SizedBox(
                           width: side,
                           height: side,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              SoundVisualCanvas(
-                                seed: _visualSeed,
-                                mode: _paused
-                                    ? SoundVisualMode.paused
-                                    : (visualActive
-                                        ? SoundVisualMode.recording
-                                        : SoundVisualMode.idle),
-                                features: features,
-                                liveVolume: _recorder.liveVolume,
-                              ),
-                              AudioDriveDebugPanel(
-                                features: features,
-                                visible: _showAudioDebug,
-                              ),
-                            ],
+                          child: SoundVisualCanvas(
+                            seed: _visualSeed,
+                            mode: _paused
+                                ? SoundVisualMode.paused
+                                : (visualActive
+                                    ? SoundVisualMode.recording
+                                    : SoundVisualMode.idle),
+                            features: features,
+                            liveVolume: _recorder.liveVolume,
                           ),
                         ),
                       );

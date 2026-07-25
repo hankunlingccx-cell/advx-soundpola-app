@@ -40,12 +40,17 @@ class _SoundpolaAppState extends State<SoundpolaApp> {
         systemNavigationBarIconBrightness: Brightness.light,
       ),
     );
-    await CloudMediaConfig.init();
-    await BeatAiApiConfig.init();
+    // Independent prefs/config loads in parallel; auth before repository.
+    await Future.wait([
+      CloudMediaConfig.init(),
+      BeatAiApiConfig.init(),
+    ]);
     await AuthService.instance.init();
-    await SoundRepository.instance.init();
-    await DeepLinkService.instance.init(_router);
-    await _resolveMicConsent();
+    await Future.wait([
+      SoundRepository.instance.init(),
+      DeepLinkService.instance.init(_router),
+      _resolveMicConsent(),
+    ]);
     if (mounted) setState(() => _booting = false);
   }
 

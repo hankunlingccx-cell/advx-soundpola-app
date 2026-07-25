@@ -21,8 +21,9 @@ alwaysApply: true
 1. **Record** — 捕捉声音与实时可视化
 2. **Drafts** — 未写入声片的暂存
 3. **Collection** — 已写入并上链的收藏
+4. **Lab** — 声音实验室（阿卡贝拉编排试听）
 
-核心规则：录音 → Drafts → Press → Collection → Memory。Press / Memory 不进底部导航。
+核心规则：录音 → Drafts → Press → Collection → Memory。Press / Memory / Account 不进底部导航。
 
 ## 开发同步义务
 

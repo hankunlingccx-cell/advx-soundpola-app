@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../data/disc_rarity.dart';
 import '../data/sound_repository.dart';
+import '../router/app_routes.dart';
 import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_dimens.dart';
@@ -317,7 +318,7 @@ class AccountAvatarButton extends StatelessWidget {
         return Tooltip(
           message: '账户',
           child: GestureDetector(
-            onTap: () => context.push('/account'),
+            onTap: () => context.push(AppRoutes.account),
             child: Semantics(
               label: '账户',
               button: true,
@@ -384,6 +385,65 @@ class AccountAvatarButton extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Record 主页顶栏：账户旁的「连接设备」图标入口 → WiFi 扫码配对。
+class ConnectDeviceIconButton extends StatelessWidget {
+  const ConnectDeviceIconButton({super.key, this.compact = false});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = compact ? 34.0 : AppSizes.avatar;
+    final iconSize = compact ? 17.0 : 18.0;
+    return Tooltip(
+      message: '连接设备',
+      child: GestureDetector(
+        onTap: () => context.push(AppRoutes.pairDevice),
+        child: Semantics(
+          label: '连接设备',
+          button: true,
+          child: compact
+              ? ClipOval(
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                    child: Container(
+                      width: size,
+                      height: size,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withValues(alpha: 0.14),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.28),
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.devices,
+                        size: iconSize,
+                        color: AppColors.textPrimary.withValues(alpha: 0.9),
+                      ),
+                    ),
+                  ),
+                )
+              : Container(
+                  width: size,
+                  height: size,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.surface2,
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Icon(
+                    Icons.devices,
+                    size: iconSize,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+        ),
+      ),
     );
   }
 }
@@ -639,6 +699,7 @@ class BottomNavBar extends StatelessWidget {
     (Icons.mic_none_rounded, Icons.mic_rounded, 'Record'),
     (Icons.inbox_outlined, Icons.inbox_rounded, 'Drafts'),
     (Icons.album_outlined, Icons.album_rounded, 'Collection'),
+    (Icons.science_outlined, Icons.science_rounded, 'Lab'),
   ];
 
   @override

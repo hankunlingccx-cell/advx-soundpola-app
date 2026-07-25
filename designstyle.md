@@ -309,7 +309,7 @@ NFT 和声片状态使用小型图标或标签，不抢占主视觉。
 
 6.6 底部导航
 
-三项：Record、Drafts、Collection，简洁线性图标。
+四项：Record、Drafts、Collection、Lab，简洁线性图标（Lab 用 science 图标）。
 
 悬浮磨砂玻璃胶囊，与屏幕左右边缘留白；背景模糊 + 低透明白。
 
@@ -555,7 +555,7 @@ NFC 检测：缓慢扩散的同心波或近场光晕。
 
 声音视觉具有线性流动感，不出现块状拼接感。
 
-Record / Drafts / Collection 保持三项底部导航。
+Record / Drafts / Collection / Lab 保持四项底部导航。
 
 Account 通过右上角头像进入。
 
@@ -630,7 +630,7 @@ SpTopBar
 
 SpBottomNav
 
-Record / Drafts / Collection
+Record / Drafts / Collection / Lab
 
 SoundVisualCanvas
 

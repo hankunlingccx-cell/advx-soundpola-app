@@ -74,13 +74,15 @@ class PitchTracker {
       _holdRemainMs -= dtSec * 1000;
       targetNorm = _lastGoodPitch;
     } else {
-      // No reliable F0 → blend toward spectral centroid (noise / rain / clap).
+      // No reliable F0 → follow spectral / timbre height proxy (amp fallback).
       final centroidNorm = spectralCentroid01.clamp(0.0, 1.0);
-      final w = _confidenceSmooth.clamp(0.0, 1.0);
+      final w = (_confidenceSmooth * 0.35).clamp(0.0, 1.0);
       targetNorm = w * _lastGoodPitch + (1 - w) * centroidNorm;
-      // Slow drift to neutral when silence persists.
-      if (rms < noiseGate * 0.85) {
-        targetNorm = _ar(targetNorm, 0.45, 0.4, 0.4, dtSec);
+      // Only drift to neutral in true quiet — keep moving while sound is present.
+      if (rms < noiseGate * 0.7) {
+        targetNorm = _ar(targetNorm, 0.45, 0.55, 0.55, dtSec);
+      } else {
+        _lastGoodPitch = targetNorm;
       }
     }
 

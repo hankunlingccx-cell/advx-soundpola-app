@@ -215,14 +215,47 @@ class _SoundVisualCanvasState extends State<SoundVisualCanvas>
   AudioFeatures _resolveFeatures() {
     if (_isLive) {
       final f = widget.features?.value;
-      if (f != null) return f;
-      final v = widget.liveVolume?.value ?? widget.amplitude;
+      final vol = (widget.liveVolume?.value ?? widget.amplitude).clamp(0.0, 1.0);
+      if (f != null) {
+        // Analyzer may under-report while amplitude meter is lively — lift
+        // envelopes so the pattern clearly follows mic energy.
+        final e = math.max(
+          math.max(f.gatedRms, f.fastEnvelope),
+          vol,
+        );
+        if (e <= 0.001 && vol <= 0.001) return f;
+        return AudioFeatures(
+          rms: math.max(f.rms, vol),
+          gatedRms: e,
+          fastEnvelope: math.max(f.fastEnvelope, e),
+          slowEnvelope: math.max(f.slowEnvelope, e * 0.85),
+          bass: math.max(f.bass, e * 0.55),
+          lowMid: math.max(f.lowMid, e * 0.6),
+          mid: math.max(f.mid, e * 0.7),
+          highMid: math.max(f.highMid, e * 0.45),
+          treble: math.max(f.treble, e * 0.35),
+          spectralCentroid: f.spectralCentroid,
+          spectralFlux: math.max(f.spectralFlux, (e - f.slowEnvelope).abs()),
+          onset: math.max(f.onset, vol > f.slowEnvelope + 0.12 ? vol : 0),
+          zeroCrossingRate: f.zeroCrossingRate,
+          pitch: f.pitch,
+          confidence: f.confidence,
+          agcGain: f.agcGain,
+          noiseFloor: f.noiseFloor,
+          trackedPeak: f.trackedPeak,
+          spectrum: f.spectrum,
+        );
+      }
       return AudioFeatures(
-        rms: v,
-        gatedRms: v,
-        fastEnvelope: v,
-        slowEnvelope: v * 0.85,
-        mid: v,
+        rms: vol,
+        gatedRms: vol,
+        fastEnvelope: vol,
+        slowEnvelope: vol * 0.85,
+        bass: vol * 0.5,
+        mid: vol * 0.7,
+        treble: vol * 0.4,
+        spectralCentroid: 0.35 + vol * 0.25,
+        pitch: 0.35 + vol * 0.3,
       );
     }
     if (_mode == SoundVisualMode.paused) {

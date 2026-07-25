@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../services/audio_import_service.dart';
+import '../../services/audio_recording_service.dart';
 import '../../services/permission_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
@@ -32,6 +33,8 @@ class _RecordHomeScreenState extends State<RecordHomeScreen> {
   void initState() {
     super.initState();
     _refreshMic();
+    // Prefetch audio isolate so first record tap isn't blocked on spawn.
+    AudioRecordingService.instance.warmUp();
   }
 
   Future<void> _refreshMic() async {
@@ -146,6 +149,8 @@ class _RecordHomeScreenState extends State<RecordHomeScreen> {
                       ),
                     ),
                   ),
+                  const ConnectDeviceIconButton(),
+                  const SizedBox(width: 8),
                   const AccountAvatarButton(),
                 ],
               ),

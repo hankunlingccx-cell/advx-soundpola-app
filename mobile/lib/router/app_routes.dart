@@ -23,7 +23,7 @@ abstract final class AppRoutes {
   static const myDevices = '/account/devices';
   static const deviceDetail = '/account/devices/:deviceId';
   static const serverSettings = '/settings/server';
-  /// 开发测试页：Sound Lab 声音实验室（不进底部导航）。
+  /// Sound Lab 声音实验室（底部第四 Tab；旁路路由 `/lab/sound` 仍可用）。
   static const soundLab = '/lab/sound';
   static const resolveContent = '/c/:contentId';
   /// Press 硬件写入路径（与手机 NFC 并存）。
