@@ -50,3 +50,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Speex decoder for ring BLE recordings → local WAV preview / upload.
+    implementation(files("libs/jspeex-0.9.7.jar"))
+}

@@ -282,11 +282,12 @@ class _ShareCollectibleCard extends StatelessWidget {
                             child: LayoutBuilder(
                               builder: (context, c) {
                                 final side = c.maxWidth;
+                                // 收藏／分享卡中部固定为声音可视化，不用稀有度声片贴图。
                                 return _DiscHero(
                                   item: item,
                                   size: side,
                                   animateVisual: animateVisual,
-                                  useDiscTexture: useDiscTexture,
+                                  useDiscTexture: false,
                                 );
                               },
                             ),

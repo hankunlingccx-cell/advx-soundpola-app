@@ -195,7 +195,7 @@ class NfcService {
     return null;
   }
 
-  /// 读取出厂声片档案；无正式记录时用 tagId 派生演示档案（仅开发）。
+  /// 读取出厂声片档案；无正式记录时按比率随机揭晓演示档案（过渡期）。
   Future<DiscFactoryProfile?> readFactoryProfile(
     NfcTag tag, {
     bool allowDemoFallback = true,
@@ -453,10 +453,28 @@ class NfcService {
     return total;
   }
 
-  /// NDEF URI payload: code 0x00 = full URI in UTF-8 (no abbreviation).
+  /// NDEF URI Record (NFC Forum RTD): abbreviate common prefixes so readers
+  /// (e.g. Trigger) see `Record N - http://` with host/path only — not a
+  /// raw `0x00` full-URI payload that embeds the scheme in UTF-8.
+  ///
+  /// Identifier codes used here:
+  /// - `0x01` http://www.  · `0x02` https://www.
+  /// - `0x03` http://      · `0x04` https://
+  /// - `0x00` no abbreviation (fallback)
   Uint8List _encodeUriPayload(String uri) {
-    final bytes = utf8.encode(uri);
-    return Uint8List.fromList([0x00, ...bytes]);
+    const prefixes = <(int, String)>[
+      (0x02, 'https://www.'),
+      (0x01, 'http://www.'),
+      (0x04, 'https://'),
+      (0x03, 'http://'),
+    ];
+    for (final (code, prefix) in prefixes) {
+      if (uri.startsWith(prefix)) {
+        final rest = utf8.encode(uri.substring(prefix.length));
+        return Uint8List.fromList([code, ...rest]);
+      }
+    }
+    return Uint8List.fromList([0x00, ...utf8.encode(uri)]);
   }
 
   Future<NdefMessage?> _readMessage(NfcTag tag) async {

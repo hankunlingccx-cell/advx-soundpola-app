@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../cloud/cloud_media_config.dart';
 import '../../device/device_service.dart';
+import '../../router/app_routes.dart';
 import '../../services/auth_service.dart';
 import '../../services/device_pair_service.dart';
 import '../../services/permission_service.dart';
@@ -121,6 +122,15 @@ class _PairDeviceScreenState extends State<PairDeviceScreen> {
               const SizedBox(height: AppSpacing.item),
               Expanded(child: _buildBody()),
               const SizedBox(height: AppSpacing.item),
+              if (_state != _PairState.success) ...[
+                SecondaryButton(
+                  text: '蓝牙配对指环',
+                  onPressed: (_busy || _state == _PairState.sending)
+                      ? null
+                      : () => context.push(AppRoutes.pairRing),
+                ),
+                const SizedBox(height: AppSpacing.item),
+              ],
             ],
           ),
         ),

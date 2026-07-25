@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -83,6 +84,10 @@ class _DraftsScreenState extends State<DraftsScreen>
   /// 仓内圆形声片：NFC 写入成功后落入，保留至多 7 天／5 张。
   List<BayStoredDisc> _bayDiscs = const [];
   String? _pressStatus;
+  /// 云端「生成声音内容」步骤进度 0–1（API 无真实进度时按轮询时长估算）。
+  double? _cloudProgress;
+  Timer? _cloudProgressTicker;
+  DateTime? _cloudProcessStartedAt;
   /// 失败是否发生在云端准备（无需 NFC）阶段。
   bool _failWasCloud = false;
   /// 第二次贴近后，正在向声片写 NDEF。
@@ -120,12 +125,16 @@ class _DraftsScreenState extends State<DraftsScreen>
     setState(() => _bayDiscs = discs);
   }
 
-  Future<void> _recordBayDrop(SoundMemory item) async {
+  Future<void> _recordBayDrop(
+    SoundMemory item, {
+    DiscRarity? rarity,
+  }) async {
     final discs = await BayDiscStore.instance.addDrop(
       userId: _bayOwnerId,
       id: item.id,
       visualSeed: item.visualSeed,
-      rarity: item.discRarity,
+      // 必须用已揭晓稀有度；此时 item.discRarity 往往尚未 markCollected。
+      rarity: rarity ?? item.discRarity,
     );
     if (!mounted) return;
     setState(() => _bayDiscs = discs);
@@ -134,6 +143,7 @@ class _DraftsScreenState extends State<DraftsScreen>
   @override
   void dispose() {
     AuthService.instance.removeListener(_onAuthChanged);
+    _stopCloudProgressTicker(clear: true);
     NfcService.instance.stopSession();
     _cloud.close();
     _breath.dispose();
@@ -189,17 +199,79 @@ class _DraftsScreenState extends State<DraftsScreen>
 
   NfcGuidePhase get _cloudGuidePhase {
     final s = _pressStatus ?? '';
-    if (s.contains('上传')) return NfcGuidePhase.cloudUploading;
+    if (s.contains('上传') ||
+        s.contains('连接') ||
+        s.contains('准备可视化')) {
+      return NfcGuidePhase.cloudUploading;
+    }
     return NfcGuidePhase.cloudProcessing;
   }
 
   CloudPrepStage get _cloudStage {
     final s = _pressStatus ?? '';
-    if (s.contains('上传')) return CloudPrepStage.upload;
+    if (s.contains('上传') ||
+        s.contains('连接') ||
+        s.contains('准备可视化')) {
+      return CloudPrepStage.upload;
+    }
     if (s.contains('再次贴近') || s.contains('已就绪') || s.contains('拿到')) {
       return CloudPrepStage.ready;
     }
     return CloudPrepStage.process;
+  }
+
+  /// 「生成声音内容」步骤本地百分比（0–100）；上传阶段不展示。
+  int? get _cloudProgressPercent {
+    final stage = _cloudStage;
+    if (stage == CloudPrepStage.upload) return null;
+    if (stage == CloudPrepStage.ready) return 100;
+    final p = _cloudProgress;
+    if (p == null) return 0;
+    return (p.clamp(0.0, 0.99) * 100).round();
+  }
+
+  void _setCloudProgress(double value, {bool onlyIncrease = true}) {
+    final next = value.clamp(0.0, 1.0);
+    if (onlyIncrease &&
+        _cloudProgress != null &&
+        next + 0.001 < _cloudProgress!) {
+      return;
+    }
+    if (_cloudProgress != null && (next - _cloudProgress!).abs() < 0.005) {
+      return;
+    }
+    if (!mounted) {
+      _cloudProgress = next;
+      return;
+    }
+    setState(() => _cloudProgress = next);
+  }
+
+  void _startCloudProcessTicker() {
+    _cloudProcessStartedAt ??= DateTime.now();
+    _cloudProgressTicker?.cancel();
+    _setCloudProgress(0.04, onlyIncrease: false);
+    _cloudProgressTicker =
+        Timer.periodic(const Duration(milliseconds: 350), (_) {
+      if (!mounted) return;
+      if (_flow != _FlowPhase.found || _cloudStage != CloudPrepStage.process) {
+        return;
+      }
+      final started = _cloudProcessStartedAt;
+      if (started == null) return;
+      final elapsedMs = DateTime.now().difference(started).inMilliseconds;
+      // ~40s 渐进至约 92%，READY 时再跳到 100%。
+      final t = elapsedMs / 40000.0;
+      final est = 0.04 + 0.88 * (1 - math.exp(-2.8 * t));
+      _setCloudProgress(est);
+    });
+  }
+
+  void _stopCloudProgressTicker({bool clear = false}) {
+    _cloudProgressTicker?.cancel();
+    _cloudProgressTicker = null;
+    _cloudProcessStartedAt = null;
+    if (clear) _cloudProgress = null;
   }
 
   bool get _isSelecting =>
@@ -474,10 +546,12 @@ class _DraftsScreenState extends State<DraftsScreen>
   Future<void> _failPress(String reason, {bool cloud = false}) async {
     await NfcService.instance.stopSession(error: reason);
     _nfcBusy = false;
+    _stopCloudProgressTicker(clear: true);
     if (!mounted) return;
     setState(() {
       _failReason = reason;
       _pressStatus = null;
+      _cloudProgress = null;
       _flow = _FlowPhase.interrupted;
       _machineMode = PressMachineMode.interrupted;
       _autoListening = false;
@@ -536,17 +610,21 @@ class _DraftsScreenState extends State<DraftsScreen>
       _flow = _FlowPhase.found;
       _machineMode = PressMachineMode.preparing;
       _pressStatus = '正在连接云端…';
+      _cloudProgress = null;
       _autoListening = false;
       _nfcWriting = false;
       _failReason = null;
       _failWasCloud = false;
     });
+    _stopCloudProgressTicker();
 
     ContentSummary ready;
     try {
       final token = await AuthService.instance.requireCloudToken();
       await _cloud.assertReachable();
       ready = await _ensureCloudReady(item, token);
+      _setCloudProgress(1.0, onlyIncrease: false);
+      _stopCloudProgressTicker();
     } catch (e) {
       await _failPress(_friendlyCloudError(e), cloud: true);
       return;
@@ -580,9 +658,11 @@ class _DraftsScreenState extends State<DraftsScreen>
       _flow = _FlowPhase.pressing;
       _machineMode = PressMachineMode.readyToWrite;
       _pressStatus = '请贴近声片，检查并写入…';
+      _cloudProgress = 1.0;
       _autoListening = true;
       _nfcWriting = false;
     });
+    _stopCloudProgressTicker();
 
     _nfcBusy = true;
     final completer = Completer<_NfcWriteOutcome>();
@@ -711,7 +791,7 @@ class _DraftsScreenState extends State<DraftsScreen>
       _nfcWriting = false;
       _chaining = true;
     });
-    await _recordBayDrop(item);
+    await _recordBayDrop(item, rarity: rarity);
 
     final assetId = await ChainService.instance.submitAsset(
       soundId: item.id,
@@ -768,6 +848,7 @@ class _DraftsScreenState extends State<DraftsScreen>
         if (mounted) {
           setState(() {
             _pressStatus = '云端链接已就绪';
+            _cloudProgress = 1.0;
           });
         }
         return summary;
@@ -780,19 +861,26 @@ class _DraftsScreenState extends State<DraftsScreen>
         }
         summary = await _cloud.retryContent(token: token, contentId: contentId);
       }
-      if (summary.state == CloudContentState.ready) return summary;
+      if (summary.state == CloudContentState.ready) {
+        _setCloudProgress(1.0, onlyIncrease: false);
+        return summary;
+      }
       if (mounted) {
         setState(() {
-          _pressStatus = '云端处理中…';
+          _pressStatus = '正在生成声音内容…';
         });
       }
+      _startCloudProcessTicker();
       return _cloud.waitUntilReady(
         token: token,
         contentId: contentId,
         onUpdate: (s) {
           if (!mounted) return;
+          final stage = s.processingStage?.trim();
           setState(() {
-            _pressStatus = '云端处理：${s.state.wire}';
+            _pressStatus = (stage != null && stage.isNotEmpty)
+                ? '生成声音内容：$stage'
+                : '正在生成声音内容…';
           });
         },
       );
@@ -825,16 +913,20 @@ class _DraftsScreenState extends State<DraftsScreen>
 
     if (mounted) {
       setState(() {
-        _pressStatus = '云端处理中…';
+        _pressStatus = '正在生成声音内容…';
       });
     }
+    _startCloudProcessTicker();
     return _cloud.waitUntilReady(
       token: token,
       contentId: contentId,
       onUpdate: (s) {
         if (!mounted) return;
+        final stage = s.processingStage?.trim();
         setState(() {
-          _pressStatus = '云端处理：${s.state.wire}';
+          _pressStatus = (stage != null && stage.isNotEmpty)
+              ? '生成声音内容：$stage'
+              : '正在生成声音内容…';
         });
       },
     );
@@ -959,12 +1051,11 @@ class _DraftsScreenState extends State<DraftsScreen>
     await Future<void>.delayed(const Duration(milliseconds: 300));
     if (!mounted) return;
 
-    // 模拟写入成功 → 声片落入毛玻璃仓。
-    await _recordBayDrop(item);
-
     final discId = NfcService.instance.generateDiscId('DEMO');
-    final rarity =
-        DiscRarity.values[item.visualSeed % DiscRarity.values.length];
+    final rarity = DiscRarity.rollWeighted();
+    // 模拟写入成功 → 声片落入毛玻璃仓（贴图与揭晓稀有度一致）。
+    await _recordBayDrop(item, rarity: rarity);
+
     final assetId = await ChainService.instance.submitAsset(
       soundId: item.id,
       discId: discId,
@@ -999,11 +1090,13 @@ class _DraftsScreenState extends State<DraftsScreen>
   Future<void> _cancelNfc() async {
     await NfcService.instance.stopSession();
     _nfcBusy = false;
+    _stopCloudProgressTicker(clear: true);
     if (!mounted) return;
     setState(() {
       _autoListening = false;
       _nfcWriting = false;
       _pressStatus = null;
+      _cloudProgress = null;
       if (_flow == _FlowPhase.pressing || _flow == _FlowPhase.found) {
         _flow = _FlowPhase.waitingNfc;
         _machineMode = PressMachineMode.loaded;
@@ -1015,11 +1108,13 @@ class _DraftsScreenState extends State<DraftsScreen>
   }
 
   void _continueAfterComplete() {
+    _stopCloudProgressTicker(clear: true);
     setState(() {
       _flow = _FlowPhase.idle;
       _loadedItem = null;
       _loadedId = null;
       _pressStatus = null;
+      _cloudProgress = null;
       _chaining = false;
       _nfcWriting = false;
       _failWasCloud = false;
@@ -1189,6 +1284,13 @@ class _DraftsScreenState extends State<DraftsScreen>
                                 ? _cloudStage
                                 : null,
                             statusHint: _pressStatus,
+                            cloudProgressPercent: (_flow == _FlowPhase.found ||
+                                    _guidePhase ==
+                                        NfcGuidePhase.cloudUploading ||
+                                    _guidePhase ==
+                                        NfcGuidePhase.cloudProcessing)
+                                ? _cloudProgressPercent
+                                : null,
                             chaining: _chaining,
                             failReason: _failReason,
                             autoListening: _autoListening,

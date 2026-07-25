@@ -82,8 +82,7 @@ class _HardwarePressScreenState extends State<HardwarePressScreen> {
     if (!result.verifiedSuccess) return;
     _collected = true;
     final discId = NfcService.instance.generateDiscId('HW');
-    final rarity =
-        DiscRarity.values[item.visualSeed % DiscRarity.values.length];
+    final rarity = DiscRarity.rollWeighted();
     final assetId = await ChainService.instance.submitAsset(
       soundId: item.id,
       discId: discId,

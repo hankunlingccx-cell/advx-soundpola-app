@@ -9,9 +9,16 @@ class RecordingSession {
   static int durationSec = 0;
   static int visualSeed = 0;
   static AudioFeatureTimeline? featureTimeline;
+
   /// True when audio came from local file import (not live mic).
   static bool fromImport = false;
+
+  /// True when audio came from the BLE ring recorder.
+  static bool fromRing = false;
   static String? suggestedTitle;
+  static String? cloudContentId;
+  static String? cloudState;
+  static String? cloudUploadError;
 
   static void set({
     required String path,
@@ -19,14 +26,22 @@ class RecordingSession {
     int? seed,
     AudioFeatureTimeline? timeline,
     bool imported = false,
+    bool ring = false,
     String? titleHint,
+    String? cloudContentId,
+    String? cloudState,
+    String? cloudUploadError,
   }) {
     audioPath = path;
     durationSec = duration;
     if (seed != null) visualSeed = seed;
     if (timeline != null) featureTimeline = timeline;
     fromImport = imported;
+    fromRing = ring;
     if (titleHint != null) suggestedTitle = titleHint;
+    RecordingSession.cloudContentId = cloudContentId;
+    RecordingSession.cloudState = cloudState;
+    RecordingSession.cloudUploadError = cloudUploadError;
   }
 
   static void clear() {
@@ -35,7 +50,11 @@ class RecordingSession {
     visualSeed = 0;
     featureTimeline = null;
     fromImport = false;
+    fromRing = false;
     suggestedTitle = null;
+    cloudContentId = null;
+    cloudState = null;
+    cloudUploadError = null;
   }
 }
 

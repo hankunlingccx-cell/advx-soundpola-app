@@ -5,6 +5,7 @@ import '../data/session.dart';
 import '../screens/account/account_screen.dart';
 import '../screens/account/my_devices_screen.dart';
 import '../screens/account/pair_device_screen.dart';
+import '../screens/account/pair_ring_screen.dart';
 import '../screens/auth/auth_screens.dart';
 import '../screens/collection/category_play_screen.dart';
 import '../screens/collection/collection_screen.dart';
@@ -150,6 +151,10 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
         builder: (context, state) => const PairDeviceScreen(),
       ),
       GoRoute(
+        path: AppRoutes.pairRing,
+        builder: (context, state) => const PairRingScreen(),
+      ),
+      GoRoute(
         path: AppRoutes.myDevices,
         builder: (context, state) => const MyDevicesScreen(),
       ),
@@ -208,12 +213,17 @@ GoRouter createRouter({required ValueNotifier<bool> consented}) {
                 durationSec: duration,
                 audioPath: audioPath,
                 fromImport: RecordingSession.fromImport,
+                fromRing: RecordingSession.fromRing,
                 suggestedTitle: RecordingSession.suggestedTitle,
+                cloudContentId: RecordingSession.cloudContentId,
+                cloudState: RecordingSession.cloudState,
+                cloudUploadError: RecordingSession.cloudUploadError,
                 onSaved: () => context.go(AppRoutes.mainTab(1)),
                 onReRecord: () {
                   final wasImport = RecordingSession.fromImport;
+                  final wasRing = RecordingSession.fromRing;
                   RecordingSession.clear();
-                  if (wasImport) {
+                  if (wasImport || wasRing) {
                     context.pop();
                   } else {
                     context.pushReplacement(AppRoutes.recording);

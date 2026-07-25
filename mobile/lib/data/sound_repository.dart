@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -122,11 +123,19 @@ class SoundMemory {
       visualMjpgPath != null &&
       visualIdxPath != null;
 
-  /// Draft / 未绑定时展示「待揭晓」。
-  bool get rarityPending => discRarity == null;
+  /// 仅 Draft／未写入阶段为「待揭晓」；已写入／已收藏不得再显示待揭晓。
+  bool get rarityPending =>
+      discRarity == null && status != SoundStatus.collected && discId == null;
+
+  /// 展示用稀有度：已写入但元数据缺失时回退 N（云端尚无 rarity 字段时的兜底）。
+  DiscRarity? get resolvedRarity {
+    if (discRarity != null) return discRarity;
+    if (status == SoundStatus.collected || discId != null) return DiscRarity.n;
+    return null;
+  }
 
   String get rarityDisplayLabel =>
-      discRarity?.headline ?? '待揭晓';
+      resolvedRarity?.headline ?? '待揭晓';
 
   SoundMemory copyWith({
     String? title,
@@ -251,6 +260,7 @@ class SoundRepository extends ChangeNotifier {
   }
 
   static const _prefsCategoriesPrefix = 'user_categories_v2_';
+  static const _prefsBindingsPrefix = 'disc_bindings_v1_';
   static const _legacyCategoriesKey = 'user_categories';
 
   /// 本会话内草稿清空原因（用于「清空 / 全部封存」文案；展示一次后消费）。
@@ -263,6 +273,9 @@ class SoundRepository extends ChangeNotifier {
   /// In-memory draft stash per account (survives logout within process).
   final Map<String, List<SoundMemory>> _draftStash = {};
   final Map<String, List<String>> _categoryStash = {};
+
+  /// contentId → 本机声片绑定（稀有度等）；云端 ContentSummary 暂无 rarity 字段。
+  final Map<String, _DiscBindingMeta> _discBindings = {};
 
   /// 用户已创建／已使用的分类名（顺序：声音出现顺序，再追加持久化自建名）。
   final List<String> _categories = [];
@@ -305,6 +318,7 @@ class SoundRepository extends ChangeNotifier {
     _boundUserId = next;
     _sounds.clear();
     _categories.clear();
+    _discBindings.clear();
     draftsEmptyKind = null;
     _everHadDrafts = false;
 
@@ -319,6 +333,7 @@ class SoundRepository extends ChangeNotifier {
         _categories.addAll(cats);
       }
       await _loadCategoriesFor(next);
+      await _loadDiscBindingsFor(next);
       _seedCategoriesFromSounds();
     }
 
@@ -385,6 +400,64 @@ class SoundRepository extends ChangeNotifier {
     if (changed) {
       _categoryStash[userId] = List<String>.from(_categories);
     }
+  }
+
+  String _bindingsKey(String userId) => '$_prefsBindingsPrefix$userId';
+
+  Future<void> _loadDiscBindingsFor(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_bindingsKey(userId));
+    _discBindings.clear();
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      for (final entry in decoded.entries) {
+        final key = entry.key.toString();
+        final value = entry.value;
+        if (key.isEmpty || value is! Map) continue;
+        final meta = _DiscBindingMeta.tryParse(
+          Map<String, dynamic>.from(value),
+        );
+        if (meta != null) _discBindings[key] = meta;
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _persistDiscBindings() async {
+    final uid = _boundUserId;
+    if (uid == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = <String, dynamic>{
+      for (final e in _discBindings.entries) e.key: e.value.toJson(),
+    };
+    await prefs.setString(_bindingsKey(uid), jsonEncode(encoded));
+  }
+
+  /// 写入成功后记住声片稀有度，避免云端同步（尚无 rarity 字段）抹掉本机揭晓结果。
+  void rememberDiscBinding({
+    String? contentId,
+    required String discId,
+    DiscRarity? discRarity,
+    String? discSeries,
+    String? nfcTagId,
+  }) {
+    final cid = contentId?.trim();
+    if (cid == null || cid.isEmpty) return;
+    final prev = _discBindings[cid];
+    _discBindings[cid] = _DiscBindingMeta(
+      discId: discId,
+      rarity: discRarity ?? prev?.rarity,
+      series: discSeries ?? prev?.series,
+      nfcTagId: nfcTagId ?? prev?.nfcTagId,
+    );
+    unawaited(_persistDiscBindings());
+  }
+
+  _DiscBindingMeta? _bindingFor(String? contentId) {
+    final cid = contentId?.trim();
+    if (cid == null || cid.isEmpty) return null;
+    return _discBindings[cid];
   }
 
   Future<void> _persistCategoriesFor(String userId) async {
@@ -536,23 +609,35 @@ class SoundRepository extends ChangeNotifier {
     final now = DateTime.now();
     update(
       id,
-      (s) => s.copyWith(
-        status: SoundStatus.collected,
-        discId: discId,
-        assetId: assetId,
-        nfcTagId: nfcTagId ?? s.nfcTagId,
-        boundDeviceId: boundDeviceId ?? s.boundDeviceId,
-        pressedAt: s.pressedAt ?? now,
-        chainedAt: now,
-        contractLabel: s.contractLabel ?? '0xSoundPola…mock',
-        tokenId: s.tokenId ?? id.substring(0, id.length.clamp(0, 8)),
-        txHash: s.txHash ?? assetId,
-        contentId: contentId ?? s.contentId,
-        nfcUrl: nfcUrl ?? s.nfcUrl,
-        cloudState: cloudState ?? s.cloudState ?? 'READY',
-        discRarity: discRarity ?? s.discRarity,
-        discSeries: discSeries ?? s.discSeries,
-      ),
+      (s) {
+        final rarity = discRarity ?? s.discRarity ?? DiscRarity.rollWeighted();
+        final series = discSeries ?? s.discSeries;
+        final cid = contentId ?? s.contentId;
+        rememberDiscBinding(
+          contentId: cid,
+          discId: discId,
+          discRarity: rarity,
+          discSeries: series,
+          nfcTagId: nfcTagId ?? s.nfcTagId,
+        );
+        return s.copyWith(
+          status: SoundStatus.collected,
+          discId: discId,
+          assetId: assetId,
+          nfcTagId: nfcTagId ?? s.nfcTagId,
+          boundDeviceId: boundDeviceId ?? s.boundDeviceId,
+          pressedAt: s.pressedAt ?? now,
+          chainedAt: now,
+          contractLabel: s.contractLabel ?? '0xSoundPola…mock',
+          tokenId: s.tokenId ?? id.substring(0, id.length.clamp(0, 8)),
+          txHash: s.txHash ?? assetId,
+          contentId: cid,
+          nfcUrl: nfcUrl ?? s.nfcUrl,
+          cloudState: cloudState ?? s.cloudState ?? 'READY',
+          discRarity: rarity,
+          discSeries: series,
+        );
+      },
     );
     if (drafts.isEmpty) {
       draftsEmptyKind = DraftsEmptyKind.allPressed;
@@ -683,15 +768,62 @@ class SoundRepository extends ChangeNotifier {
 
   /// Merge READY cloud contents into local collection (Drafts stay local-only).
   /// Replaces prior Collection entries — never inherits another account's assets.
+  /// 保留本机已揭晓的稀有度／声片编号（云端 ContentSummary 暂无 rarity）。
   void syncCloudCollection(List<ContentSummary> remote) {
+    final localByContent = <String, SoundMemory>{};
+    final localOnly = <SoundMemory>[];
+    for (final s in _sounds) {
+      if (s.status != SoundStatus.collected) continue;
+      final cid = s.contentId?.trim();
+      if (cid != null && cid.isNotEmpty) {
+        localByContent[cid] = s;
+      } else {
+        localOnly.add(s);
+      }
+    }
+
+    final remoteReady = remote
+        .where((item) => item.state == CloudContentState.ready)
+        .toList(growable: false);
+    final remoteIds = remoteReady.map((e) => e.contentId).toSet();
+
+    for (final entry in localByContent.entries) {
+      if (!remoteIds.contains(entry.key)) {
+        localOnly.add(entry.value);
+      }
+    }
+
     _sounds.removeWhere((s) => s.status == SoundStatus.collected);
 
-    for (final item in remote) {
-      if (item.state != CloudContentState.ready) continue;
+    for (final item in remoteReady) {
+      final prev = localByContent[item.contentId];
+      final bound = _bindingFor(item.contentId);
+      final durationSec = ((item.durationMs ?? 0) / 1000).round().clamp(1, 30);
+      final discId = prev?.discId ??
+          bound?.discId ??
+          'CLOUD-${item.contentId.substring(0, 8)}';
+      final rarity = prev?.discRarity ?? bound?.rarity;
+      final series = prev?.discSeries ?? bound?.series;
+      final nfcTagId = prev?.nfcTagId ?? bound?.nfcTagId;
+
+      final prevDiscId = prev?.discId;
+      final boundDiscId = bound?.discId;
+      final hasLocalDisc = (prevDiscId != null &&
+              !prevDiscId.startsWith('CLOUD-')) ||
+          (boundDiscId != null && !boundDiscId.startsWith('CLOUD-'));
+      if (rarity != null || hasLocalDisc) {
+        rememberDiscBinding(
+          contentId: item.contentId,
+          discId: discId,
+          discRarity: rarity,
+          discSeries: series,
+          nfcTagId: nfcTagId,
+        );
+      }
+
       final existingIndex = _sounds.indexWhere(
         (s) => s.contentId == item.contentId,
       );
-      final durationSec = ((item.durationMs ?? 0) / 1000).round().clamp(1, 30);
       if (existingIndex >= 0) {
         final cur = _sounds[existingIndex];
         _sounds[existingIndex] = cur.copyWith(
@@ -700,32 +832,71 @@ class SoundRepository extends ChangeNotifier {
           nfcUrl: item.nfcUrl ?? cur.nfcUrl,
           cloudState: item.state.wire,
           assetId: cur.assetId ?? item.contentId,
-          discId: cur.discId ?? 'CLOUD-${item.contentId.substring(0, 8)}',
+          discId: cur.discId ?? discId,
+          discRarity: cur.discRarity ?? rarity,
+          discSeries: cur.discSeries ?? series,
+          nfcTagId: cur.nfcTagId ?? nfcTagId,
           chainedAt: cur.chainedAt ?? DateTime.now(),
         );
       } else {
         _sounds.insert(
           0,
           SoundMemory(
-            id: 'cloud_${item.contentId}',
-            title: item.displayLabel.isNotEmpty
-                ? item.displayLabel
-                : '云端声音 ${item.contentId.substring(0, 8)}',
-            category: '其他',
-            durationSec: durationSec,
+            id: prev?.id ?? 'cloud_${item.contentId}',
+            title: (prev?.title.isNotEmpty == true)
+                ? prev!.title
+                : (item.displayLabel.isNotEmpty
+                    ? item.displayLabel
+                    : '云端声音 ${item.contentId.substring(0, 8)}'),
+            category: prev?.category ?? '其他',
+            description: prev?.description ?? '',
+            durationSec: prev?.durationSec ?? durationSec,
+            recordedAt: prev?.recordedAt,
+            locationLabel: prev?.locationLabel ?? '地点未记录',
+            deviceLabel: prev?.deviceLabel ?? 'Mobile Device',
             status: SoundStatus.collected,
+            visualSeed: prev?.visualSeed,
             contentId: item.contentId,
-            nfcUrl: item.nfcUrl,
+            nfcUrl: item.nfcUrl ?? prev?.nfcUrl,
             cloudState: item.state.wire,
-            assetId: item.contentId,
-            discId: 'CLOUD-${item.contentId.substring(0, 8)}',
-            chainedAt: DateTime.tryParse(item.readyAt ?? '') ?? DateTime.now(),
-            networkLabel: 'Cloud Media',
+            assetId: prev?.assetId ?? item.contentId,
+            discId: discId,
+            discRarity: rarity,
+            discSeries: series,
+            nfcTagId: nfcTagId,
+            audioPath: prev?.audioPath,
+            visualPath: prev?.visualPath,
+            visualUrl: prev?.visualUrl ?? item.visualUrl,
+            packageDir: prev?.packageDir,
+            coverPath: prev?.coverPath,
+            visualMjpgPath: prev?.visualMjpgPath,
+            visualIdxPath: prev?.visualIdxPath,
+            visualManifestPath: prev?.visualManifestPath,
+            audioFeaturesPath: prev?.audioFeaturesPath,
+            visualBakeStatus: prev?.visualBakeStatus ?? VisualBakeStatus.none,
+            chainedAt: prev?.chainedAt ??
+                DateTime.tryParse(item.readyAt ?? '') ??
+                DateTime.now(),
+            pressedAt: prev?.pressedAt,
+            networkLabel: prev?.networkLabel ?? 'Cloud Media',
+            contractLabel: prev?.contractLabel,
+            tokenId: prev?.tokenId,
+            txHash: prev?.txHash,
           ),
         );
-        _ensureCategoryPresent('其他');
+        _ensureCategoryPresent(prev?.category ?? '其他');
       }
     }
+
+    for (final s in localOnly) {
+      final already = _sounds.any(
+        (x) =>
+            x.id == s.id ||
+            (s.contentId != null && x.contentId == s.contentId),
+      );
+      if (!already) _sounds.insert(0, s);
+    }
+
     for (final s in List<SoundMemory>.from(_sounds)) {
       if (s.visualUrl != null && s.visualPath == null && s.contentId != null) {
         unawaited(VisualShapeService.instance
@@ -739,5 +910,38 @@ class SoundRepository extends ChangeNotifier {
       }
     }
     notifyListeners();
+  }
+}
+
+/// 本机声片绑定元数据（按 contentId 持久化）。
+class _DiscBindingMeta {
+  const _DiscBindingMeta({
+    required this.discId,
+    this.rarity,
+    this.series,
+    this.nfcTagId,
+  });
+
+  final String discId;
+  final DiscRarity? rarity;
+  final String? series;
+  final String? nfcTagId;
+
+  Map<String, dynamic> toJson() => {
+        'discId': discId,
+        if (rarity != null) 'rarity': rarity!.code,
+        if (series != null) 'series': series,
+        if (nfcTagId != null) 'nfcTagId': nfcTagId,
+      };
+
+  static _DiscBindingMeta? tryParse(Map<String, dynamic> json) {
+    final discId = json['discId'] as String?;
+    if (discId == null || discId.isEmpty) return null;
+    return _DiscBindingMeta(
+      discId: discId,
+      rarity: DiscRarity.tryParse(json['rarity'] as String?),
+      series: json['series'] as String?,
+      nfcTagId: json['nfcTagId'] as String?,
+    );
   }
 }

@@ -10,7 +10,7 @@ SoundPola 将一段声音从“即时捕捉”转化为“可收藏、可触碰�
 
 一张 NFC 声片只对应一个声音，写入后永久绑定，不可覆盖或替换。
 
-稀有度属于实体声片，由工厂写入 NFC，不根据录音内容随机生成，也不由 App 判定。录音决定卡片的声音视觉；实体声片决定卡片的稀有度；两者永久绑定后，共同生成最终数字声卡。
+稀有度属于实体声片；正式由工厂写入 NFC。本版过渡期：空白卡无出厂信息时，App 按比率随机揭晓（N 55%／R 28%／SR 12%／SSR 5%），绑定后永久固定，不可由用户编辑或按录音内容重算。录音决定卡片的声音视觉；稀有度与实体声片（或过渡期首次揭晓结果）永久绑定后，共同生成最终数字声卡。
 
 录制日期、时间、地点、设备和时长由系统自动记录。
 
@@ -88,6 +88,8 @@ NFT 数字资产
 
 Draft 阶段为「待揭晓」
 
+写入／绑定成功后稀有度永久固定；Collection 云端同步不得抹掉本机已揭晓结果（云端暂无 rarity 时按 contentId 本地持久化）
+
 绑定后写入 NFT 元数据
 
 用户不可编辑或升级
@@ -102,14 +104,15 @@ Draft 阶段为「待揭晓」
 
 不可变约束：
 
-- 稀有度由工厂写入实体声片
+- 稀有度正式由工厂写入实体声片；过渡期空白卡可按比率随机揭晓并在绑定后固定
 - 用户不能编辑或升级稀有度
 - 稀有度不根据录音质量、时长或内容计算
-- App 不能只相信普通 NFC 文本字段，须校验防伪签名
+- App 不能只相信普通 NFC 文本字段，须校验防伪签名（演示签名用于过渡期）
 - 同一枚声片绑定前后稀有度保持一致
 - NFT 稀有度必须与实体声片一致
 - NFC 写入成功但上链失败时，保留已识别稀有度，只重试上链
 - 已绑定声片再次读取时，显示原声音卡片，不能重新生成其他稀有度
+- Collection 同步合并本机 `discRarity`／声片编号；已写入声片不得再显示「稀有度待揭晓」
 
 生成时机：
 
@@ -444,6 +447,8 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 从系统文件选择器选取本地音频（m4a／mp3／wav／aac／ogg／flac／caf）。复制至应用 `recordings/`；探测时长；不足 3 秒拒绝；超过 90 秒按 bake 上限截断会话时长。生成 visualSeed 与确定性合成 AudioDrive 时间序列（导入暂不做真 PCM 分析），进入结果页（标题「导入结果」，名称预填文件名），保存路径与录音结果一致 → Drafts。
 
+外部指环录音：已蓝牙配对的指环在实体按键结束录音后，App 自动经 BLE 下载 Speex → 本机解码为 WAV（可试听）→（尽力）上传云端 → 进入结果页（标题「指环录音完成」），不经过「录音中」页。
+
 05 录音中
 
 关闭 / 取消入口。
@@ -490,9 +495,9 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 顶部：主标题 `Drafts` +「待封存的声音」；数量胶囊；账户入口。
 
-拟物设备：冷白 ABS（#F3F5F2／#C9CECB）、内凹前面板、黑色玻璃屏、凹陷插槽嵌于外壳顶缘（自上向下插入）、状态灯；机身下方叠一层更高的毛玻璃存储仓。声卡插入仅进入待写入态；NFC 写入并封存成功后，带稀有度贴图的圆形声片（N／R／SR／SSR 固定贴图，与 Collection 同源）落入仓内，模拟重力下落、地面／侧壁／声片两两碰撞回弹后静止（中心距约束，不允许完全重合叠成一张）；仓内可同时保留多张（至多 5 张、各保留约 7 天），数据本地存储但按登录账户隔离（换号不可见他人仓内声片），空仓无装饰。待机：`READY TO PRESS`／`SELECT A SOUND CARD`；靠近：`CARD DETECTED`／`RELEASE TO INSERT`；写入：`PRESSING MEMORY`＋进度；完成：`MEMORY PRESSED`。拖拽仅跟手；松手进入释放区后对齐顶部插口并下吸入槽（遮挡仅发生在插入动画，口下被机身裁切）。设备整体放大，约占屏高约 38%。
+拟物设备：冷白 ABS（#F3F5F2／#C9CECB）、内凹前面板、黑色玻璃屏、凹陷插槽嵌于外壳顶缘（自上向下插入）、状态灯；机身下方叠一层更高的毛玻璃存储仓。声卡插入仅进入待写入态；NFC 写入并封存成功后，带稀有度贴图的圆形声片（N／R／SR／SSR 固定贴图，与 Collection 同源 `discTextureFor`）落入仓内——掉落记录须写入已揭晓稀有度（`PressSession.rarity`／模拟掷骰结果），不可在 `markCollected` 前用空的 `item.discRarity` 回退到 N；模拟重力下落、地面／侧壁／声片两两碰撞回弹后静止（中心距约束，不允许完全重合叠成一张）；仓内可同时保留多张（至多 5 张、各保留约 7 天），数据本地存储但按登录账户隔离（换号不可见他人仓内声片），空仓无装饰。待机：`READY TO PRESS`／`SELECT A SOUND CARD`；靠近：`CARD DETECTED`／`RELEASE TO INSERT`；写入：`PRESSING MEMORY`＋进度；完成：`MEMORY PRESSED`。拖拽仅跟手；松手进入释放区后对齐顶部插口并下吸入槽（遮挡仅发生在插入动画，口下被机身裁切）。设备整体放大，约占屏高约 38%。
 
-NFC 指引：插入成功后展开；Browsing 不提前展开。流程：明确提示「音频将上传到云端」→ 云端处理（无需贴近）→ 单次贴近同时检查是否已写入并完成写入 → 上链（无需贴近）。云端失败与 NFC 写入失败分开引导重试。
+NFC 指引：插入成功后展开；Browsing 不提前展开。流程：明确提示「音频将上传到云端」→ 云端处理（无需贴近；「生成声音内容」步骤展示 0–100% 进度，云端无真实进度字段时按轮询时长估算，READY 时到 100%）→ 单次贴近同时检查是否已写入并完成写入 → 上链（无需贴近）。云端失败与 NFC 写入失败分开引导重试。
 
 暂存卡组：横向错位堆叠；冷白半硬质卡面与设备同材质系统；含 DRAFT 编号、圆形视觉、分类色带。
 
@@ -602,7 +607,7 @@ NFC 检测动画与操作示意。
 
 读取出厂编号与系列；稀有度暂不明文展示，进入揭晓页。
 
-开发态：若芯片尚无工厂 MIME，可按 tagId 派生演示出厂档案（带演示签名）；生产须使用工厂预写芯片。
+开发态／过渡期：若芯片尚无工厂 MIME，按加权比率随机揭晓稀有度（N 55% · R 28% · SR 12% · SSR 5%），同一空白 tag 在绑定前复用首次结果；写入绑定后以本机／链上记录为准。工厂预写就绪后关闭随机回退。
 
 13b 稀有度揭晓（声片鉴定）
 
@@ -764,7 +769,7 @@ SSR 仅在稀有度为 SSR 时，于进度描边外增加能量环：播放时�
 
 18.6 声片贴图一致性
 
-每个声音写入声片后按稀有度使用固定贴图（N 黑底、R 薄荷青、SR 紫、SSR 粉；中央星标＋环绕 `CYBERPUNK VIBES.`），作为 Collection 总览、分类播放页横向堆叠、账号 NFT／分享卡、Drafts 仓内声片等共用资产。
+每个声音写入声片后按稀有度使用固定贴图（N 黑底、R 薄荷青、SR 紫、SSR 粉；中央星标＋环绕 `CYBERPUNK VIBES.`），用于 Collection 总览、分类播放页横向堆叠、Drafts 仓内声片等。分享／NFT 卡中部仍用声音可视化，不替换为稀有度贴图。
 
 禁止：按 visualSeed 随机换贴图、播放时重生成图案、换页改配色、重建时重新随机、拉伸变形、不同裁切导致主体变化。稀有度未揭晓时回退 N 档贴图。
 
@@ -802,7 +807,7 @@ Stack 分离贴图、环形进度与稀有度效果层；环形进度更新时�
 
 - 灰边外壳（#272728／#505050）+ 黑底内卡，内描边按稀有度：N 白、R #38D7D0、SR #7454EB、SSR #ED4F8F
 - 顶部大号等级字样；N 为白字＋凹口线，R／SR／SSR 为同色顶栏＋梯形缺口
-- 中部圆形声卡贴图／可视化
+- 中部圆形声音可视化（`SoundVisualCanvas`，可叠镭射）；稀有度声片贴图仅用于 Collection 跑道／堆叠，不占分享卡中心
 - 白底信息板：声音名称、声片编号、地点、录制时间、资产编号条；右侧环绕字印章（CYBERPUNKVIBES.）
 - 脚注：`SoundPola` ＋「已写入声片」
 
@@ -886,6 +891,13 @@ App 经局域网原始 TCP Socket 向设备 `POST /pair`（不用 package:http�
 
 入口：Record 主页账户旁设备图标；Account 主按钮「WiFi 扫码连接设备」；「我的设备」空态／列表「连接新设备」；Press「硬件设备写入」未绑定时直接进入扫码页。
 
+指环蓝牙配对（同一配对页底部「蓝牙配对指环」→ `/account/pair-ring`）：
+
+- BLE 扫描仅展示广播名称以 `ring` 开头（大小写不敏感）的设备；列表显示名称与 MAC，隐藏其他蓝牙设备。
+- 用户点选后 GATT 连接 Nordic UART 协议指环，读取系统信息／电量，写入本机配对地址，并登记到「我的设备」。
+- 登录且已配对后，后台 `RingRecordingService` 保持待命：指环实体按键录音结束 → BLE 下载 Speex → 本机解码 WAV →（尽力）上传云端 → 直接进入录音结果页（标题「指环录音完成」），**不走**手机麦克风显式录制页。
+- Android 原生桥：`RingSoundBridge`（MethodChannel `soundpola/ring_sound`：`scanRings`／`connectRing`／`receiveNextRecording`／`cancel`）；解码依赖 `jspeex`。
+
 硬件端 Memory Terminal HMI（权威：`hadwareui.md` + `docs/hardware-ui-preview/index.html`）：
 
 - 分辨率 480×320；三层结构：顶部状态轨（PHONE／NET／NFC／HOLO）→ 中央任务舞台 → 底部 IN／NFC／OUT 机械引导托盘。
@@ -894,7 +906,7 @@ App 经局域网原始 TCP Socket 向设备 `POST /pair`（不用 package:http�
 - 状态：00 配对 → 01 待机 → 02／02b 接收就绪 → 03 等待空白卡 → 04 识别 → 05／05b 写入校验 → 07 完成出卡取卡；或 06a／b／c 显影；异常仅 08a 已绑定冲突、08b 凭证延迟（已取消机械卡滞用户页）。
 - LCD 黑白青工业语言，禁止声音可视化；球体／全息光谱仅全息装置。与 App Drafts 写入机拟物 UI 视觉分离、任务衔接。
 
-智能戒指的连接、电量和录音触发设置。
+智能指环：蓝牙配对、电量读取、按键录音触发与自动下载（见上「指环蓝牙配对」）；本版不提供独立电量设置页。
 
 22 账号与安全
 
@@ -1178,11 +1190,13 @@ Account 首页。
 
 账号密码注册 / 登录（本地账号库 + 安全 session）；登录后映射签发 Cloud Media UserToken（SecureStorage，一次下发长期持有）。
 
-Press：multipart 上传源音频，并在本机 Indexed-MJPEG bake 就绪时附带帧包（`visual`／`visual_idx`／`visual_manifest`／`cover`／`audio_features`＋`visual_seed`／`renderer_version`；服务端若不支持视觉字段则回退仅传音频）→ 轮询至 READY（FAILED 可 retry）→ NFC 写入 `contentId` + `nfc_url`（兼容 Trigger）→ 本地仍模拟 NFT 上链；可选经已配对 Memory Terminal 硬件完成物理写入／出卡（HMI 见 `hadwareui.md`）。Draft 详情／列表「发送至设备写入」走硬件任务路径：APP 发任务、设备端放卡写入校验、状态回传；成功进 Collection，失败保留 Draft 可重发。
+Press：multipart 上传源音频，并在本机 Indexed-MJPEG bake 就绪时附带帧包（`visual`／`visual_idx`／`visual_manifest`／`cover`／`audio_features`＋`visual_seed`／`renderer_version`；服务端若不支持视觉字段则回退仅传音频）→ 轮询至 READY（FAILED 可 retry；Drafts NFC 面板「生成声音内容」步骤展示百分比）→ NFC 写入 `contentId` + `nfc_url`（兼容 Trigger）→ 本地仍模拟 NFT 上链；可选经已配对 Memory Terminal 硬件完成物理写入／出卡（HMI 见 `hadwareui.md`）。Draft 详情／列表「发送至设备写入」走硬件任务路径：APP 发任务、设备端放卡写入校验、状态回传；成功进 Collection，失败保留 Draft 可重发。
 
-NFC 深链打开：声片 URI 记录（`https://{host}/c/{contentId}` 或自定义 scheme `soundpola://c/{contentId}`）冷／热启动均进入 `/c/:contentId` 内容解析页（本机已有则进分类播放；未登录先登录再恢复；可 claim 云端记忆）。`go_router` 忽略平台原始 URI 作为初始 location，由 DeepLinkService 归一化后导航，避免 `soundpola://…` 被当成未知路由。
+NFC URI 记录格式（Well-Known `U`／type `0x55`）：须按 NFC Forum RTD 使用协议前缀码（`http://` → `0x03`，`https://` → `0x04`），payload 仅含 host[:port]/path；禁止 `0x00` 把完整 `http(s)://…` 原样写入。读卡器显示应为「Record N - http://」+ `host:port/c/{contentId}`（与域名无关；Trigger 依赖此前缀缩写）。
 
-Drafts 保持本地优先且按账户隔离；Collection 登录后同步当前账号 READY 内容；列表按分类胶囊双列瀑布流；点击跑道进入 `/collection/category/:categoryId` 分类声片播放页（贴图环形进度 + 横向堆叠 + 完整记忆／声片／NFT）；取消独立 Memory 路由；长按声卡可拖入其他分类调整展示分类。
+NFC 深链打开：声片 URI 记录（`http(s)://{host}/c/{contentId}` 或自定义 scheme `soundpola://c/{contentId}`）冷／热启动均进入 `/c/:contentId` 内容解析页（本机已有则进分类播放；未登录先登录再恢复；可 claim 云端记忆）。`go_router` 忽略平台原始 URI 作为初始 location，由 DeepLinkService 归一化后导航，避免 `soundpola://…` 被当成未知路由。
+
+Drafts 保持本地优先且按账户隔离；Collection 登录后同步当前账号 READY 内容；列表按分类胶囊双列瀑布流；点击跑道进入 `/collection/category/:categoryId` 分类声片播放页（贴图环形进度 + 横向堆叠 + 完整记忆／声片／NFT）；取消独立 Memory 路由；长按声卡可拖入其他分类调整展示分类。云端 ContentSummary 暂无稀有度字段：同步时合并并按账号持久化本机已揭晓的 `discRarity`／声片编号，避免刷新后变成「待揭晓」。
 
 稀有度分级全息箔片（`RarityHoloStyle` / `RarityHoloOverlay`）：虹彩底膜＋衍射光栅＋RGB 色散高光＋微闪＋边缘焦散；N 银灰冷箔、R 薄荷青箔、SR 青蓝紫棱镜、SSR 全光谱＋密集微闪／强焦散／独占微粒视差；已接入 Collection 胶囊、分类堆叠、NFT 卡与鉴定揭晓。
 

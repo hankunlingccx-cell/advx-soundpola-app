@@ -581,9 +581,9 @@ class _CategoryCapsule extends StatelessWidget {
                                               size: disc,
                                               soundId: group.items[i].id,
                                               textureAsset: discTextureFor(
-                                                group.items[i].discRarity,
+                                                group.items[i].resolvedRarity,
                                               ),
-                                              rarity: group.items[i].discRarity,
+                                              rarity: group.items[i].resolvedRarity,
                                               lifting: draggingId ==
                                                   group.items[i].id,
                                               onTap: () => onOpenDisc(

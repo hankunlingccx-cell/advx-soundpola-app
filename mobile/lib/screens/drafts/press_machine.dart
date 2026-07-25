@@ -362,7 +362,7 @@ class _BayDiscBody {
 
   final String id;
   final int seed;
-  final DiscRarity? rarity;
+  DiscRarity? rarity;
   double x;
   double y;
   double vx;
@@ -466,6 +466,7 @@ class _FrostedStorageBayState extends State<_FrostedStorageBay>
         }
       }
       if (existing != null) {
+        existing.rarity = d.rarity;
         keep.add(existing);
       } else {
         final isNewest = animateNewest && d.id == discs.last.id;
@@ -778,7 +779,7 @@ class _FrostedStorageBayState extends State<_FrostedStorageBay>
   }
 }
 
-/// Circular textured sound disc (rarity texture, same as Collection).
+/// Circular textured sound disc — same rarity asset as Collection (`discTextureFor`).
 class _BayTexturedDisc extends StatelessWidget {
   const _BayTexturedDisc({
     required this.rarity,
@@ -811,7 +812,7 @@ class _BayTexturedDisc extends StatelessWidget {
             Image.asset(
               texture,
               fit: BoxFit.cover,
-              filterQuality: FilterQuality.medium,
+              filterQuality: FilterQuality.high,
               errorBuilder: (_, _, _) => ColoredBox(
                 color: switch (rarity) {
                   DiscRarity.r => const Color(0xFF63E0CB),
@@ -821,35 +822,19 @@ class _BayTexturedDisc extends StatelessWidget {
                 },
               ),
             ),
-            // Soft frost so it reads behind glass.
-            ColoredBox(color: Colors.white.withValues(alpha: 0.06)),
-            // Specular rim.
+            // Light sheen only — do not cover center star / rarity art.
             DecoratedBox(
               decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(-0.35, -0.4),
-                  radius: 0.95,
+                gradient: LinearGradient(
+                  begin: const Alignment(-0.8, -1),
+                  end: const Alignment(0.4, 0.35),
                   colors: [
-                    Colors.white.withValues(alpha: 0.28),
+                    Colors.white.withValues(alpha: 0.16),
+                    Colors.white.withValues(alpha: 0.04),
                     Colors.transparent,
-                    Colors.black.withValues(alpha: 0.12),
+                    Colors.black.withValues(alpha: 0.08),
                   ],
-                  stops: const [0.0, 0.45, 1.0],
-                ),
-              ),
-            ),
-            // Center spindle hole.
-            Center(
-              child: Container(
-                width: size * 0.16,
-                height: size * 0.16,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0xFF0A0E0C).withValues(alpha: 0.78),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.35),
-                    width: 0.8,
-                  ),
+                  stops: const [0.0, 0.28, 0.55, 1.0],
                 ),
               ),
             ),

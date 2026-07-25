@@ -452,7 +452,7 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
                     itemCount: items.length,
                     seedAt: (i) => items[i].visualSeed,
                     titleAt: (i) => items[i].title,
-                    rarityAt: (i) => items[i].discRarity,
+                    rarityAt: (i) => items[i].resolvedRarity,
                     initialIndex: index,
                     onIndexChanged: _onIndexChanged,
                     onCenterTap: _togglePlay,
@@ -481,7 +481,7 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
                   ),
                   child: _InfoPanel(
                     title: '声片信息',
-                    header: RarityShowcase(rarity: item.discRarity),
+                    header: RarityShowcase(rarity: item.resolvedRarity),
                     collapsedRows: [
                       MetaRow(label: '声片编号', value: item.discId ?? '—'),
                     ],
@@ -1053,10 +1053,9 @@ class _ShareSheet extends StatelessWidget {
                   const SizedBox(height: 16),
                   SoundNftCard(
                     item: item,
-                    animateVisual: false,
+                    animateVisual: true,
                     compact: true,
                     variant: SoundNftCardVariant.share,
-                    useDiscTexture: true,
                   ),
                   const SizedBox(height: 20),
                   Row(

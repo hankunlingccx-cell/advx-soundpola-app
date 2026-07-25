@@ -20,6 +20,7 @@ abstract final class AppRoutes {
   static const privateKeyBackup = '/auth/private-key';
   static const account = '/account';
   static const pairDevice = '/account/pair-device';
+  static const pairRing = '/account/pair-ring';
   static const myDevices = '/account/devices';
   static const deviceDetail = '/account/devices/:deviceId';
   static const serverSettings = '/settings/server';

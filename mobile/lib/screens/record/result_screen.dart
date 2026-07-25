@@ -22,7 +22,11 @@ class ResultScreen extends StatefulWidget {
     required this.onSaved,
     required this.onReRecord,
     this.fromImport = false,
+    this.fromRing = false,
     this.suggestedTitle,
+    this.cloudContentId,
+    this.cloudState,
+    this.cloudUploadError,
   });
 
   final int durationSec;
@@ -30,7 +34,11 @@ class ResultScreen extends StatefulWidget {
   final VoidCallback onSaved;
   final VoidCallback onReRecord;
   final bool fromImport;
+  final bool fromRing;
   final String? suggestedTitle;
+  final String? cloudContentId;
+  final String? cloudState;
+  final String? cloudUploadError;
 
   @override
   State<ResultScreen> createState() => _ResultScreenState();
@@ -122,6 +130,7 @@ class _ResultScreenState extends State<ResultScreen> {
     setState(() => _saving = true);
 
     try {
+      final isCloudUploaded = widget.cloudContentId != null;
       final memory = SoundMemory(
         title: name,
         category: _category!,
@@ -130,6 +139,10 @@ class _ResultScreenState extends State<ResultScreen> {
         visualSeed: _seed,
         audioPath: widget.audioPath,
         locationLabel: _locationLabel,
+        deviceLabel: widget.fromRing ? 'Ring Sound' : 'Mobile Device',
+        status: isCloudUploaded ? SoundStatus.writing : SoundStatus.drafted,
+        contentId: widget.cloudContentId,
+        cloudState: widget.cloudState,
         visualBakeStatus: VisualBakeStatus.processingVisual,
         rendererVersion: kSoundVisualRendererVersion,
       );
@@ -181,7 +194,11 @@ class _ResultScreenState extends State<ResultScreen> {
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
       appBar: AppBar(
-        title: Text(widget.fromImport ? '导入结果' : '录音结果'),
+        title: Text(
+          widget.fromRing
+              ? '指环录音完成'
+              : (widget.fromImport ? '导入结果' : '录音结果'),
+        ),
       ),
       body: SafeArea(
         child: ListView(
@@ -233,7 +250,9 @@ class _ResultScreenState extends State<ResultScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              '可视化帧约 $estMb MB（512² · 12fps · 离线生成）',
+              widget.fromRing
+                  ? '来自指环 · 已保存到本机并可试听'
+                  : '可视化帧约 $estMb MB（512² · 12fps · 离线生成）',
               style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
             ),
             const SizedBox(height: AppSpacing.section),
@@ -282,7 +301,9 @@ class _ResultScreenState extends State<ResultScreen> {
             TextButton(
               onPressed: _saving ? null : widget.onReRecord,
               child: Text(
-                widget.fromImport ? '重新选择' : '重新录音',
+                widget.fromRing
+                    ? '完成'
+                    : (widget.fromImport ? '重新选择' : '重新录音'),
                 style: const TextStyle(color: AppColors.accent),
               ),
             ),
