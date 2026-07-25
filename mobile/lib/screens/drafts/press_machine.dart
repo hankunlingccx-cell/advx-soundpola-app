@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../data/bay_disc_store.dart';
+import '../../data/disc_rarity.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/disc_texture.dart';
 
@@ -349,6 +350,7 @@ class _BayDiscBody {
   _BayDiscBody({
     required this.id,
     required this.seed,
+    required this.rarity,
     required this.x,
     required this.y,
     required this.vx,
@@ -360,6 +362,7 @@ class _BayDiscBody {
 
   final String id;
   final int seed;
+  final DiscRarity? rarity;
   double x;
   double y;
   double vx;
@@ -488,6 +491,7 @@ class _FrostedStorageBayState extends State<_FrostedStorageBay>
       return _BayDiscBody(
         id: d.id,
         seed: d.visualSeed,
+        rarity: d.rarity,
         x: widget.width * 0.5 + (rng.nextDouble() - 0.5) * 28,
         y: _r + 2,
         vx: (rng.nextDouble() - 0.5) * 160,
@@ -505,6 +509,7 @@ class _FrostedStorageBayState extends State<_FrostedStorageBay>
     return _BayDiscBody(
       id: d.id,
       seed: d.visualSeed,
+      rarity: d.rarity,
       x: x.clamp(_left, _right),
       y: _floor,
       vx: 0,
@@ -760,7 +765,7 @@ class _FrostedStorageBayState extends State<_FrostedStorageBay>
                   child: Transform.rotate(
                     angle: b.angle,
                     child: _BayTexturedDisc(
-                      seed: b.seed,
+                      rarity: b.rarity,
                       size: _discSize,
                     ),
                   ),
@@ -773,19 +778,19 @@ class _FrostedStorageBayState extends State<_FrostedStorageBay>
   }
 }
 
-/// Circular textured sound disc (same asset mapping as Collection).
+/// Circular textured sound disc (rarity texture, same as Collection).
 class _BayTexturedDisc extends StatelessWidget {
   const _BayTexturedDisc({
-    required this.seed,
+    required this.rarity,
     required this.size,
   });
 
-  final int seed;
+  final DiscRarity? rarity;
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    final texture = discTextureFor(seed);
+    final texture = discTextureFor(rarity);
     return Container(
       width: size,
       height: size,
@@ -803,20 +808,21 @@ class _BayTexturedDisc extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            const ColoredBox(color: Color(0xFFF5F7F4)),
-            Opacity(
-              opacity: 0.72,
-              child: Image.asset(
-                texture,
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.medium,
-                errorBuilder: (_, _, _) => const ColoredBox(
-                  color: Color(0xFFE2E6E3),
-                ),
+            Image.asset(
+              texture,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.medium,
+              errorBuilder: (_, _, _) => ColoredBox(
+                color: switch (rarity) {
+                  DiscRarity.r => const Color(0xFF63E0CB),
+                  DiscRarity.sr => const Color(0xFF7454EB),
+                  DiscRarity.ssr => const Color(0xFFED4F8F),
+                  _ => const Color(0xFF212121),
+                },
               ),
             ),
             // Soft frost so it reads behind glass.
-            ColoredBox(color: Colors.white.withValues(alpha: 0.14)),
+            ColoredBox(color: Colors.white.withValues(alpha: 0.06)),
             // Specular rim.
             DecoratedBox(
               decoration: BoxDecoration(

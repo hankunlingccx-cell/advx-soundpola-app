@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../../cloud/cloud_media_client.dart';
 import '../../cloud/cloud_media_models.dart';
+import '../../cloud/cloud_upload.dart';
 import '../../data/disc_rarity.dart';
 import '../../data/session.dart';
 import '../../data/sound_repository.dart';
@@ -1031,13 +1032,20 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
     }
 
     setState(() {
-      _phase = _phases[0];
-      _progress = 0.15;
+      _phase = '正在准备可视化帧序列…';
+      _progress = 0.1;
     });
-    final created = await _cloud.uploadAudio(
+    final created = await uploadSoundPackage(
+      cloud: _cloud,
+      item: item,
       token: token,
-      file: File(path),
-      filename: path.split(Platform.pathSeparator).last,
+      onStatus: (status) {
+        if (!mounted) return;
+        setState(() {
+          _phase = status;
+          _progress = status.contains('上传') ? 0.18 : 0.12;
+        });
+      },
     );
     contentId = created.contentId;
     SoundRepository.instance.update(

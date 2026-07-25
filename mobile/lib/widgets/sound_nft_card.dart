@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../data/disc_rarity.dart';
@@ -14,7 +16,7 @@ import 'ssr_aura_layer.dart';
 enum SoundNftCardVariant { chain, share }
 
 /// 声片 NFT 稀有度卡：Press 完成翻面揭晓 与 分类播放页分享卡共用。
-/// 分享变体为游戏化收藏卡＋高级 iOS 玻璃质感。
+/// 分享变体对齐 Figma 四档收藏卡（外壳／稀有度描边／白底信息板／环绕印章）。
 class SoundNftCard extends StatelessWidget {
   const SoundNftCard({
     super.key,
@@ -193,7 +195,8 @@ class _ChainAssetCard extends StatelessWidget {
   }
 }
 
-/// 分享用收藏卡：游戏化稀有度徽章 + iOS 玻璃／镜面层次。
+/// 分享用收藏卡：对齐 Figma 声卡分享视觉（N/R/SR/SSR 四档描边与顶栏）。
+/// 结构：灰边外壳 → 黑底稀有度描边 → 顶部等级 → 中间声卡视觉 → 白底信息板＋环绕印章 → 品牌脚注。
 class _ShareCollectibleCard extends StatelessWidget {
   const _ShareCollectibleCard({
     required this.item,
@@ -207,352 +210,400 @@ class _ShareCollectibleCard extends StatelessWidget {
   final bool animateVisual;
   final bool useDiscTexture;
 
-  RarityHoloStyle get _holo => RarityHoloStyle.of(item.discRarity);
-  bool get _isSsr => item.discRarity == DiscRarity.ssr;
-  Color get _accent => _holo.accent;
-  String get _rankCode => item.discRarity?.code ?? 'N';
-  String get _rankLabel => item.discRarity?.label ?? '普通';
+  DiscRarity get _rarity => item.discRarity ?? DiscRarity.n;
+
+  /// Figma 分享卡专属描边／印章色（与稿面一致，不完全复用全息 accent）。
+  Color get _frameAccent => switch (_rarity) {
+        DiscRarity.n => Colors.white,
+        DiscRarity.r => const Color(0xFF38D7D0),
+        DiscRarity.sr => const Color(0xFF7454EB),
+        DiscRarity.ssr => const Color(0xFFED4F8F),
+      };
+
+  Color get _sealFill => switch (_rarity) {
+        DiscRarity.n => const Color(0xFF212121),
+        DiscRarity.r => const Color(0xFF63E0CB),
+        DiscRarity.sr => const Color(0xFF7454EB),
+        DiscRarity.ssr => const Color(0xFFED4F8F),
+      };
+
+  bool get _hasColorBanner => _rarity != DiscRarity.n;
 
   @override
   Widget build(BuildContext context) {
-    final discSize = compact ? 132.0 : 168.0;
-    final radius = compact ? 26.0 : 30.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxW = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width;
+        // Figma 设计宽 840；手机分享预览约 300–340。
+        final w = (compact ? maxW * 0.92 : maxW).clamp(260.0, 420.0);
+        final s = w / 840.0;
+        final h = w * (1240 / 840);
 
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(radius),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.55),
-            blurRadius: 28,
-            offset: const Offset(0, 16),
-            spreadRadius: -6,
+        return Center(
+          child: SizedBox(
+            width: w,
+            height: h,
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF272728),
+                borderRadius: BorderRadius.circular(60 * s),
+                border: Border.all(
+                  color: const Color(0xFF505050),
+                  width: (2 * s).clamp(1.0, 2.0),
+                ),
+              ),
+              padding: EdgeInsets.all(20 * s),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(44 * s),
+                  border: Border.all(
+                    color: _frameAccent,
+                    width: (4 * s).clamp(1.5, 3.5),
+                  ),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    _ShareRarityHeader(
+                      code: _rarity.code,
+                      accent: _frameAccent,
+                      scale: s,
+                      coloredBanner: _hasColorBanner,
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12 * s),
+                        child: Center(
+                          child: AspectRatio(
+                            aspectRatio: 1,
+                            child: LayoutBuilder(
+                              builder: (context, c) {
+                                final side = c.maxWidth;
+                                return _DiscHero(
+                                  item: item,
+                                  size: side,
+                                  animateVisual: animateVisual,
+                                  useDiscTexture: useDiscTexture,
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(10 * s, 0, 10 * s, 8 * s),
+                      child: _ShareInfoPanel(
+                        item: item,
+                        scale: s,
+                        sealFill: _sealFill,
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(36 * s, 0, 36 * s, 18 * s),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'SoundPola',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: (36 * s).clamp(12.0, 18.0),
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                          Text(
+                            '已写入声片',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.92),
+                              fontSize: (28 * s).clamp(10.0, 14.0),
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-          BoxShadow(
-            color: _accent.withValues(alpha: _isSsr ? 0.38 : 0.22),
-            blurRadius: _isSsr ? 42 : 28,
-            offset: const Offset(0, 8),
-            spreadRadius: -4,
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
-        child: Stack(
+        );
+      },
+    );
+  }
+}
+
+class _ShareRarityHeader extends StatelessWidget {
+  const _ShareRarityHeader({
+    required this.code,
+    required this.accent,
+    required this.scale,
+    required this.coloredBanner,
+  });
+
+  final String code;
+  final Color accent;
+  final double scale;
+  final bool coloredBanner;
+
+  @override
+  Widget build(BuildContext context) {
+    final fontSize = (88 * scale).clamp(28.0, 46.0);
+    final bannerH = (124 * scale).clamp(44.0, 64.0);
+
+    if (!coloredBanner) {
+      return Padding(
+        padding: EdgeInsets.only(top: 18 * scale, bottom: 4 * scale),
+        child: Column(
           children: [
-            // Base glass plate
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color.lerp(AppColors.surface2, _accent, 0.08)!,
-                      AppColors.surface1,
-                      Color.lerp(const Color(0xFF070A09), _accent, 0.06)!,
-                    ],
-                    stops: const [0.0, 0.45, 1.0],
-                  ),
-                ),
+            Text(
+              code,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: fontSize,
+                fontWeight: FontWeight.w400,
+                height: 0.85,
+                letterSpacing: 1,
               ),
             ),
-            // Soft rarity wash
-            Positioned(
-              top: -40,
-              right: -30,
-              child: IgnorePointer(
-                child: Container(
-                  width: 160,
-                  height: 160,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        _accent.withValues(alpha: _isSsr ? 0.28 : 0.16),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            // Specular top edge (iOS material highlight)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 1.2,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.white.withValues(alpha: 0.0),
-                      Colors.white.withValues(alpha: 0.42),
-                      Colors.white.withValues(alpha: 0.0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            // Hairline frame
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(radius),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.14),
-                      width: 0.7,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(radius),
-                    border: Border.all(
-                      color: _accent.withValues(alpha: _isSsr ? 0.45 : 0.22),
-                      width: _isSsr ? 1.35 : 1.0,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                compact ? 16 : 20,
-                compact ? 14 : 18,
-                compact ? 16 : 20,
-                compact ? 16 : 20,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'MEMORY SEALED',
-                              style: TextStyle(
-                                color: _accent.withValues(alpha: 0.85),
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 1.8,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'COLLECTIBLE · $_rankCode',
-                              style: TextStyle(
-                                color: AppColors.textTertiary.withValues(
-                                  alpha: 0.9,
-                                ),
-                                fontSize: 10,
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      _RaritySeal(
-                        rarity: item.discRarity,
-                        code: _rankCode,
-                        label: _rankLabel,
-                        accent: _accent,
-                        compact: compact,
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: compact ? 14 : 18),
-                  _DiscHero(
-                    item: item,
-                    size: discSize,
-                    animateVisual: animateVisual,
-                    useDiscTexture: useDiscTexture,
-                  ),
-                  SizedBox(height: compact ? 14 : 18),
-                  Text(
-                    item.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: compact ? 18 : 22,
-                      fontWeight: FontWeight.w700,
-                      height: 1.2,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    item.category.toUpperCase(),
-                    style: TextStyle(
-                      color: AppColors.textSecondary.withValues(alpha: 0.9),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 1.6,
-                    ),
-                  ),
-                  SizedBox(height: compact ? 14 : 18),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _StatCapsule(
-                          label: '地点',
-                          value: item.locationLabel,
-                          accent: _accent,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _StatCapsule(
-                          label: '日期',
-                          value: formatRecordedAt(item.recordedAt),
-                          accent: _accent,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _StatCapsule(
-                          label: '声片',
-                          value: _shortId(item.discId),
-                          accent: _accent,
-                          mono: true,
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: compact ? 14 : 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 18,
-                        height: 1,
-                        color: _accent.withValues(alpha: 0.35),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        'SoundPola',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.55),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 3.2,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Container(
-                        width: 18,
-                        height: 1,
-                        color: _accent.withValues(alpha: 0.35),
-                      ),
-                    ],
-                  ),
-                ],
+            SizedBox(height: 6 * scale),
+            SizedBox(
+              height: 18 * scale,
+              width: double.infinity,
+              child: CustomPaint(
+                painter: _NNotchLinePainter(color: Colors.white),
               ),
             ),
           ],
         ),
+      );
+    }
+
+    return SizedBox(
+      height: bannerH,
+      width: double.infinity,
+      child: CustomPaint(
+        painter: _RarityBannerPainter(color: accent),
+        child: Center(
+          child: Text(
+            code,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: fontSize * 0.85,
+              fontWeight: FontWeight.w400,
+              height: 1,
+              letterSpacing: code.length > 1 ? 1.5 : 1,
+            ),
+          ),
+        ),
       ),
     );
   }
-
-  String _shortId(String? id) {
-    if (id == null || id.isEmpty) return '—';
-    if (id.length <= 8) return id;
-    return '${id.substring(0, 4)}…${id.substring(id.length - 2)}';
-  }
 }
 
-class _RaritySeal extends StatelessWidget {
-  const _RaritySeal({
-    required this.rarity,
-    required this.code,
-    required this.label,
-    required this.accent,
-    required this.compact,
+class _NNotchLinePainter extends CustomPainter {
+  _NNotchLinePainter({required this.color});
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.1
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final w = size.width;
+    final h = size.height;
+    final path = Path()
+      ..moveTo(w * 0.08, h * 0.25)
+      ..lineTo(w * 0.38, h * 0.25)
+      ..lineTo(w * 0.45, h * 0.85)
+      ..lineTo(w * 0.55, h * 0.85)
+      ..lineTo(w * 0.62, h * 0.25)
+      ..lineTo(w * 0.92, h * 0.25);
+    canvas.drawPath(path, p);
+  }
+
+  @override
+  bool shouldRepaint(covariant _NNotchLinePainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
+class _RarityBannerPainter extends CustomPainter {
+  _RarityBannerPainter({required this.color});
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final fill = Paint()..color = color;
+    final w = size.width;
+    final h = size.height;
+    final notchW = w * 0.22;
+    final notchD = h * 0.28;
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(w, 0)
+      ..lineTo(w, h - notchD)
+      ..lineTo(w * 0.5 + notchW / 2, h - notchD)
+      ..lineTo(w * 0.5, h)
+      ..lineTo(w * 0.5 - notchW / 2, h - notchD)
+      ..lineTo(0, h - notchD)
+      ..close();
+    canvas.drawPath(path, fill);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RarityBannerPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
+class _ShareInfoPanel extends StatelessWidget {
+  const _ShareInfoPanel({
+    required this.item,
+    required this.scale,
+    required this.sealFill,
   });
 
-  final DiscRarity? rarity;
-  final String code;
-  final String label;
-  final Color accent;
-  final bool compact;
+  final SoundMemory item;
+  final double scale;
+  final Color sealFill;
+
+  String get _discLabel {
+    final id = item.discId;
+    if (id == null || id.isEmpty) return '#SP-————';
+    return id.startsWith('#') ? id : '#$id';
+  }
+
+  String get _assetLabel {
+    final id = item.assetId ?? item.contentId ?? item.id;
+    return id.toLowerCase();
+  }
+
+  String get _dateLabel {
+    final dt = item.recordedAt.toLocal();
+    final y = dt.year.toString().padLeft(4, '0');
+    final mo = dt.month.toString().padLeft(2, '0');
+    final d = dt.day.toString().padLeft(2, '0');
+    final h = dt.hour.toString().padLeft(2, '0');
+    final mi = dt.minute.toString().padLeft(2, '0');
+    return '$y.$mo.$d $h:$mi';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final size = compact ? 48.0 : 56.0;
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Stack(
-        alignment: Alignment.center,
+    final seal = (190 * scale).clamp(56.0, 88.0);
+    final titleSize = (46 * scale).clamp(15.0, 22.0);
+    final idSize = (36 * scale).clamp(13.0, 17.0);
+    final metaSize = (30 * scale).clamp(11.0, 14.0);
+    final assetLabelSize = (28 * scale).clamp(10.0, 13.0);
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(18 * scale, 16 * scale, 14 * scale, 14 * scale),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(42 * scale),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  accent.withValues(alpha: 0.35),
-                  accent.withValues(alpha: 0.08),
-                ],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: accent.withValues(alpha: 0.4),
-                  blurRadius: 14,
-                  spreadRadius: 0,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: titleSize,
+                        fontWeight: FontWeight.w600,
+                        height: 1.15,
+                      ),
+                    ),
+                    Text(
+                      _discLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: idSize,
+                        fontWeight: FontWeight.w500,
+                        height: 1.2,
+                      ),
+                    ),
+                    SizedBox(height: 8 * scale),
+                    Text(
+                      item.locationLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: metaSize,
+                        fontWeight: FontWeight.w400,
+                        height: 1.15,
+                      ),
+                    ),
+                    Text(
+                      _dateLabel,
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: metaSize,
+                        fontWeight: FontWeight.w400,
+                        height: 1.15,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-          Container(
-            width: size - 6,
-            height: size - 6,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFF0C100F).withValues(alpha: 0.92),
-              border: Border.all(
-                color: accent.withValues(alpha: 0.85),
-                width: 1.4,
               ),
+              SizedBox(width: 8 * scale),
+              _CyberSeal(size: seal, fill: sealFill),
+            ],
+          ),
+          SizedBox(height: 12 * scale),
+          Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: 16 * scale,
+              vertical: 8 * scale,
             ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFD0D0D0),
+              borderRadius: BorderRadius.circular(24 * scale),
+            ),
+            child: Row(
               children: [
                 Text(
-                  code,
+                  '资产编号',
                   style: TextStyle(
-                    color: accent,
-                    fontSize: compact ? 13 : 15,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.5,
-                    height: 1,
+                    color: Colors.black,
+                    fontSize: assetLabelSize,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.55),
-                    fontSize: 7,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.2,
-                    height: 1,
+                SizedBox(width: 10 * scale),
+                Expanded(
+                  child: Text(
+                    _assetLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontSize: assetLabelSize,
+                      fontWeight: FontWeight.w400,
+                      letterSpacing: -0.2,
+                    ),
                   ),
                 ),
               ],
@@ -564,57 +615,102 @@ class _RaritySeal extends StatelessWidget {
   }
 }
 
-class _StatCapsule extends StatelessWidget {
-  const _StatCapsule({
-    required this.label,
-    required this.value,
-    required this.accent,
-    this.mono = false,
-  });
+class _CyberSeal extends StatelessWidget {
+  const _CyberSeal({required this.size, required this.fill});
 
-  final String label;
-  final String value;
-  final Color accent;
-  final bool mono;
+  final double size;
+  final Color fill;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+      width: size,
+      height: size,
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label.toUpperCase(),
-            style: TextStyle(
-              color: accent.withValues(alpha: 0.75),
-              fontSize: 8,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.1,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: AppColors.textPrimary.withValues(alpha: 0.92),
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              letterSpacing: mono ? 0.3 : -0.1,
-              fontFamily: mono ? 'Courier' : null,
-            ),
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: size * 0.12,
+            offset: Offset(size * 0.06, size * 0.05),
           ),
         ],
       ),
+      child: CustomPaint(
+        size: Size(size, size),
+        painter: _CyberSealPainter(fill: fill),
+      ),
     );
   }
+}
+
+class _CyberSealPainter extends CustomPainter {
+  _CyberSealPainter({required this.fill});
+  final Color fill;
+
+  static const _ringText = 'CYBERPUNKVIBES.';
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height / 2);
+    final r = size.width / 2;
+
+    canvas.drawCircle(c, r, Paint()..color = fill);
+
+    // Center star / asterisk glyph.
+    final starR = r * 0.28;
+    final star = Path();
+    for (var i = 0; i < 8; i++) {
+      final a = -math.pi / 2 + i * math.pi / 4;
+      final outer = Offset(c.dx + math.cos(a) * starR, c.dy + math.sin(a) * starR);
+      final a2 = a + math.pi / 8;
+      final inner = Offset(
+        c.dx + math.cos(a2) * starR * 0.38,
+        c.dy + math.sin(a2) * starR * 0.38,
+      );
+      if (i == 0) {
+        star.moveTo(outer.dx, outer.dy);
+      } else {
+        star.lineTo(outer.dx, outer.dy);
+      }
+      star.lineTo(inner.dx, inner.dy);
+    }
+    star.close();
+    canvas.drawPath(star, Paint()..color = Colors.white);
+
+    // Circular caption — two revolutions of CYBERPUNKVIBES.
+    final text = '$_ringText$_ringText';
+    final fontSize = (size.width * 0.088).clamp(6.0, 11.0);
+    final radius = r * 0.78;
+    final total = text.length;
+    for (var i = 0; i < total; i++) {
+      final angle = -math.pi / 2 + (i / total) * math.pi * 2;
+      canvas.save();
+      canvas.translate(
+        c.dx + math.cos(angle) * radius,
+        c.dy + math.sin(angle) * radius,
+      );
+      canvas.rotate(angle + math.pi / 2);
+      final tp = TextPainter(
+        text: TextSpan(
+          text: text[i],
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: fontSize,
+            fontWeight: FontWeight.w500,
+            height: 1,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CyberSealPainter oldDelegate) =>
+      oldDelegate.fill != fill;
 }
 
 class _DiscHero extends StatelessWidget {
@@ -646,20 +742,15 @@ class _DiscHero extends StatelessWidget {
           ? Stack(
               fit: StackFit.expand,
               children: [
-                const ColoredBox(color: Color(0xFFF5F7F4)),
-                Opacity(
-                  opacity: 0.58,
-                  child: Image.asset(
-                    discTextureFor(item.visualSeed),
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.high,
-                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                  ),
+                Image.asset(
+                  discTextureFor(item.discRarity),
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.high,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
                 ),
-                ColoredBox(color: Colors.black.withValues(alpha: 0.22)),
                 RarityHoloOverlay(
                   rarity: item.discRarity,
-                  intensityScale: 1.2,
+                  intensityScale: 1.0,
                   enabled: animateVisual,
                 ),
               ],
@@ -696,7 +787,6 @@ class _DiscHero extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // Soft ground glow under disc
             Positioned(
               bottom: 2,
               child: IgnorePointer(
@@ -751,27 +841,6 @@ class _DiscHero extends StatelessWidget {
                   ),
                 ),
               ),
-            // Specular disc highlight
-            IgnorePointer(
-              child: Align(
-                alignment: const Alignment(-0.45, -0.55),
-                child: Container(
-                  width: size * 0.38,
-                  height: size * 0.22,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(size),
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.white.withValues(alpha: 0.28),
-                        Colors.white.withValues(alpha: 0.0),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
           ],
         ),
       ),

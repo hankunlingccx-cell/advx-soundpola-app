@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -227,6 +228,45 @@ class VisualBakeService {
   }
 
   Future<void> retry(String soundId) => bakeSound(soundId);
+
+  /// Wait until Indexed-MJPEG bake is [VisualBakeStatus.ready] (or give up).
+  ///
+  /// Used by Press / cloud upload so the local frame sequence can be attached.
+  /// Returns the latest [SoundMemory] (may still be non-ready on timeout/fail).
+  Future<SoundMemory?> ensureReady(
+    String soundId, {
+    Duration timeout = const Duration(seconds: 90),
+  }) async {
+    final repo = SoundRepository.instance;
+    var item = repo.get(soundId);
+    if (item == null) return null;
+    if (item.hasIndexedVisual) return item;
+
+    final needsKick = item.visualBakeStatus != VisualBakeStatus.processingVisual &&
+        item.visualBakeStatus != VisualBakeStatus.indexing;
+    if (needsKick) {
+      unawaited(bakeSound(soundId));
+    }
+
+    var didRetry = false;
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      item = repo.get(soundId);
+      if (item == null) return null;
+      if (item.hasIndexedVisual) return item;
+      if (item.visualBakeStatus == VisualBakeStatus.failed &&
+          !_busy &&
+          !didRetry) {
+        didRetry = true;
+        await bakeSound(soundId);
+        item = repo.get(soundId);
+        if (item != null && item.hasIndexedVisual) return item;
+        if (item?.visualBakeStatus == VisualBakeStatus.failed) break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    }
+    return repo.get(soundId);
+  }
 }
 
 int _maxInt(int a, int b) => a > b ? a : b;

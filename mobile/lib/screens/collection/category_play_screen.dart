@@ -383,6 +383,10 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
     _items = items;
     _index = index;
     final item = items[index];
+    final screenW = MediaQuery.sizeOf(context).width;
+    // 可视化主体随整页滚动，边长约屏宽 78%（上限 360），首屏仍占主导。
+    final vizSize = (screenW * 0.78).clamp(240.0, 360.0);
+
     return Column(
       children: [
         Padding(
@@ -395,68 +399,69 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
             onShare: () => _showShareSheet(item),
           ),
         ),
-        const SizedBox(height: AppSpacing.tight),
-        // 视觉主体：播放声音可视化（占更大纵向空间）
         Expanded(
-          flex: 7,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: GestureDetector(
-                  onTap: _togglePlay,
-                  behavior: HitTestBehavior.opaque,
-                  child: AnimatedSwitcher(
-                    duration: AppMotion.slow,
-                    child: KeyedSubtree(
-                      key: ValueKey('viz-${item.id}-$_playing'),
-                      child: item.hasIndexedVisual
-                          ? IndexedVisualPlayer(
-                              item: item,
-                              positionMsListenable: _positionMs,
-                              showProgressRing: true,
-                              progress: _progress,
-                            )
-                          : SoundVisualCanvas(
-                              seed: item.visualSeed,
-                              mode: _playing
-                                  ? SoundVisualMode.playback
-                                  : SoundVisualMode.complete,
-                              active: _playing,
-                              dark: true,
-                              amplitude: _playing ? 0.55 : 0.2,
-                              showProgressRing: true,
-                              progress: _progress,
-                            ),
+          child: CustomScrollView(
+            physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
+            ),
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, AppSpacing.tight, 8, 0),
+                  child: Center(
+                    child: SizedBox(
+                      width: vizSize,
+                      height: vizSize,
+                      child: GestureDetector(
+                        onTap: _togglePlay,
+                        behavior: HitTestBehavior.opaque,
+                        child: AnimatedSwitcher(
+                          duration: AppMotion.slow,
+                          child: KeyedSubtree(
+                            key: ValueKey('viz-${item.id}-$_playing'),
+                            child: item.hasIndexedVisual
+                                ? IndexedVisualPlayer(
+                                    item: item,
+                                    positionMsListenable: _positionMs,
+                                    showProgressRing: true,
+                                    progress: _progress,
+                                  )
+                                : SoundVisualCanvas(
+                                    seed: item.visualSeed,
+                                    mode: _playing
+                                        ? SoundVisualMode.playback
+                                        : SoundVisualMode.complete,
+                                    active: _playing,
+                                    dark: true,
+                                    amplitude: _playing ? 0.55 : 0.2,
+                                    showProgressRing: true,
+                                    progress: _progress,
+                                  ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.item),
-        RepaintBoundary(
-          child: DiscStackCarousel(
-            key: ValueKey('stack-${widget.category}'),
-            itemCount: items.length,
-            seedAt: (i) => items[i].visualSeed,
-            titleAt: (i) => items[i].title,
-            rarityAt: (i) => items[i].discRarity,
-            initialIndex: index,
-            onIndexChanged: _onIndexChanged,
-            onCenterTap: _togglePlay,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.item),
-        Expanded(
-          flex: 4,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.only(bottom: AppSpacing.section),
-            child: Column(
-              children: [
-                Padding(
+              const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.item)),
+              SliverToBoxAdapter(
+                child: RepaintBoundary(
+                  child: DiscStackCarousel(
+                    key: ValueKey('stack-${widget.category}'),
+                    itemCount: items.length,
+                    seedAt: (i) => items[i].visualSeed,
+                    titleAt: (i) => items[i].title,
+                    rarityAt: (i) => items[i].discRarity,
+                    initialIndex: index,
+                    onIndexChanged: _onIndexChanged,
+                    onCenterTap: _togglePlay,
+                  ),
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.item)),
+              SliverToBoxAdapter(
+                child: Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.pageHorizontal,
                   ),
@@ -467,8 +472,10 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
                     onEditDescription: () => _editDescription(item),
                   ),
                 ),
-                const SizedBox(height: AppSpacing.tight),
-                Padding(
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.tight)),
+              SliverToBoxAdapter(
+                child: Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.pageHorizontal,
                   ),
@@ -493,10 +500,15 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: AppSpacing.tight),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.pageHorizontal,
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.tight)),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    AppSpacing.pageHorizontal,
+                    0,
+                    AppSpacing.pageHorizontal,
+                    AppSpacing.section,
                   ),
                   child: _InfoPanel(
                     title: '数字资产信息',
@@ -522,14 +534,15 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
                     ],
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ],
     );
   }
 }
+
 
 class _TopBar extends StatelessWidget {
   const _TopBar({
@@ -984,9 +997,14 @@ class _ShareSheet extends StatelessWidget {
                   ),
                 ],
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                   Container(
                     width: 36,
                     height: 4,
@@ -1024,7 +1042,7 @@ class _ShareSheet extends StatelessWidget {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      '游戏化稀有度收藏卡 · 可保存分享',
+                      '稀有度收藏卡 · 可保存分享',
                       style: TextStyle(
                         color: AppColors.textTertiary.withValues(alpha: 0.95),
                         fontSize: 12,
@@ -1058,7 +1076,9 @@ class _ShareSheet extends StatelessWidget {
                       ),
                     ],
                   ),
-                ],
+                    ],
+                  ),
+                ),
               ),
             ),
           ),

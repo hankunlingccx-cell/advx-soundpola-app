@@ -276,23 +276,16 @@ class _PlayDisc extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isSsr = SsrAuraLayer.isSsr(rarity);
-    final texture = discTextureFor(seed);
+    final texture = discTextureFor(rarity);
     final face = ClipOval(
       child: Stack(
         fit: StackFit.expand,
         children: [
-          const ColoredBox(color: Colors.white),
-          Opacity(
-            opacity: elevated ? 0.52 : 0.42,
-            child: Image.asset(
-              texture,
-              fit: BoxFit.cover,
-              filterQuality: FilterQuality.high,
-              errorBuilder: (_, _, _) => const SizedBox.shrink(),
-            ),
-          ),
-          ColoredBox(
-            color: Colors.white.withValues(alpha: elevated ? 0.06 : 0.12),
+          Image.asset(
+            texture,
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.high,
+            errorBuilder: (_, _, _) => const SizedBox.shrink(),
           ),
           // 玻璃高光 + 全息箔片
           DecoratedBox(
@@ -301,10 +294,10 @@ class _PlayDisc extends StatelessWidget {
                 begin: const Alignment(-0.8, -1),
                 end: const Alignment(0.4, 0.35),
                 colors: [
-                  Colors.white.withValues(alpha: elevated ? 0.28 : 0.18),
-                  Colors.white.withValues(alpha: 0.06),
+                  Colors.white.withValues(alpha: elevated ? 0.18 : 0.10),
+                  Colors.white.withValues(alpha: 0.04),
                   Colors.transparent,
-                  Colors.black.withValues(alpha: 0.08),
+                  Colors.black.withValues(alpha: 0.06),
                 ],
                 stops: const [0.0, 0.28, 0.55, 1.0],
               ),

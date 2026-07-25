@@ -581,7 +581,7 @@ class _CategoryCapsule extends StatelessWidget {
                                               size: disc,
                                               soundId: group.items[i].id,
                                               textureAsset: discTextureFor(
-                                                group.items[i].visualSeed,
+                                                group.items[i].discRarity,
                                               ),
                                               rarity: group.items[i].discRarity,
                                               lifting: draggingId ==
@@ -873,21 +873,18 @@ class _DiscVisualState extends State<_DiscVisual>
             child: Stack(
               fit: StackFit.expand,
               children: [
-                const ColoredBox(color: Colors.white),
-                Opacity(
-                  opacity: dimmed ? 0.18 : 0.48,
-                  child: Image.asset(
-                    widget.textureAsset,
-                    fit: BoxFit.cover,
-                    filterQuality: FilterQuality.high,
-                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                  ),
+                Image.asset(
+                  widget.textureAsset,
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.high,
+                  color: dimmed ? Colors.white.withValues(alpha: 0.45) : null,
+                  colorBlendMode: dimmed ? BlendMode.modulate : null,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
                 ),
-                ColoredBox(
-                  color: Colors.white.withValues(
-                    alpha: dimmed ? 0.28 : 0.06,
+                if (dimmed)
+                  ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
                   ),
-                ),
                 // 陶瓷高光 + 全息箔片叠层
                 DecoratedBox(
                   decoration: BoxDecoration(

@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import '../../cloud/cloud_media_client.dart';
 import '../../cloud/cloud_media_config.dart';
 import '../../cloud/cloud_media_models.dart';
+import '../../cloud/cloud_upload.dart';
 import '../../data/bay_disc_store.dart';
 import '../../data/disc_rarity.dart';
 import '../../data/session.dart';
@@ -124,6 +125,7 @@ class _DraftsScreenState extends State<DraftsScreen>
       userId: _bayOwnerId,
       id: item.id,
       visualSeed: item.visualSeed,
+      rarity: item.discRarity,
     );
     if (!mounted) return;
     setState(() => _bayDiscs = discs);
@@ -803,13 +805,17 @@ class _DraftsScreenState extends State<DraftsScreen>
 
     if (mounted) {
       setState(() {
-        _pressStatus = '正在上传音频到云端…';
+        _pressStatus = '正在准备可视化帧序列…';
       });
     }
-    final created = await _cloud.uploadAudio(
+    final created = await uploadSoundPackage(
+      cloud: _cloud,
+      item: item,
       token: token,
-      file: File(path),
-      filename: path.split(Platform.pathSeparator).last,
+      onStatus: (status) {
+        if (!mounted) return;
+        setState(() => _pressStatus = status);
+      },
     );
     contentId = created.contentId;
     SoundRepository.instance.update(

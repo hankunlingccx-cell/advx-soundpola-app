@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../cloud/cloud_media_client.dart';
 import '../cloud/cloud_media_models.dart';
+import '../cloud/cloud_upload.dart';
 import '../data/sound_repository.dart';
 import 'auth_service.dart';
 import 'chain_client.dart';
@@ -246,10 +247,10 @@ class MintPipeline extends ChangeNotifier {
     }
 
     repo.markUploading(item.id);
-    final created = await _cloud.uploadAudio(
+    final created = await uploadSoundPackage(
+      cloud: _cloud,
+      item: item,
       token: token,
-      file: File(path),
-      filename: path.split(Platform.pathSeparator).last,
     );
     contentId = created.contentId;
     repo.markContentUploaded(

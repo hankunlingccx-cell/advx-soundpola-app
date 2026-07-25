@@ -603,8 +603,14 @@ paths:
     post:
       tags:
         - contents
-      summary: Upload source audio
-      description: Stores the exact original audio and queues deterministic cloud media processing.
+      summary: Upload source audio (optional on-device visual package)
+      description: >
+        Stores the exact original audio and queues deterministic cloud media
+        processing. When present, optional Indexed-MJPEG fields
+        (`visual` / `visual_idx` / `visual_manifest` / `cover` /
+        `audio_features`, plus form `visual_seed` / `renderer_version`) carry
+        the App-baked frame sequence so NFC / web playback can reuse the same
+        visual instead of (or in addition to) server-side Puppeteer render.
       operationId: uploadContent
       requestBody:
         content:
@@ -823,6 +829,39 @@ components:
           contentMediaType: application/octet-stream
           title: Audio
           description: One source audio file, maximum 50 MiB
+        visual:
+          type: string
+          contentMediaType: application/octet-stream
+          title: Visual
+          description: Optional Indexed-MJPEG frame stream (visual.mjpg) baked on device
+        visual_idx:
+          type: string
+          contentMediaType: application/octet-stream
+          title: Visual Idx
+          description: Optional byte-offset index for visual.mjpg (visual.idx)
+        visual_manifest:
+          type: string
+          contentMediaType: application/json
+          title: Visual Manifest
+          description: Optional visual_manifest.json (fps, frameCount, rendererVersion, …)
+        cover:
+          type: string
+          contentMediaType: image/jpeg
+          title: Cover
+          description: Optional cover.jpg selected from the bake
+        audio_features:
+          type: string
+          contentMediaType: application/octet-stream
+          title: Audio Features
+          description: Optional SPAF audio_features.bin timeline used for deterministic bake
+        visual_seed:
+          type: string
+          title: Visual Seed
+          description: Optional integer seed as form field (matches on-device bake)
+        renderer_version:
+          type: string
+          title: Renderer Version
+          description: Optional renderer version string (e.g. soundpola_kaleido_linear_v1)
       type: object
       required:
         - audio

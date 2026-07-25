@@ -26,6 +26,14 @@ Content-Type: multipart/form-data; boundary=...
 ```
 
 - 文件字段名必须是 **`audio`**
+- 可选附带本机 bake 的可视化帧包（Press 时若 Indexed-MJPEG 已就绪则一并上传）：
+  - `visual` → `visual.mjpg`
+  - `visual_idx` → `visual.idx`
+  - `visual_manifest` → `visual_manifest.json`
+  - `cover` → `cover.jpg`
+  - `audio_features` → `audio_features.bin`
+  - form：`visual_seed`、`renderer_version`
+- 若服务端尚不接受视觉字段返回 `422`，App 会回退为仅上传 `audio`
 - 不要手写死 `Content-Type: multipart/form-data`（须带 boundary，由客户端自动生成）
 - 成功：`201` + `content_id` / `state=UPLOADED` / `status_url`
 
@@ -36,5 +44,12 @@ curl -i \
   -X POST \
   -H "Authorization: Bearer $USER_TOKEN" \
   -F "audio=@recording.m4a" \
+  -F "visual=@visual.mjpg" \
+  -F "visual_idx=@visual.idx" \
+  -F "visual_manifest=@visual_manifest.json;type=application/json" \
+  -F "cover=@cover.jpg;type=image/jpeg" \
+  -F "audio_features=@audio_features.bin" \
+  -F "visual_seed=123456" \
+  -F "renderer_version=soundpola_kaleido_linear_v1" \
   http://soundpola.babelbeast.com:9000/api/v1/contents
 ```

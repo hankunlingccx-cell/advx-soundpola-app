@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'cloud_media_config.dart';
 import 'cloud_media_models.dart';
+import 'cloud_visual_package.dart';
 
 /// AdventureX Cloud Media API client (UserToken scope only).
 class CloudMediaClient {
@@ -85,10 +86,21 @@ class CloudMediaClient {
     return ContentList.fromJson(_jsonMap(res.body));
   }
 
+  /// Upload source audio, optionally attaching the local Indexed-MJPEG package.
+  ///
+  /// Protocol:
+  ///   POST /api/v1/contents
+  ///   Authorization: Bearer <token>
+  ///   multipart/form-data — required field `audio`; optional visual package
+  ///   fields when [visual] is provided (see [CloudVisualPackage]).
+  ///
+  /// If the server rejects unknown visual fields (HTTP 422), retries audio-only so
+  /// Press still works against older Cloud Media deployments.
   Future<ContentCreated> uploadAudio({
     required String token,
     required File file,
     String? filename,
+    CloudVisualPackage? visual,
   }) async {
     final length = await file.length();
     if (length <= 0) {
@@ -104,11 +116,36 @@ class CloudMediaClient {
             ? file.uri.pathSegments.last
             : 'recording.wav';
 
-    // Protocol:
-    //   POST /api/v1/contents
-    //   Authorization: Bearer <token>
-    //   multipart/form-data  field name MUST be `audio`
-    //   (Content-Type boundary is set automatically by MultipartRequest)
+    final withVisual = visual != null && visual.hasFrames;
+    try {
+      return await _postContent(
+        token: token,
+        audio: file,
+        audioFilename: name,
+        visual: withVisual ? visual : null,
+      );
+    } on CloudMediaException catch (e) {
+      if (withVisual && e.statusCode == 422) {
+        debugPrint(
+          '[CloudMedia] visual fields rejected (422); falling back to audio-only',
+        );
+        return _postContent(
+          token: token,
+          audio: file,
+          audioFilename: name,
+          visual: null,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<ContentCreated> _postContent({
+    required String token,
+    required File audio,
+    required String audioFilename,
+    CloudVisualPackage? visual,
+  }) async {
     final uri = CloudMediaConfig.uri('/api/v1/contents');
     final req = http.MultipartRequest('POST', uri);
     req.headers['Authorization'] = 'Bearer $token';
@@ -117,19 +154,51 @@ class CloudMediaClient {
     req.files.add(
       await http.MultipartFile.fromPath(
         'audio',
-        file.path,
-        filename: name,
+        audio.path,
+        filename: audioFilename,
       ),
     );
 
+    var visualNote = '';
+    if (visual != null && visual.hasFrames) {
+      Future<void> addFile(String field, File? f, String fallbackName) async {
+        if (f == null || !await f.exists()) return;
+        final fname = f.uri.pathSegments.isNotEmpty
+            ? f.uri.pathSegments.last
+            : fallbackName;
+        req.files.add(
+          await http.MultipartFile.fromPath(field, f.path, filename: fname),
+        );
+      }
+
+      await addFile('visual', visual.mjpg, 'visual.mjpg');
+      await addFile('visual_idx', visual.idx, 'visual.idx');
+      await addFile(
+        'visual_manifest',
+        visual.manifest,
+        'visual_manifest.json',
+      );
+      await addFile('cover', visual.cover, 'cover.jpg');
+      await addFile('audio_features', visual.features, 'audio_features.bin');
+      if (visual.visualSeed != null) {
+        req.fields['visual_seed'] = '${visual.visualSeed}';
+      }
+      req.fields['renderer_version'] = visual.rendererVersion;
+      visualNote =
+          ' +visual package (mjpg/idx/manifest'
+          '${visual.cover != null ? '/cover' : ''}'
+          '${visual.features != null ? '/features' : ''})';
+    }
+
+    final audioBytes = await audio.length();
     debugPrint(
       '[CloudMedia] POST $uri multipart field=audio '
-      'file=$name bytes=$length',
+      'file=$audioFilename bytes=$audioBytes$visualNote',
     );
 
     final streamed = await _http.send(req).timeout(
-      const Duration(seconds: 120),
-      onTimeout: () => throw CloudMediaException('上传超时（120s），请检查网络或服务状态'),
+      const Duration(seconds: 180),
+      onTimeout: () => throw CloudMediaException('上传超时（180s），请检查网络或服务状态'),
     );
     final res = await http.Response.fromStream(streamed);
     debugPrint('[CloudMedia] upload -> ${res.statusCode} body=${res.body}');

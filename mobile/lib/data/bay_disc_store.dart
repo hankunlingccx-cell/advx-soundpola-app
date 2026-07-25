@@ -2,22 +2,27 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'disc_rarity.dart';
+
 /// A textured disc retained in the Drafts press-machine frosted bay.
 class BayStoredDisc {
   const BayStoredDisc({
     required this.id,
     required this.visualSeed,
     required this.droppedAt,
+    this.rarity,
   });
 
   final String id;
   final int visualSeed;
   final DateTime droppedAt;
+  final DiscRarity? rarity;
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'visualSeed': visualSeed,
         'droppedAtMs': droppedAt.millisecondsSinceEpoch,
+        if (rarity != null) 'rarity': rarity!.code,
       };
 
   factory BayStoredDisc.fromJson(Map<String, dynamic> json) {
@@ -27,6 +32,7 @@ class BayStoredDisc {
       droppedAt: DateTime.fromMillisecondsSinceEpoch(
         (json['droppedAtMs'] as num?)?.toInt() ?? 0,
       ),
+      rarity: DiscRarity.tryParse(json['rarity'] as String?),
     );
   }
 }
@@ -113,6 +119,7 @@ class BayDiscStore {
     required String? userId,
     required String id,
     required int visualSeed,
+    DiscRarity? rarity,
     DateTime? at,
   }) async {
     final uid = (userId == null || userId.isEmpty) ? null : userId;
@@ -130,7 +137,12 @@ class BayDiscStore {
     final droppedAt = at ?? DateTime.now();
     final next = _prune([
       ..._cache.where((d) => d.id != id),
-      BayStoredDisc(id: id, visualSeed: visualSeed, droppedAt: droppedAt),
+      BayStoredDisc(
+        id: id,
+        visualSeed: visualSeed,
+        droppedAt: droppedAt,
+        rarity: rarity,
+      ),
     ]);
     final capped = next.length > maxVisible
         ? next.sublist(next.length - maxVisible)
