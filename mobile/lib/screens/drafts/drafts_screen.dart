@@ -10,6 +10,7 @@ import '../../services/auth_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
+import '../../widgets/empty_state_panel.dart';
 import '../../widgets/sound_visual.dart';
 import 'draft_tray_carousel.dart';
 import 'press_machine.dart';
@@ -24,12 +25,14 @@ class DraftsScreen extends StatefulWidget {
     required this.onOpenDetail,
     required this.onPress,
     required this.onStartRecord,
+    required this.onOpenCollection,
     required this.onLogin,
   });
 
   final ValueChanged<String> onOpenDetail;
   final ValueChanged<String> onPress;
   final VoidCallback onStartRecord;
+  final VoidCallback onOpenCollection;
   final VoidCallback onLogin;
 
   @override
@@ -159,7 +162,7 @@ class _DraftsScreenState extends State<DraftsScreen>
       _dragPhase = _DragPhase.dragging;
       _dragIndex = index;
       _dragGlobal = details.globalPosition;
-      _dragScale = 1.05;
+      _dragScale = 1.04;
       _dragAngle = 0;
       _machineMode = PressMachineMode.receiving;
       _showGuideHint = false;
@@ -171,7 +174,7 @@ class _DraftsScreenState extends State<DraftsScreen>
     final next = details.globalPosition;
     final slot = _slotRectGlobal();
     var mode = PressMachineMode.receiving;
-    var scale = 1.05;
+    var scale = 1.04;
     var angle = 0.0;
     var near = false;
 
@@ -180,7 +183,7 @@ class _DraftsScreenState extends State<DraftsScreen>
       final dist = (next - slotCenter).distance;
       const maxDist = 280.0;
       final t = (1 - (dist / maxDist)).clamp(0.0, 1.0);
-      scale = uiLerp(1.05, 0.92, t);
+      scale = uiLerp(1.04, 0.92, t);
       angle = uiLerp(_dragAngle, 0, 0.15);
       if (slot.contains(next) || dist < 90) {
         mode = PressMachineMode.readyToRelease;
@@ -331,63 +334,65 @@ class _DraftsScreenState extends State<DraftsScreen>
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // 顶部导航 ~8–10%
+                    // 顶部：单一主标题 + 数量
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.pageHorizontal,
-                        8,
-                        AppSpacing.pageHorizontal,
-                        4,
-                      ),
-                      child: Row(
+                      padding: const EdgeInsets.fromLTRB(20, 10, 16, 6),
+                      child: AnimatedOpacity(
+                        duration: AppMotion.fast,
+                        opacity: _dragPhase == _DragPhase.dragging ||
+                                _dragPhase == _DragPhase.inserting
+                            ? 0.35
+                            : 1,
+                        child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Drafts',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .headlineMedium,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
                                   'SOUND DRAFTS · $countLabel',
                                   style: const TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontSize: 34,
+                                    fontWeight: FontWeight.w500,
+                                    letterSpacing: -0.6,
+                                    height: 1.1,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  '待封存的声音',
+                                  style: TextStyle(
                                     color: AppColors.textTertiary,
-                                    fontSize: 12,
-                                    letterSpacing: 0.8,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w400,
                                   ),
                                 ),
                               ],
                             ),
                           ),
                           if (!loggedIn)
-                            TextButton(
-                              onPressed: widget.onLogin,
-                              child: const Text(
-                                '登录',
-                                style: TextStyle(color: AppColors.accent),
-                              ),
+                            _CompactAccountButton(
+                              icon: Icons.person_outline,
+                              onTap: widget.onLogin,
                             )
                           else
-                            const AccountAvatarButton(),
+                            const AccountAvatarButton(compact: true),
                         ],
+                      ),
                       ),
                     ),
                     if (!loggedIn)
                       Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.pageHorizontal,
-                        ),
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
                         child: LoginHintCard(onLogin: widget.onLogin),
                       ),
-                    // 写入机器 ~38%
+                    // 写入机器 ~32%
                     Expanded(
-                      flex: 38,
+                      flex: 32,
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: PressMachine(
                           mode: _machineMode,
                           breath: _breath,
@@ -396,101 +401,62 @@ class _DraftsScreenState extends State<DraftsScreen>
                         ),
                       ),
                     ),
-                    // 过渡区 ~7%
-                    Expanded(
-                      flex: 7,
+                    // 过渡区：插槽与卡片 32–56px，仅拖动/引导时显示提示
+                    SizedBox(
+                      height: 44,
                       child: Center(
                         child: AnimatedOpacity(
                           duration: AppMotion.fast,
                           opacity: _dragPhase == _DragPhase.dragging ||
                                   _showGuideHint
                               ? 1
-                              : 0.55,
+                              : 0,
                           child: Text(
                             _dragPhase == _DragPhase.dragging
                                 ? (_machineMode ==
                                         PressMachineMode.readyToRelease
-                                    ? '松开开始写入'
-                                    : '向上拖入写入机  ·  DRAG UP TO PRESS')
-                                : (_showGuideHint
-                                    ? '将声音拖入机器 · 完成实体声片写入'
-                                    : '待写入声音'),
+                                    ? 'RELEASE TO PRESS'
+                                    : 'DRAG UP TO PRESS')
+                                : '将声音拖入机器',
                             textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: AppColors.accent.withValues(
-                                alpha: _showGuideHint ||
-                                        _dragPhase == _DragPhase.dragging
-                                    ? 0.9
-                                    : 0.45,
-                              ),
-                              fontSize: 12,
-                              letterSpacing: 0.4,
+                            style: const TextStyle(
+                              fontFamily: 'Courier',
+                              color: AppColors.accent,
+                              fontSize: 11,
+                              letterSpacing: 1.0,
                             ),
                           ),
                         ),
                       ),
                     ),
-                    // 暂存卡片区 ~37%
+                    // 暂存卡片区
                     Expanded(
-                      flex: 37,
+                      flex: 48,
                       child: items.isEmpty
-                          ? _EmptyDrafts(onStartRecord: widget.onStartRecord)
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.pageHorizontal,
-                                  ),
-                                  child: Text(
-                                    'SOUND DRAFTS · $countLabel',
-                                    style: const TextStyle(
-                                      color: AppColors.textSecondary,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: 1,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.pageHorizontal,
-                                  ),
-                                  child: Text(
-                                    '待写入声音',
-                                    style: TextStyle(
-                                      color: AppColors.textTertiary,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Expanded(
-                                  child: DraftTrayCarousel(
-                                    items: items,
-                                    selectedIndex: selected,
-                                    onIndexChanged: (i) =>
-                                        setState(() => _selectedIndex = i),
-                                    onOpenDetail: widget.onOpenDetail,
-                                    onLongPressCenter: _onLongPressCenter,
-                                    onLongPressMove: _onLongPressMove,
-                                    onLongPressEnd: _onLongPressEnd,
-                                    dimmed: _dragPhase == _DragPhase.dragging ||
-                                        _dragPhase == _DragPhase.inserting,
-                                    locked: _trayLocked ||
-                                        _dragPhase == _DragPhase.inserting ||
-                                        _dragPhase == _DragPhase.snapping,
-                                    placeholderIndex:
-                                        _dragPhase != _DragPhase.idle
-                                            ? _dragIndex
-                                            : null,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                              ],
+                          ? _EmptyDrafts(
+                              onStartRecord: widget.onStartRecord,
+                              onOpenCollection: widget.onOpenCollection,
+                            )
+                          : DraftTrayCarousel(
+                              items: items,
+                              selectedIndex: selected,
+                              onIndexChanged: (i) =>
+                                  setState(() => _selectedIndex = i),
+                              onOpenDetail: widget.onOpenDetail,
+                              onLongPressCenter: _onLongPressCenter,
+                              onLongPressMove: _onLongPressMove,
+                              onLongPressEnd: _onLongPressEnd,
+                              dimmed: _dragPhase == _DragPhase.dragging ||
+                                  _dragPhase == _DragPhase.inserting,
+                              locked: _trayLocked ||
+                                  _dragPhase == _DragPhase.inserting ||
+                                  _dragPhase == _DragPhase.snapping,
+                              placeholderIndex: _dragPhase != _DragPhase.idle
+                                  ? _dragIndex
+                                  : null,
                             ),
                     ),
+                    const SizedBox(height: 4),
                   ],
                 ),
                 // 拖拽层：不裁切分区
@@ -524,6 +490,30 @@ class _DraftsScreenState extends State<DraftsScreen>
   }
 }
 
+class _CompactAccountButton extends StatelessWidget {
+  const _CompactAccountButton({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: AppColors.device,
+          border: Border.all(color: AppColors.structure),
+        ),
+        child: Icon(icon, size: 16, color: AppColors.textTertiary),
+      ),
+    );
+  }
+}
+
 class _DragLayer extends StatelessWidget {
   const _DragLayer({
     required this.item,
@@ -551,12 +541,12 @@ class _DragLayer extends StatelessWidget {
           clipBehavior: Clip.none,
           children: [
             Positioned(
-              left: local.dx - 84,
-              top: local.dy - 110,
+              left: local.dx - 94,
+              top: local.dy - 124,
               child: Transform.rotate(
                 angle: angle,
                 child: Opacity(
-                  opacity: inserting ? 0.85 : 1,
+                  opacity: inserting ? 0.9 : 1,
                   child: DraftTrayCard(
                     item: item,
                     elevated: true,
@@ -690,39 +680,70 @@ class _PressCompleteOverlay extends StatelessWidget {
   }
 }
 
-class _EmptyDrafts extends StatelessWidget {
-  const _EmptyDrafts({required this.onStartRecord});
+class _EmptyDrafts extends StatefulWidget {
+  const _EmptyDrafts({
+    required this.onStartRecord,
+    required this.onOpenCollection,
+  });
+
   final VoidCallback onStartRecord;
+  final VoidCallback onOpenCollection;
+
+  @override
+  State<_EmptyDrafts> createState() => _EmptyDraftsState();
+}
+
+class _EmptyDraftsState extends State<_EmptyDrafts> {
+  late DraftsEmptyKind _kind;
+
+  @override
+  void initState() {
+    super.initState();
+    final repo = SoundRepository.instance;
+    _kind = repo.draftsEmptyKind ??
+        (repo.everHadDrafts || repo.hasCollectionAssets
+            ? DraftsEmptyKind.allPressed
+            : DraftsEmptyKind.firstUse);
+    // 「清空 / 全部封存」只展示一次，离开后恢复常规空态。
+    if (repo.draftsEmptyKind != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        SoundRepository.instance.consumeDraftsEmptyKind();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.pageHorizontal),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const SizedBox(
-              height: 100,
-              width: 100,
-              child: SoundVisualCanvas(seed: 42, active: false),
-            ),
-            const SizedBox(height: AppSpacing.item),
-            const Text(
-              '还没有暂存的声音',
-              style: TextStyle(color: AppColors.textPrimary, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              '去捕捉此刻的声音',
-              style: TextStyle(color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: AppSpacing.section),
-            PrimaryButton(text: '开始捕捉', onPressed: onStartRecord),
-          ],
+    return switch (_kind) {
+      DraftsEmptyKind.firstUse => EmptyStatePanel(
+          statusCode: 'NO SOUND DRAFTS',
+          title: '还没有等待封存的声音',
+          description: '录下一段声音，它会暂存在这里。',
+          visual: const EmptyTrayVisual(),
+          primaryLabel: '去录一段声音',
+          onPrimary: widget.onStartRecord,
         ),
-      ),
-    );
+      DraftsEmptyKind.allPressed => EmptyStatePanel(
+          statusCode: 'ALL SOUNDS PROCESSED',
+          title: '暂存区声音已经全部封存',
+          description: '可以继续去录下一段声音，或查看已经完成的收藏。',
+          visual: const EmptyTrayVisual(complete: true),
+          variant: EmptyStateVariant.cleared,
+          primaryLabel: '继续录音',
+          onPrimary: widget.onStartRecord,
+          secondaryLabel: '查看收藏',
+          onSecondary: widget.onOpenCollection,
+        ),
+      DraftsEmptyKind.cleared => EmptyStatePanel(
+          statusCode: 'DRAFTS CLEARED',
+          title: '暂存区现在是空的',
+          description: '删除的声音不会进入 Collection。',
+          visual: const EmptyTrayVisual(),
+          variant: EmptyStateVariant.cleared,
+          primaryLabel: '开始新的录音',
+          onPrimary: widget.onStartRecord,
+        ),
+    };
   }
 }
 

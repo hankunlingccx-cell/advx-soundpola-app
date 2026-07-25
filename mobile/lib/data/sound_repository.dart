@@ -12,6 +12,9 @@ enum SoundStatus {
   collected,
 }
 
+/// Drafts 空列表原因：初始 / 全部封存 / 全部删除。
+enum DraftsEmptyKind { firstUse, allPressed, cleared }
+
 class SoundMemory {
   SoundMemory({
     String? id,
@@ -176,6 +179,14 @@ class SoundRepository extends ChangeNotifier {
   SoundRepository._();
   static final SoundRepository instance = SoundRepository._();
 
+  /// 本会话内草稿清空原因（用于「清空 / 全部封存」文案；展示一次后消费）。
+  DraftsEmptyKind? draftsEmptyKind;
+  bool _everHadDrafts = true; // 演示数据含草稿；真实空账号可改为 false
+
+  bool get everHadDrafts => _everHadDrafts;
+  bool get hasCollectionAssets => collection.isNotEmpty;
+  int get draftCount => drafts.length;
+
   final List<SoundMemory> _sounds = [
     SoundMemory(
       title: '雨落窗台',
@@ -282,7 +293,7 @@ class SoundRepository extends ChangeNotifier {
       title: '开箱胶带声',
       category: '日常',
       durationSec: 8,
-      locationLabel: '家中',
+      locationLabel: '杭州 · 余杭',
       status: SoundStatus.collected,
       discId: 'SP-2026-0303-F2',
       discRarity: DiscRarity.n,
@@ -294,7 +305,7 @@ class SoundRepository extends ChangeNotifier {
       title: '煮咖啡的咕嘟',
       category: '日常',
       durationSec: 19,
-      locationLabel: '家中厨房',
+      locationLabel: '杭州 · 西湖区',
       status: SoundStatus.collected,
       discId: 'SP-2026-0228-F5',
       discRarity: DiscRarity.n,
@@ -395,6 +406,8 @@ class SoundRepository extends ChangeNotifier {
   }
 
   void addDraft(SoundMemory memory) {
+    draftsEmptyKind = null;
+    _everHadDrafts = true;
     _sounds.insert(0, memory.copyWith(status: SoundStatus.drafted));
     notifyListeners();
   }
@@ -425,9 +438,20 @@ class SoundRepository extends ChangeNotifier {
     }
     final index = _sounds.indexWhere((s) => s.id == id);
     if (index < 0) return false;
+    final wasDraft = item.status != SoundStatus.collected;
     _sounds.removeAt(index);
+    if (wasDraft && drafts.isEmpty) {
+      draftsEmptyKind = DraftsEmptyKind.cleared;
+    }
     notifyListeners();
     return true;
+  }
+
+  /// 消费一次性空态提示（清空 / 全部封存），之后恢复为常规空态。
+  void consumeDraftsEmptyKind() {
+    if (draftsEmptyKind == null) return;
+    draftsEmptyKind = null;
+    notifyListeners();
   }
 
   void markCollected(
@@ -461,6 +485,9 @@ class SoundRepository extends ChangeNotifier {
         discSeries: discSeries ?? s.discSeries,
       ),
     );
+    if (drafts.isEmpty) {
+      draftsEmptyKind = DraftsEmptyKind.allPressed;
+    }
   }
 
   void markChainFailed(

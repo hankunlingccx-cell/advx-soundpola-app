@@ -11,7 +11,7 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
 import '../../widgets/disc_texture.dart';
-import '../../widgets/sound_visual.dart';
+import '../../widgets/empty_state_panel.dart';
 import '../../widgets/ssr_aura_layer.dart';
 
 /// 玻璃跑道胶囊色值（半透明，配合 BackdropFilter）。
@@ -19,8 +19,6 @@ const _capsuleGlassTop = Color(0xCC3A3A3A);
 const _capsuleGlassBottom = Color(0xB31C1C1C);
 const _capsuleStroke = Color(0x59FFFFFF);
 const _capsuleStrokeInner = Color(0x1AFFFFFF);
-const _discFill = Color(0xFF8B8B8B);
-const _discShadow = Color(0x40000000);
 
 /// 稿面：圆片 140、重叠 80、内边距 16；顶部色层放分类名。
 const _discSize = 140.0;
@@ -36,10 +34,14 @@ class CollectionScreen extends StatefulWidget {
   const CollectionScreen({
     super.key,
     required this.onOpenCategoryPlay,
+    required this.onStartRecord,
+    required this.onOpenDrafts,
     required this.onLogin,
   });
 
   final OpenCategoryPlay onOpenCategoryPlay;
+  final VoidCallback onStartRecord;
+  final VoidCallback onOpenDrafts;
   final VoidCallback onLogin;
 
   @override
@@ -144,22 +146,11 @@ class _CollectionScreenState extends State<CollectionScreen> {
                   child: !loggedIn
                       ? _LoginGate(onLogin: widget.onLogin)
                       : items.isEmpty
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(
-                                  AppSpacing.pageHorizontal,
-                                ),
-                                child: Text(
-                                  _syncing
-                                      ? '正在从云端加载…'
-                                      : '还没有收藏的声音\n从 Drafts 写入第一张声片吧',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: AppColors.textSecondary,
-                                    height: 1.5,
-                                  ),
-                                ),
-                              ),
+                          ? _CollectionEmpty(
+                              syncing: _syncing,
+                              draftCount: SoundRepository.instance.draftCount,
+                              onStartRecord: widget.onStartRecord,
+                              onOpenDrafts: widget.onOpenDrafts,
                             )
                           : RefreshIndicator(
                               onRefresh: _maybeSync,
@@ -1094,43 +1085,71 @@ class _HoloSheenPainter extends CustomPainter {
       oldDelegate.t != t || oldDelegate.intensity != intensity;
 }
 
+class _CollectionEmpty extends StatelessWidget {
+  const _CollectionEmpty({
+    required this.syncing,
+    required this.draftCount,
+    required this.onStartRecord,
+    required this.onOpenDrafts,
+  });
+
+  final bool syncing;
+  final int draftCount;
+  final VoidCallback onStartRecord;
+  final VoidCallback onOpenDrafts;
+
+  @override
+  Widget build(BuildContext context) {
+    if (syncing) {
+      return const EmptyStatePanel(
+        statusCode: 'SYNCING COLLECTION',
+        title: '正在同步数字收藏',
+        description: '确认同步完成前，不会把列表当成空收藏。',
+        visual: EmptyTrackVisual(),
+        variant: EmptyStateVariant.processing,
+      );
+    }
+
+    if (draftCount > 0) {
+      final count = draftCount.toString().padLeft(2, '0');
+      return EmptyStatePanel(
+        statusCode: 'NO ASSETS YET',
+        title: '你有 $count 段声音等待封存',
+        description: '完成实体声片写入后，它们才会进入 Collection。',
+        visual: EmptyTrackVisual(pendingSlots: draftCount.clamp(1, 5)),
+        variant: EmptyStateVariant.processing,
+        primaryLabel: '前往封存',
+        onPrimary: onOpenDrafts,
+      );
+    }
+
+    return EmptyStatePanel(
+      statusCode: 'COLLECTION EMPTY',
+      title: '你的数字收藏尚未开始',
+      description: '只有写入实体声片并完成上链后，声音才会成为数字收藏资产。',
+      visual: const EmptyTrackVisual(),
+      primaryLabel: '录下第一段声音',
+      onPrimary: onStartRecord,
+      secondaryLabel: '查看暂存声音',
+      onSecondary: onOpenDrafts,
+    );
+  }
+}
+
 class _LoginGate extends StatelessWidget {
   const _LoginGate({required this.onLogin});
   final VoidCallback onLogin;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.pageHorizontal),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const SizedBox(
-              height: 140,
-              width: 140,
-              child: SoundVisualCanvas(seed: 9090, active: false),
-            ),
-            const SizedBox(height: AppSpacing.item),
-            const Text(
-              '登录后查看数字收藏',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              '已写入声片并完成上链的声音会出现在这里。',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.textSecondary, height: 1.5),
-            ),
-            const SizedBox(height: AppSpacing.section),
-            PrimaryButton(text: '登录', onPressed: onLogin),
-          ],
-        ),
-      ),
+    return EmptyStatePanel(
+      statusCode: 'ACCOUNT OFFLINE',
+      title: '登录以查看你的资产',
+      description: '登录后可同步 Collection，查看 NFT 状态与收藏记录。',
+      visual: const EmptyTrackVisual(),
+      variant: EmptyStateVariant.blocked,
+      primaryLabel: '登录 / 创建账户',
+      onPrimary: onLogin,
     );
   }
 }

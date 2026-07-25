@@ -5,6 +5,7 @@ import '../../services/permission_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
+import '../../widgets/empty_state_panel.dart';
 import '../../widgets/sound_visual.dart';
 
 class RecordingScreen extends StatefulWidget {
@@ -28,9 +29,15 @@ class _RecordingScreenState extends State<RecordingScreen> {
   int _seconds = 0;
   bool _paused = false;
   bool _busy = false;
+  /// start() 完成前禁止暂停／完成，避免 stop 时路径仍为 null。
+  bool _ready = false;
+  bool _starting = true;
   String? _error;
   String? _levelHint;
+  String? _tooShortPath;
+  int _tooShortDuration = 0;
   static const _visualSeed = 8801;
+  static const _minDurationSec = 3;
 
   @override
   void initState() {
@@ -39,21 +46,39 @@ class _RecordingScreenState extends State<RecordingScreen> {
   }
 
   Future<void> _beginRecording() async {
+    setState(() {
+      _starting = true;
+      _ready = false;
+      _error = null;
+      _seconds = 0;
+      _paused = false;
+      _levelHint = null;
+    });
     final granted = await PermissionService.ensureMicrophone();
     if (!granted) {
       if (mounted) {
-        setState(() => _error = '麦克风权限未开启');
+        setState(() {
+          _starting = false;
+          _error = '麦克风权限未开启';
+        });
       }
       return;
     }
     try {
       await _recorder.start();
+      if (!mounted) return;
+      setState(() {
+        _starting = false;
+        _ready = true;
+      });
+      _uiTimer?.cancel();
       _uiTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (!_paused && mounted) {
           setState(() => _seconds = _recorder.elapsedSeconds());
         }
       });
       // Level hint at ~2 Hz — does not drive visual; visual reads isolate features.
+      _hintTimer?.cancel();
       _hintTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
         final n = _recorder.featuresNotifier;
         if (!mounted || n == null || _paused) return;
@@ -66,7 +91,13 @@ class _RecordingScreenState extends State<RecordingScreen> {
         }
       });
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) {
+        setState(() {
+          _starting = false;
+          _ready = false;
+          _error = e.toString();
+        });
+      }
     }
   }
 
@@ -102,6 +133,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
   }
 
   Future<void> _togglePause() async {
+    if (!_ready || _busy) return;
     if (_paused) {
       await _recorder.resume();
     } else {
@@ -111,27 +143,77 @@ class _RecordingScreenState extends State<RecordingScreen> {
   }
 
   Future<void> _finish() async {
-    if (_busy) return;
+    if (_busy || !_ready) return;
     setState(() => _busy = true);
     try {
       final result = await _recorder.stop();
       _uiTimer?.cancel();
       _hintTimer?.cancel();
-      if (mounted) widget.onComplete(result.path, result.durationSec);
+      if (!mounted) return;
+      if (result.durationSec < _minDurationSec) {
+        setState(() {
+          _busy = false;
+          _ready = false;
+          _tooShortPath = result.path;
+          _tooShortDuration = result.durationSec;
+        });
+        return;
+      }
+      widget.onComplete(result.path, result.durationSec);
     } catch (e) {
       if (mounted) {
         setState(() {
           _busy = false;
+          _ready = false;
           _error = '保存录音失败：$e';
         });
       }
     }
   }
 
+  Future<void> _keepShortRecording() async {
+    final path = _tooShortPath;
+    if (path == null) return;
+    widget.onComplete(path, _tooShortDuration);
+  }
+
+  Future<void> _rerunAfterShort() async {
+    setState(() {
+      _tooShortPath = null;
+      _tooShortDuration = 0;
+    });
+    await _beginRecording();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final visualActive = !_paused && _error == null;
+    if (_tooShortPath != null) {
+      return Scaffold(
+        backgroundColor: AppColors.bgPrimary,
+        body: SafeArea(
+          child: EmptyStatePanel(
+            statusCode: 'SOUND TOO SHORT',
+            title: '这段声音还没有形成可保存样本',
+            description: '请继续录制至少 $_minDurationSec 秒。',
+            visual: const EmptyMicPortVisual(locked: false),
+            variant: EmptyStateVariant.cleared,
+            primaryLabel: '重新录音',
+            onPrimary: _rerunAfterShort,
+            secondaryLabel: '仍然保存',
+            onSecondary: _keepShortRecording,
+          ),
+        ),
+      );
+    }
+
+    final visualActive = _ready && !_paused && _error == null;
+    final canControl = _ready && _error == null && !_busy;
     final features = _recorder.featuresNotifier;
+    final statusText = _error != null
+        ? '录音不可用'
+        : (_starting
+            ? '正在启动…'
+            : (_paused ? '录音已暂停' : '正在录音'));
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -152,9 +234,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                       child: const Text('取消', style: TextStyle(color: AppColors.textSecondary)),
                     ),
                     Text(
-                      _error != null
-                          ? '录音不可用'
-                          : (_paused ? '录音已暂停' : '正在录音'),
+                      statusText,
                       style: const TextStyle(
                         color: AppColors.textPrimary,
                         fontWeight: FontWeight.w500,
@@ -166,6 +246,10 @@ class _RecordingScreenState extends State<RecordingScreen> {
                 if (_error != null) ...[
                   const SizedBox(height: 8),
                   Text(_error!, style: const TextStyle(color: AppColors.error, fontSize: 13)),
+                  TextButton(
+                    onPressed: _starting ? null : _beginRecording,
+                    child: const Text('重试', style: TextStyle(color: AppColors.accent)),
+                  ),
                 ],
                 if (_levelHint != null && _error == null) ...[
                   const SizedBox(height: 4),
@@ -191,7 +275,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     TextButton(
-                      onPressed: _error != null ? null : _togglePause,
+                      onPressed: canControl ? _togglePause : null,
                       child: Text(
                         _paused ? '继续' : '暂停',
                         style: const TextStyle(color: AppColors.accent),
@@ -204,7 +288,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                           : (visualActive
                               ? RecordFabState.recording
                               : RecordFabState.idle),
-                      onTap: _error != null || _busy ? () {} : _finish,
+                      onTap: canControl ? _finish : () {},
                     ),
                   ],
                 ),

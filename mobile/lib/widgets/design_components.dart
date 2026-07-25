@@ -150,24 +150,7 @@ class RarityChip extends StatelessWidget {
       fg = AppColors.textTertiary;
       bg = AppColors.surface2;
     } else {
-      (bg, fg) = switch (rarity!) {
-        DiscRarity.n => (
-            AppColors.surface2,
-            AppColors.textSecondary,
-          ),
-        DiscRarity.r => (
-            AppColors.accent.withValues(alpha: 0.12),
-            AppColors.accent,
-          ),
-        DiscRarity.sr => (
-            const Color(0xFF4FA9E8).withValues(alpha: 0.16),
-            const Color(0xFF4FA9E8),
-          ),
-        DiscRarity.ssr => (
-            AppColors.accent.withValues(alpha: 0.22),
-            AppColors.accent,
-          ),
-      };
+      (bg, fg) = rarityPalette(rarity!);
     }
     return Container(
       height: compact ? 22 : AppSizes.statusChipHeight,
@@ -195,8 +178,125 @@ class RarityChip extends StatelessWidget {
   }
 }
 
+/// 游戏式稀有度展示：大号代号 + 中文名 + 等级条，用于声片信息区。
+class RarityShowcase extends StatelessWidget {
+  const RarityShowcase({super.key, this.rarity});
+
+  final DiscRarity? rarity;
+
+  static const _tiers = DiscRarity.values;
+
+  @override
+  Widget build(BuildContext context) {
+    final pending = rarity == null;
+    final accent = pending
+        ? AppColors.textTertiary
+        : rarityPalette(rarity!).$2;
+    final fill = pending
+        ? AppColors.surface2
+        : rarityPalette(rarity!).$1;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: accent.withValues(alpha: 0.45)),
+        boxShadow: pending
+            ? null
+            : [
+                BoxShadow(
+                  color: accent.withValues(alpha: 0.18),
+                  blurRadius: 16,
+                  spreadRadius: 0,
+                ),
+              ],
+      ),
+      child: Column(
+        children: [
+          Text(
+            pending ? '?' : rarity!.code,
+            style: TextStyle(
+              color: accent,
+              fontSize: pending ? 28 : 34,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 2.4,
+              height: 1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            pending ? '稀有度待揭晓' : rarity!.label,
+            style: TextStyle(
+              color: accent,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (final tier in _tiers)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  child: Text(
+                    tier.code,
+                    style: TextStyle(
+                      fontSize: !pending && tier == rarity ? 13 : 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
+                      color: pending
+                          ? AppColors.textTertiary.withValues(alpha: 0.45)
+                          : tier.index <= rarity!.index
+                              ? (tier == rarity
+                                  ? accent
+                                  : accent.withValues(alpha: 0.55))
+                              : AppColors.textTertiary.withValues(alpha: 0.35),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          if (!pending) ...[
+            const SizedBox(height: 8),
+            Text(
+              '由实体声片出厂决定',
+              style: TextStyle(
+                color: accent.withValues(alpha: 0.7),
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+(Color, Color) rarityPalette(DiscRarity rarity) => switch (rarity) {
+      DiscRarity.n => (AppColors.surface2, AppColors.textSecondary),
+      DiscRarity.r => (
+          AppColors.accent.withValues(alpha: 0.12),
+          AppColors.accent,
+        ),
+      DiscRarity.sr => (
+          const Color(0xFF4FA9E8).withValues(alpha: 0.16),
+          const Color(0xFF4FA9E8),
+        ),
+      DiscRarity.ssr => (
+          AppColors.accent.withValues(alpha: 0.22),
+          AppColors.accent,
+        ),
+    };
+
 class AccountAvatarButton extends StatelessWidget {
-  const AccountAvatarButton({super.key});
+  const AccountAvatarButton({super.key, this.compact = false});
+
+  /// 圆形图标按钮，降低账户入口视觉权重。
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -211,38 +311,58 @@ class AccountAvatarButton extends StatelessWidget {
             child: Semantics(
               label: '账户',
               button: true,
-              child: Container(
-                height: AppSizes.avatar,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppSizes.avatar / 2),
-                  color: AppColors.surface2,
-                  border: Border.all(
-                    color: loggedIn
-                        ? AppColors.accent.withValues(alpha: 0.5)
-                        : AppColors.border,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      loggedIn ? Icons.person : Icons.person_outline,
-                      size: 16,
-                      color: loggedIn ? AppColors.accent : AppColors.textTertiary,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '账户',
-                      style: TextStyle(
-                        color: loggedIn ? AppColors.accent : AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
+              child: compact
+                  ? Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.device,
+                        border: Border.all(color: AppColors.structure),
+                      ),
+                      child: Icon(
+                        loggedIn ? Icons.person : Icons.person_outline,
+                        size: 16,
+                        color: AppColors.textTertiary,
+                      ),
+                    )
+                  : Container(
+                      height: AppSizes.avatar,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        borderRadius:
+                            BorderRadius.circular(AppSizes.avatar / 2),
+                        color: AppColors.surface2,
+                        border: Border.all(
+                          color: loggedIn
+                              ? AppColors.accent.withValues(alpha: 0.5)
+                              : AppColors.border,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            loggedIn ? Icons.person : Icons.person_outline,
+                            size: 16,
+                            color: loggedIn
+                                ? AppColors.accent
+                                : AppColors.textTertiary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '账户',
+                            style: TextStyle(
+                              color: loggedIn
+                                  ? AppColors.accent
+                                  : AppColors.textSecondary,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ),
             ),
           ),
         );
@@ -517,7 +637,11 @@ class BottomNavBar extends StatelessWidget {
   final int selected;
   final ValueChanged<int> onSelect;
 
-  static const _tabs = ['Record', 'Drafts', 'Collection'];
+  static const _tabs = [
+    (Icons.fiber_manual_record_outlined, Icons.fiber_manual_record, 'Record'),
+    (Icons.inventory_2_outlined, Icons.inventory_2, 'Drafts'),
+    (Icons.album_outlined, Icons.album, 'Collection'),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -527,36 +651,61 @@ class BottomNavBar extends StatelessWidget {
         top: false,
         child: SizedBox(
           height: AppSizes.bottomNav,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.pageHorizontal,
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(color: AppColors.structure, width: 0.8),
+              ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: List.generate(_tabs.length, (index) {
-                final active = selected == index;
-                return GestureDetector(
-                  onTap: () => onSelect(index),
-                  behavior: HitTestBehavior.opaque,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    child: Text(
-                      _tabs[index],
-                      style: TextStyle(
-                        color: active
-                            ? AppColors.accent
-                            : AppColors.textTertiary,
-                        fontSize: 13,
-                        fontWeight:
-                            active ? FontWeight.w600 : FontWeight.w500,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: List.generate(_tabs.length, (index) {
+                  final active = selected == index;
+                  final tab = _tabs[index];
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () => onSelect(index),
+                      behavior: HitTestBehavior.opaque,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // 当前项上方短小状态刻度
+                          Container(
+                            width: active ? 16 : 0,
+                            height: 2,
+                            margin: const EdgeInsets.only(bottom: 6),
+                            decoration: BoxDecoration(
+                              color: AppColors.accent,
+                              borderRadius: BorderRadius.circular(1),
+                            ),
+                          ),
+                          Icon(
+                            active ? tab.$2 : tab.$1,
+                            size: 18,
+                            color: active
+                                ? AppColors.accent
+                                : AppColors.textTertiary,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            tab.$3,
+                            style: TextStyle(
+                              color: active
+                                  ? AppColors.accent
+                                  : AppColors.textTertiary,
+                              fontSize: 11,
+                              fontWeight:
+                                  active ? FontWeight.w600 : FontWeight.w400,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                );
-              }),
+                  );
+                }),
+              ),
             ),
           ),
         ),

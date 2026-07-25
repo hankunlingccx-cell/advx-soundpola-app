@@ -293,6 +293,7 @@ class _MainShellState extends State<MainShell> {
               setState(() => _tab = 0);
               context.push(AppRoutes.recording);
             },
+            onOpenCollection: () => setState(() => _tab = 2),
             onLogin: () => context.push(AppRoutes.login),
           ),
           CollectionScreen(
@@ -301,6 +302,11 @@ class _MainShellState extends State<MainShell> {
                 AppRoutes.categoryPlayPath(category, soundId: soundId),
               );
             },
+            onStartRecord: () {
+              setState(() => _tab = 0);
+              context.push(AppRoutes.recording);
+            },
+            onOpenDrafts: () => setState(() => _tab = 1),
             onLogin: () => context.push(AppRoutes.login),
           ),
         ],

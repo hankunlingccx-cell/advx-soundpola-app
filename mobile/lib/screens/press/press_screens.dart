@@ -14,6 +14,7 @@ import '../../services/nfc_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
+import '../../widgets/empty_state_panel.dart';
 import '../../widgets/sound_nft_card.dart';
 import '../../widgets/sound_visual.dart';
 import '../../widgets/ssr_aura_layer.dart';
@@ -64,6 +65,23 @@ class _PressMethodScreenState extends State<PressMethodScreen> {
   @override
   Widget build(BuildContext context) {
     final item = SoundRepository.instance.get(widget.id);
+    if (item == null) {
+      return Scaffold(
+        backgroundColor: AppColors.bgPrimary,
+        body: SafeArea(
+          child: EmptyStatePanel(
+            statusCode: 'NO SOUND TO PRESS',
+            title: '没有可写入的声音',
+            description: '先录制一段声音，再将它封存到实体声片中。',
+            visual: const EmptyTrayVisual(),
+            variant: EmptyStateVariant.firstUse,
+            primaryLabel: '开始录音',
+            onPrimary: widget.onBack,
+          ),
+        ),
+      );
+    }
+
     if (widget.chainOnly) {
       return _buildScaffold(
         item: item,

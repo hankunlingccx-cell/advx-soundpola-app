@@ -6,9 +6,11 @@ import 'package:flutter/services.dart';
 
 import '../../data/sound_repository.dart';
 import '../../services/audio_playback_service.dart';
+import '../../services/location_capture_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
+import '../../widgets/empty_state_panel.dart';
 import '../../widgets/sound_nft_card.dart';
 import '../../widgets/sound_visual.dart';
 import 'disc_stack_carousel.dart';
@@ -55,8 +57,6 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
   Timer? _simTimer;
   bool _simPlaying = false;
   double _simProgress = 0;
-  bool _simFailed = false;
-  bool _loadingVisual = false;
 
   SoundMemory? get _current =>
       _items.isEmpty ? null : _items[_index.clamp(0, _items.length - 1)];
@@ -69,27 +69,6 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
       return _player.isPlaying && _player.currentPath == path;
     }
     return _simPlaying;
-  }
-
-  bool get _hasLoadError {
-    final item = _current;
-    if (item == null) return false;
-    final path = item.audioPath;
-    if (path != null && path.isNotEmpty) {
-      return _player.error != null && _player.currentPath == path;
-    }
-    return _simFailed;
-  }
-
-  bool get _isLoading {
-    if (_loadingVisual) return true;
-    final item = _current;
-    if (item == null) return false;
-    final path = item.audioPath;
-    if (path != null && path.isNotEmpty) {
-      return _player.isLoading && _player.currentPath == path;
-    }
-    return false;
   }
 
   double get _progress {
@@ -168,10 +147,8 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
     _wasPlayingBeforeSwitch = keepPlaying;
 
     setState(() {
-      _loadingVisual = true;
       _index = index;
       _simProgress = 0;
-      _simFailed = false;
       _simPlaying = false;
     });
     _simTimer?.cancel();
@@ -180,7 +157,6 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
     await _player.softStop();
 
     if (!mounted) return;
-    setState(() => _loadingVisual = false);
     _prefetchNeighbors(index);
 
     if (keepPlaying) {
@@ -213,11 +189,8 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
 
     final path = item.audioPath;
     if (path != null && path.isNotEmpty) {
-      setState(() => _simFailed = false);
       await _player.playExclusive(path);
-      if (mounted && _player.error != null) {
-        setState(() {});
-      }
+      if (mounted) setState(() {});
       return;
     }
 
@@ -225,7 +198,6 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
     _simTimer?.cancel();
     setState(() {
       _simPlaying = true;
-      _simFailed = false;
       if (_simProgress >= 0.99) _simProgress = 0;
     });
     final totalMs = math.max(item.durationSec, 1) * 1000;
@@ -255,18 +227,6 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
     } else {
       _simTimer?.cancel();
       setState(() => _simPlaying = false);
-    }
-  }
-
-  Future<void> _retryLoad() async {
-    final item = _current;
-    if (item == null) return;
-    final path = item.audioPath;
-    if (path != null && path.isNotEmpty) {
-      await _player.retry();
-    } else {
-      setState(() => _simFailed = false);
-      await _startPlayback();
     }
   }
 
@@ -382,58 +342,17 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _TopBar(category: widget.category, onBack: widget.onBack),
-          const Spacer(),
-          Center(
-            child: Column(
-              children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: AppColors.accent.withValues(alpha: 0.35),
-                      width: 1,
-                    ),
-                  ),
-                  child: Icon(
-                    Icons.circle_outlined,
-                    color: AppColors.accent.withValues(alpha: 0.5),
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.section),
-                const Text(
-                  '这个分类中还没有声片。',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  '从 Drafts 写入声片后会出现在这里',
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.section),
-                TextButton(
-                  onPressed: widget.onBack,
-                  child: const Text(
-                    '返回 Collection',
-                    style: TextStyle(
-                      color: AppColors.accent,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
+          Expanded(
+            child: EmptyStatePanel(
+              statusCode: 'NO SOUNDS IN 「${widget.category}」',
+              title: '这个分类还是空的',
+              description: '在记录或编辑声音信息时，可以为它选择分类。',
+              visual: const EmptyTrackVisual(),
+              variant: EmptyStateVariant.filtered,
+              primaryLabel: '查看全部收藏',
+              onPrimary: widget.onBack,
             ),
           ),
-          const Spacer(flex: 2),
         ],
       ),
     );
@@ -459,11 +378,11 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
           ),
         ),
         const SizedBox(height: AppSpacing.tight),
-        // 视觉主体：播放声音可视化
+        // 视觉主体：播放声音可视化（占更大纵向空间）
         Expanded(
-          flex: 5,
+          flex: 7,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Center(
               child: AspectRatio(
                 aspectRatio: 1,
@@ -530,13 +449,9 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
                   ),
                   child: _InfoPanel(
                     title: '声片信息',
+                    header: RarityShowcase(rarity: item.discRarity),
                     collapsedRows: [
                       MetaRow(label: '声片编号', value: item.discId ?? '—'),
-                      MetaRow(
-                        label: '稀有度',
-                        value: item.discRarity?.headline ?? '待揭晓',
-                      ),
-                      const MetaRow(label: '绑定状态', value: '永久绑定'),
                     ],
                     expandedRows: [
                       MetaRow(label: '系列/批次', value: item.discSeries ?? '—'),
@@ -562,10 +477,6 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
                     title: '数字资产信息',
                     collapsedRows: [
                       MetaRow(label: '资产编号', value: item.assetId ?? '—'),
-                      MetaRow(
-                        label: '稀有度',
-                        value: item.discRarity?.headline ?? '待揭晓',
-                      ),
                     ],
                     expandedRows: [
                       MetaRow(
@@ -805,7 +716,12 @@ class _MemorySection extends StatelessWidget {
             child: Divider(height: 1, color: AppColors.borderSubtle),
           ),
           MetaRow(label: '记录时间', value: formatRecordedAt(item.recordedAt)),
-          MetaRow(label: '地点', value: item.locationLabel),
+          MetaRow(
+            label: '地点',
+            value: item.locationLabel.isEmpty
+                ? LocationCaptureService.unsetLabel
+                : item.locationLabel,
+          ),
           MetaRow(label: '时长', value: formatDuration(item.durationSec)),
         ],
       ),
@@ -841,9 +757,11 @@ class _InfoPanel extends StatefulWidget {
     required this.title,
     required this.collapsedRows,
     required this.expandedRows,
+    this.header,
   });
 
   final String title;
+  final Widget? header;
   final List<Widget> collapsedRows;
   final List<Widget> expandedRows;
 
@@ -892,6 +810,16 @@ class _InfoPanelState extends State<_InfoPanel> {
               ),
             ),
           ),
+          if (widget.header != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.cardPadding,
+                0,
+                AppSpacing.cardPadding,
+                AppSpacing.tight,
+              ),
+              child: widget.header!,
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.cardPadding,

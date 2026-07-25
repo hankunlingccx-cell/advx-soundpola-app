@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../data/session.dart';
 import '../../data/sound_repository.dart';
 import '../../services/audio_playback_service.dart';
+import '../../services/location_capture_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
@@ -32,6 +33,23 @@ class _ResultScreenState extends State<ResultScreen> {
   final _seed = DateTime.now().millisecondsSinceEpoch % 10000;
   bool _playing = false;
   final _player = AudioPlaybackService.instance;
+  String _locationLabel = LocationCaptureService.unsetLabel;
+  bool _locating = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveLocation();
+  }
+
+  Future<void> _resolveLocation() async {
+    final label = await LocationCaptureService.capturePlaceLabel();
+    if (!mounted) return;
+    setState(() {
+      _locationLabel = label;
+      _locating = false;
+    });
+  }
 
   @override
   void dispose() {
@@ -97,6 +115,7 @@ class _ResultScreenState extends State<ResultScreen> {
         durationSec: widget.durationSec,
         visualSeed: _seed,
         audioPath: widget.audioPath,
+        locationLabel: _locationLabel,
       ),
     );
     RecordingSession.clear();
@@ -153,7 +172,8 @@ class _ResultScreenState extends State<ResultScreen> {
             ),
             const SizedBox(height: AppSpacing.item),
             Text(
-              '${formatRecordedAt(now)}  ·  ${formatDuration(widget.durationSec)} · 地点未记录',
+              '${formatRecordedAt(now)}  ·  ${formatDuration(widget.durationSec)} · '
+              '${_locating ? '定位中…' : _locationLabel}',
               style: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
             ),
             const SizedBox(height: AppSpacing.section),

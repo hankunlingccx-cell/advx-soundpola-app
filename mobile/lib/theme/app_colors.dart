@@ -9,16 +9,21 @@ abstract final class AppColors {
   static const border = Color(0xFF26302D);
   static const borderSubtle = Color(0xFF19201E);
 
-  static const textPrimary = Color(0xFFF4F7F6);
+  /// 精密设备外壳 / 工作台结构层
+  static const device = Color(0xFF080C0B);
+  static const structure = Color(0xFF252D2B);
+  static const graphite = Color(0xFF101614);
+
+  static const textPrimary = Color(0xFFF2F5F4);
   static const textSecondary = Color(0xFFA5AFAC);
-  static const textTertiary = Color(0xFF68736F);
+  static const textTertiary = Color(0xFF727A78);
 
   static const accent = Color(0xFF63E0CB);
   static const accentSoft = Color(0xFF9AEBDD);
   static const accentDark = Color(0xFF2E7D70);
   static const accentOn = Color(0xFF04110E);
   static const accentHighlight = Color(0xFFD8FFF8);
-  static const bottomNav = Color(0xFF090C0B);
+  static const bottomNav = Color(0xFF080C0B);
 
   static const success = Color(0xFF63E0CB);
   static const warning = Color(0xFFF2C879);

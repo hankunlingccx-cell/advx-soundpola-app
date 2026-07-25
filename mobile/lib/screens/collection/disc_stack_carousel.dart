@@ -109,11 +109,12 @@ class _DiscStackCarouselState extends State<DiscStackCarousel> {
     if (widget.itemCount == 0) return const SizedBox.shrink();
 
     return SizedBox(
-      height: 220,
+      height: 148,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
-          final centerSize = math.min(168.0, width * 0.46);
+          // 播放页堆叠为次要导航，整体小于视觉可视化主体
+          final centerSize = math.min(112.0, width * 0.32);
 
           return Stack(
             alignment: Alignment.center,

@@ -68,6 +68,8 @@
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SoundPola 需要麦克风权限来录制并保存你的声音记忆。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SoundPola 使用定位自动记录录音地点，拒绝后仍可录音。</string>
 	<key>NFCReaderUsageDescription</key>
 	<string>SoundPola 使用 NFC 将声音永久写入实体声片。</string>
 	<key>com.apple.developer.nfc.readersession.formats</key>
