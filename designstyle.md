@@ -42,6 +42,15 @@ SoundPola App UI 设计风格与视觉规范
 
 画面重点始终是“声音生成的独特形态”，功能信息退居次级。
 
+1.4 品牌标识
+
+App 图标与启动字标使用同一套品牌图形（非角色插画）：
+
+- 字标：斜体粗白字「SOUND / POLA」双行叠排，顶部「SOUND」背后为薄荷青轨道形色块。
+- 背景：纯黑 `#000000`；强调色贴近主题 `#63E0CB` 系薄荷青。
+- 资源：`assets/branding/app_logo.png`（源图）、`app_wordmark.png`（裁切字标）、`app_icon_1024.png`（方图主源）；Android `mipmap-*/ic_launcher.png`、iOS `AppIcon.appiconset` 由其生成（`dart run tool/generate_app_icons.dart`）。
+- 桌面图标为字标居中的黑底方图；小尺寸以高对比白字 + 青色块保证可辨，不塞入角色或细线装饰。
+
 2. 色彩系统
 
 2.1 基础色
@@ -187,7 +196,7 @@ Info
 
 3.1 形态
 
-四象限严格镜像线性声场（参考 visuallization Axis Field 密度与流动，对称改为四象限）：只在第一象限用 visualSeed 确定性随机生成多层纯圆形粒子线性排列（径向／弧向／弦向平行珠串），录成单次 Picture 后以 Canvas `scale(±1,±1)` 镜像出其余三象限——不重复计算、不四象限各画一遍。内层密、外层疏；整体呈放射＋回环线束感，而非球体点阵或块状粒子云。
+四象限严格镜像线性声场（参考 visuallization Axis Field 密度与流动，对称改为四象限）：只在第一象限用 visualSeed 确定性随机生成多层纯圆形粒子线性排列（径向／弧向／弦向平行珠串），录成单次 Picture 后以 Canvas `scale(±1,±1)` 镜像出其余三象限——不重复计算、不四象限各画一遍。越出 Q1 的粒子直接跳过（禁止把 x／y 独立 clamp 到轴上，以免镜像后出现拉长条纹）。待机／安静样式沿线条更疏、珠径略大，保证读成独立圆形珠而非熔成香肠线；响亮样式再加密变细。内层密、外层疏；整体呈放射＋回环线束感，而非球体点阵或块状粒子云。
 
 主体宽约屏宽 74%–82%。
 
@@ -195,7 +204,7 @@ Info
 
 3.2 色彩
 
-背景 #000000；主色 #63E0CB；辅以白、深青、少量青蓝与极少量蓝紫。光谱质心插值；onset 时外层高能珠短暂偏白。
+背景 #000000；主色 #63E0CB；辅以亮深青 #2E9B88、青蓝 #6BC8F2、蓝紫 #A090E8、粉 #E8B8DC。光谱质心插值；onset 时外层高能珠短暂偏白。粒子亮度与透明度整体偏亮，安静态亦清晰可见。
 
 3.3 动态节奏
 
@@ -207,11 +216,11 @@ Info
 
 3.4 音频驱动（与视觉分离）
 
-麦克风幅度流（主）→ Isolate：DC／RMS／自适应噪声底 → PixMusic 式快攻慢释峰值 AGC → soft gate（低底噪地板，保留动态）→ 多频段包络 → 128-bin 调制频谱 → flux／onset → `AudioFeatures`（分析约 30–50Hz；UI 通知约 25Hz）。CustomPainter 禁止直接处理原始 PCM／幅度。视觉以 `energy`（响度）为主：流速 ≈ 底速＋音量²×样式流速；形变幅度 `amp` 随音量从约 0.12→1.0；`volumeStyle` 由响度 softstep 映射到 A／B／C。频谱局部只作亮度点缀。禁止硬切离散图案与整图 scale。
+麦克风幅度流（主）→ Isolate：DC／RMS／自适应噪声底 → PixMusic 式快攻慢释峰值 AGC → soft gate（低底噪地板，保留动态）→ 多频段包络 → 128-bin 调制频谱 → flux／onset → `AudioFeatures`（分析约 30–50Hz；UI 通知约 25Hz）。CustomPainter 禁止直接处理原始 PCM／幅度。视觉以 `energy`（响度）为主：流速 ≈ 底速＋音量²×样式流速；形变幅度 `amp` 随音量从约 0.12→1.0；`volumeStyle` 由响度 softstep 映射到 A／B／C，且**滞后于 energy 缓变**（离开安静／待机样式时攻击更长），半段线性插值保证待机→中等→响亮形态连续可读。频谱局部只作亮度点缀。禁止硬切离散图案与整图 scale。
 
 3.5 可视化留存（Indexed-MJPEG）
 
-实时活动态按画质档目标 fps；录音中保存 AudioDrive 时间序列，不在实时帧率下截屏。录音／导入结束进入结果页即离屏按 visualSeed＋特征确定性重绘（低粒子档、逐帧 yield；`rendererVersion=soundpola_kaleido_linear_v3`），输出 12～15fps 独立 JPEG 帧流（`visual.mjpg`）＋字节偏移索引（`visual.idx`）＋`visual_manifest.json`＋`cover.jpg`；Android 再尽力编码同内容 H.264 `visual.mp4` 供云端 `POST .../video`。播放以音频时间为轴按索引取帧（解码去重＋小 LRU，未就绪用 cover／静态 canvas）；算法升级不改写旧帧流。
+实时活动态按画质档目标 fps；录音中保存 AudioDrive 时间序列，不在实时帧率下截屏。录音／导入结束进入结果页即离屏按 visualSeed＋特征确定性重绘（低粒子档、逐帧 yield；`rendererVersion=soundpola_kaleido_linear_v3`），输出 12～15fps 独立 JPEG 帧流（`visual.mjpg`）＋字节偏移索引（`visual.idx`）＋`visual_manifest.json`＋`cover.jpg`（从同帧流选代表帧）；Android 再尽力编码同内容 H.264 `visual.mp4` 供云端 `POST .../video`。列表／卡面静态缩略用 cover；播放以音频时间为轴按索引取帧（解码去重＋小 LRU，未就绪用 cover／静态 canvas）——封面与播放画面必须来自同一次 bake。算法升级不改写旧帧流。
 
 4. 字体与排版
 

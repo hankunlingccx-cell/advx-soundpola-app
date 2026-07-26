@@ -13,8 +13,8 @@ import '../../theme/app_dimens.dart';
 import '../../visual/audio_feature_timeline.dart';
 import '../../visual/sound_package_store.dart';
 import '../../visual/visual_bake_service.dart';
+import '../../widgets/baked_sound_visual.dart';
 import '../../widgets/design_components.dart';
-import '../../widgets/sound_visual.dart';
 import '../../widgets/sp_category_picker.dart';
 
 class ResultScreen extends StatefulWidget {
@@ -58,6 +58,8 @@ class _ResultScreenState extends State<ResultScreen> {
   bool _preparing = true;
   String? _prepareError;
   String? _pendingId;
+  VisualBakeStatus _bakeStatus = VisualBakeStatus.none;
+  Timer? _bakePoll;
   final _player = AudioPlaybackService.instance;
   String _locationLabel = LocationCaptureService.unsetLabel;
   bool _locating = true;
@@ -143,7 +145,9 @@ class _ResultScreenState extends State<ResultScreen> {
         _pendingId = soundId;
         _preparing = false;
         _prepareError = null;
+        _bakeStatus = VisualBakeStatus.processingVisual;
       });
+      _startBakePoll();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -151,6 +155,46 @@ class _ResultScreenState extends State<ResultScreen> {
         _prepareError = e.toString();
       });
     }
+  }
+
+  void _startBakePoll() {
+    _bakePoll?.cancel();
+    _bakePoll = Timer.periodic(const Duration(milliseconds: 450), (_) async {
+      final id = _pendingId ?? RecordingSession.pendingSoundId;
+      if (id == null || !mounted) return;
+      final status = await _resolveBakeStatus(id);
+      if (!mounted) return;
+      if (status != _bakeStatus) {
+        setState(() => _bakeStatus = status);
+      }
+      if (status == VisualBakeStatus.ready ||
+          status == VisualBakeStatus.failed) {
+        _bakePoll?.cancel();
+        _bakePoll = null;
+      }
+    });
+  }
+
+  /// Transient package view for cover / Indexed-MJPEG preview before Draft save.
+  SoundMemory _pendingPreviewItem() {
+    final id = _pendingId ?? RecordingSession.pendingSoundId ?? 'pending';
+    return SoundMemory(
+      id: id,
+      title: _nameCtrl.text.trim().isEmpty ? '未命名声音' : _nameCtrl.text.trim(),
+      category: _category ?? '未分类',
+      durationSec: widget.durationSec,
+      visualSeed: _seed,
+      audioPath: RecordingSession.pendingAudioPath ?? widget.audioPath,
+      packageDir: RecordingSession.pendingPackageDir,
+      audioFeaturesPath: RecordingSession.pendingFeaturesPath,
+      visualMjpgPath: RecordingSession.pendingMjpgPath,
+      visualIdxPath: RecordingSession.pendingIdxPath,
+      visualManifestPath: RecordingSession.pendingManifestPath,
+      coverPath: RecordingSession.pendingCoverPath,
+      visualMp4Path: RecordingSession.pendingMp4Path,
+      visualBakeStatus: _bakeStatus,
+      rendererVersion: kSoundVisualRendererVersion,
+    );
   }
 
   Future<VisualBakeStatus> _resolveBakeStatus(String soundId) async {
@@ -183,6 +227,7 @@ class _ResultScreenState extends State<ResultScreen> {
 
   @override
   void dispose() {
+    _bakePoll?.cancel();
     _player.removeListener(_onPlayerChanged);
     _player.stop();
     _nameCtrl.dispose();
@@ -337,7 +382,11 @@ class _ResultScreenState extends State<ResultScreen> {
         ? '可视化准备失败，保存时将重试'
         : (_preparing
             ? '正在准备可视化帧序列…'
-            : '可视化帧约 $estMb MB（512² · 12fps · 录音后已开始生成）');
+            : (_bakeStatus == VisualBakeStatus.ready
+                ? '封面已生成，试听画面与封面同源'
+                : (_bakeStatus == VisualBakeStatus.failed
+                    ? '可视化生成失败，试听将使用实时画面'
+                    : '正在生成封面与可视化（约 $estMb MB）…')));
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
       appBar: AppBar(
@@ -366,11 +415,12 @@ class _ResultScreenState extends State<ResultScreen> {
                       children: [
                         Padding(
                           padding: const EdgeInsets.all(AppSpacing.item),
-                          child: SoundVisualCanvas(
-                            seed: _seed,
-                            mode: _playing
-                                ? SoundVisualMode.playback
-                                : SoundVisualMode.complete,
+                          child: BakedSoundVisual(
+                            item: _pendingPreviewItem(),
+                            playing: _playing,
+                            positionMsListenable: _player.positionMs,
+                            fit: BoxFit.contain,
+                            fallbackSeed: _seed,
                           ),
                         ),
                         Padding(

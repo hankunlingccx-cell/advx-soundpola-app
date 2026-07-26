@@ -13,9 +13,9 @@ import '../../services/location_capture_service.dart';
 import '../../cloud/cloud_media_client.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
+import '../../widgets/baked_sound_visual.dart';
 import '../../widgets/design_components.dart';
 import '../../widgets/empty_state_panel.dart';
-import '../../widgets/indexed_visual_player.dart';
 import '../../widgets/sound_nft_card.dart';
 import '../../widgets/sound_visual.dart';
 import '../../widgets/sp_category_picker.dart';
@@ -429,28 +429,34 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
                       child: GestureDetector(
                         onTap: _togglePlay,
                         behavior: HitTestBehavior.opaque,
-                        child: AnimatedSwitcher(
-                          duration: AppMotion.slow,
-                          child: KeyedSubtree(
-                            key: ValueKey('viz-${item.id}-$_playing'),
-                            child: item.hasIndexedVisual
-                                ? IndexedVisualPlayer(
-                                    item: item,
-                                    positionMsListenable: _positionMs,
-                                    showProgressRing: true,
-                                    progress: _progress,
-                                  )
-                                : SoundVisualCanvas(
-                                    seed: item.visualSeed,
-                                    mode: _playing
-                                        ? SoundVisualMode.playback
-                                        : SoundVisualMode.complete,
-                                    active: _playing,
-                                    dark: true,
-                                    amplitude: _playing ? 0.55 : 0.2,
-                                    showProgressRing: true,
-                                    progress: _progress,
-                                  ),
+                        child: ClipOval(
+                          child: AnimatedSwitcher(
+                            duration: AppMotion.slow,
+                            child: KeyedSubtree(
+                              key: ValueKey('viz-${item.id}-$_playing'),
+                              child: item.hasIndexedVisual ||
+                                      (item.coverPath != null &&
+                                          item.coverPath!.isNotEmpty)
+                                  ? BakedSoundVisual(
+                                      item: item,
+                                      playing: _playing,
+                                      positionMsListenable: _positionMs,
+                                      showProgressRing: true,
+                                      progress: _progress,
+                                      fit: BoxFit.cover,
+                                    )
+                                  : SoundVisualCanvas(
+                                      seed: item.visualSeed,
+                                      mode: _playing
+                                          ? SoundVisualMode.playback
+                                          : SoundVisualMode.complete,
+                                      active: _playing,
+                                      dark: true,
+                                      amplitude: _playing ? 0.55 : 0.2,
+                                      showProgressRing: true,
+                                      progress: _progress,
+                                    ),
+                            ),
                           ),
                         ),
                       ),

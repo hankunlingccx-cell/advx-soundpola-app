@@ -42,5 +42,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icons/
+    - assets/branding/
     - assets/disc_textures/
     - assets/beats/

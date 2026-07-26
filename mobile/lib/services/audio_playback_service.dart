@@ -9,6 +9,7 @@ class AudioPlaybackService extends ChangeNotifier {
     _player.onPlayerComplete.listen((_) {
       _playing = false;
       _position = _duration;
+      positionMs.value = _position.inMilliseconds;
       notifyListeners();
     });
     _player.onDurationChanged.listen((d) {
@@ -17,6 +18,7 @@ class AudioPlaybackService extends ChangeNotifier {
     });
     _player.onPositionChanged.listen((p) {
       _position = p;
+      positionMs.value = p.inMilliseconds;
       notifyListeners();
     });
     _player.onPlayerStateChanged.listen((state) {
@@ -34,6 +36,9 @@ class AudioPlaybackService extends ChangeNotifier {
   String? _error;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
+
+  /// Audio clock for [IndexedVisualPlayer] / [BakedSoundVisual].
+  final ValueNotifier<int> positionMs = ValueNotifier(0);
 
   bool get isPlaying => _playing;
   bool get isLoading => _loading;
@@ -87,6 +92,7 @@ class AudioPlaybackService extends ChangeNotifier {
     _error = null;
     _position = Duration.zero;
     _duration = Duration.zero;
+    positionMs.value = 0;
     notifyListeners();
 
     try {
@@ -140,6 +146,7 @@ class AudioPlaybackService extends ChangeNotifier {
     } catch (_) {}
     _playing = false;
     _position = Duration.zero;
+    positionMs.value = 0;
     notifyListeners();
   }
 
@@ -153,6 +160,7 @@ class AudioPlaybackService extends ChangeNotifier {
     _currentPath = null;
     _position = Duration.zero;
     _duration = Duration.zero;
+    positionMs.value = 0;
     _error = null;
     notifyListeners();
   }
@@ -161,6 +169,7 @@ class AudioPlaybackService extends ChangeNotifier {
     try {
       await _player.seek(position);
       _position = position;
+      positionMs.value = position.inMilliseconds;
       notifyListeners();
     } catch (e) {
       debugPrint('AudioPlaybackService seek error: $e');
@@ -175,6 +184,7 @@ class AudioPlaybackService extends ChangeNotifier {
 
   @override
   void dispose() {
+    positionMs.dispose();
     _player.dispose();
     super.dispose();
   }

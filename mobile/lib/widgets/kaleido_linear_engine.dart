@@ -79,17 +79,18 @@ class KaleidoLinearEngine {
   final _bg = Paint()..color = const Color(0xFF000000);
 
   static const _accent = Color(0xFF63E0CB);
-  static const _deep = Color(0xFF1A6B5E);
-  static const _cyan = Color(0xFF4DB8E8);
-  static const _violet = Color(0xFF8B7AD6);
-  static const _pink = Color(0xFFD4A0C8);
+  static const _deep = Color(0xFF2E9B88);
+  static const _cyan = Color(0xFF6BC8F2);
+  static const _violet = Color(0xFFA090E8);
+  static const _pink = Color(0xFFE8B8DC);
 
   /// Quiet / mid / loud styles — always lerp neighbors (never hard-cut).
   /// Wide A↔C deltas so loudness clearly reshapes the field (not just tint).
   static const _lookA = _StyleLook(
     sharpness: 0.06,
-    density: 0.52,
-    beadScale: 1.45,
+    density: 0.58,
+    // Soft but still discrete circles — oversized beads fuse into sausages.
+    beadScale: 1.12,
     flowMul: 0.32,
     foldMul: 0.55,
     waveAmp: 0.38,
@@ -224,8 +225,10 @@ class KaleidoLinearEngine {
   void updateAudio(AudioFeatures f, double dt) {
     spectrum = f.spectrum;
     // Primary driver = loudness only (fast envelope / gated RMS).
+    // Slightly softer rise from near-silence so standby→active isn't a jolt.
     final live = math.max(f.fastEnvelope, f.gatedRms).clamp(0.0, 1.0);
-    energy = _ar(energy, live, 0.012, 0.1, dt);
+    final fromRest = energy < 0.1;
+    energy = _ar(energy, live, fromRest ? 0.07 : 0.016, 0.1, dt);
     bass = _ar(bass, f.bass, 0.025, 0.14, dt);
     mid = _ar(mid, f.mid, 0.02, 0.11, dt);
     treble = _ar(treble, f.treble, 0.018, 0.1, dt);
@@ -236,13 +239,15 @@ class KaleidoLinearEngine {
     zcr = _ar(zcr, f.zeroCrossingRate, 0.035, 0.12, dt);
 
     // Style follows volume: quiet→A, mid→B, loud→C.
+    // Lag behind energy so idle/quiet look morphs fluidly into mid/loud
+    // (density, bead scale, tint) instead of snapping with the envelope.
     final targetStyle = _volumeToStyle(energy);
-    final rising = targetStyle > volumeStyle;
+    final leaveQuiet = volumeStyle < 0.38 && targetStyle > volumeStyle;
     volumeStyle = _ar(
       volumeStyle,
       targetStyle,
-      rising ? 0.04 : 0.12,
-      rising ? 0.04 : 0.12,
+      leaveQuiet ? 0.34 : 0.2,
+      0.38,
       dt,
     );
   }
@@ -260,19 +265,20 @@ class KaleidoLinearEngine {
     flowPhase = (flowPhase + dt * flowSpeed) % 1.0;
   }
 
-  /// Loudness → style 0–1. Soft stays near quiet; peaks reach loud look.
+  /// Loudness → style 0–1. Broad soft ramp so quiet→loud spans gradually.
   static double _volumeToStyle(double energy) {
-    final s = _smoothstep(0.03, 0.58, energy.clamp(0.0, 1.0));
-    return math.pow(s, 0.9).toDouble().clamp(0.0, 1.0);
+    final s = _smoothstep(0.02, 0.7, energy.clamp(0.0, 1.0));
+    return math.pow(s, 0.82).toDouble().clamp(0.0, 1.0);
   }
 
   /// Adjacent A↔B / B↔C morph from continuous volumeStyle.
+  /// Linear within each half so leaving idle moves look immediately & evenly.
   static _StyleLook _styleLook(double style01) {
     final p = style01.clamp(0.0, 1.0);
     if (p <= 0.5) {
-      return _StyleLook.lerp(_lookA, _lookB, _smoothstep(0.0, 0.5, p));
+      return _StyleLook.lerp(_lookA, _lookB, p / 0.5);
     }
-    return _StyleLook.lerp(_lookB, _lookC, _smoothstep(0.5, 1.0, p));
+    return _StyleLook.lerp(_lookB, _lookC, (p - 0.5) / 0.5);
   }
 
   static double _smoothstep(double a, double b, double x) {
@@ -307,6 +313,13 @@ class KaleidoLinearEngine {
     final tipSharp = 0.12 + (look.sharpness * 1.1 + shapeT * 0.2) * amp;
     final waveMul = look.waveAmp * amp;
     final struct = look.structureShift * amp;
+    // 1 at idle/quiet → discrete round pearls; 0 at loud → denser fine beads.
+    final quietPearl = (1.0 - shapeT).clamp(0.0, 1.0);
+    final alongKeep = ui.lerpDouble(
+      1.0,
+      (0.78 / look.beadScale.clamp(0.5, 1.4)).clamp(0.4, 0.72),
+      quietPearl,
+    )!;
 
     // Build Q1 once (pure circles). Coordinates: +x right, +y up from origin.
     // Cull rect keeps mirrored Picture draws finite (avoids unbounded glitches).
@@ -328,7 +341,7 @@ class KaleidoLinearEngine {
       };
       // Brightness mainly from volume; spectrum / onset are light accents.
       final bright =
-          (0.14 + vol * 0.7 + localSoft * 0.18 * vol + onset * 0.2 * vol) *
+          (0.24 + vol * 0.72 + localSoft * 0.18 * vol + onset * 0.2 * vol) *
               layerW;
       final color = _color(bright.clamp(0.0, 1.0), rib.layer);
       final half = (rib.parallel - 1) * 0.5;
@@ -340,8 +353,13 @@ class KaleidoLinearEngine {
             (0.9 + geo * 0.12 + localSoft * 0.08 * vol) /
             look.density.clamp(0.48, 1.9);
 
-        for (var i = 0; i < rib.particles; i++) {
-          final u = rib.particles <= 1 ? 0.5 : i / (rib.particles - 1);
+        // Quiet/idle: fewer samples along each ribbon so beads stay round pearls
+        // instead of fusing into elongated strokes.
+        final nAlong =
+            math.max(5, (rib.particles * alongKeep).round());
+
+        for (var i = 0; i < nAlong; i++) {
+          final u = nAlong <= 1 ? 0.5 : i / (nAlong - 1);
           // Drift amount & rate follow volume (quiet almost still).
           final styleDrift =
               math.sin(time * (0.12 + vol * look.flowMul * 1.1) + rib.phase) *
@@ -366,22 +384,30 @@ class KaleidoLinearEngine {
             waveMul: waveMul,
             structureShift: struct,
           );
+          // Skip outside Q1 — independent clamp would squash onto axes as streaks.
+          if (xy == null) continue;
           final px = xy.$1 * scale;
           final py = xy.$2 * scale;
 
           // Bead character follows style (thick soft ↔ fine sharp), not balloon.
+          // Idle slightly larger so each pearl reads as a circle, not a speck-line.
           final bead = (0.52 +
                   localSoft * 0.2 +
                   geo * 0.16 +
                   (1.0 - (p - half).abs() / (half + 0.01)) * 0.08) *
               (0.85 + rib.sizeBias * 0.15) *
               look.beadScale *
-              (size.shortestSide / 420.0);
-          final a = (0.1 + bright * 0.78).clamp(0.08, 0.88) *
+              (1.0 + quietPearl * 0.35) *
+              (size.shortestSide / 380.0);
+          final a = (0.2 + bright * 0.8).clamp(0.16, 0.96) *
               (0.55 + (1 - (p - half).abs() / (half + 1)) * 0.45);
           _fill.color = color.withValues(alpha: a);
           // Flutter y-down: store Q1 as (+px, -py) so +y math is screen-up.
-          q1.drawCircle(Offset(px, -py), bead.clamp(0.2, 1.75), _fill);
+          q1.drawCircle(
+            Offset(px, -py),
+            bead.clamp(0.35, 2.4 + quietPearl * 0.6),
+            _fill,
+          );
         }
       }
     }
@@ -409,26 +435,28 @@ class KaleidoLinearEngine {
 
     if (showProgressRing) {
       final r = size.shortestSide * 0.46;
+      // Progress arc only — no full-circle track stroke.
       final stroke = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
-        ..color = AppColors.accent.withValues(alpha: 0.2);
-      canvas.drawCircle(Offset(cx, cy), r, stroke);
-      stroke
+        ..strokeWidth = 2.5
         ..color = AppColors.accent.withValues(alpha: 0.85)
-        ..strokeWidth = 2.5;
-      canvas.drawArc(
-        Rect.fromCircle(center: Offset(cx, cy), radius: r),
-        -math.pi / 2,
-        progress.clamp(0.0, 1.0) * math.pi * 2,
-        false,
-        stroke,
-      );
+        ..strokeCap = StrokeCap.round;
+      final sweep = progress.clamp(0.0, 1.0) * math.pi * 2;
+      if (sweep > 0.001) {
+        canvas.drawArc(
+          Rect.fromCircle(center: Offset(cx, cy), radius: r),
+          -math.pi / 2,
+          sweep,
+          false,
+          stroke,
+        );
+      }
     }
   }
 
-  /// Returns normalized (x, y) in Q1 (x≥0, y≥0), including parallel offset.
-  (double, double) _pointQ1(
+  /// Returns normalized (x, y) in Q1, or null if parallel offset left the quadrant.
+  /// Null (skip) avoids axis-squash streaks from independent x/y clamps.
+  (double, double)? _pointQ1(
     double u,
     _Ribbon rib, {
     required double offNorm,
@@ -440,6 +468,8 @@ class KaleidoLinearEngine {
     required double waveMul,
     required double structureShift,
   }) {
+    final double x;
+    final double y;
     switch (rib.kind) {
       case _LineKind.radial:
         final polar = _polarRadial(
@@ -455,9 +485,8 @@ class KaleidoLinearEngine {
         );
         final nx = -math.sin(polar.$2);
         final ny = math.cos(polar.$2);
-        final x = polar.$1 * math.cos(polar.$2) + nx * offNorm;
-        final y = polar.$1 * math.sin(polar.$2) + ny * offNorm;
-        return (_clampQ1(x), _clampQ1(y));
+        x = polar.$1 * math.cos(polar.$2) + nx * offNorm;
+        y = polar.$1 * math.sin(polar.$2) + ny * offNorm;
 
       case _LineKind.arc:
         // Quiet: smooth arcs; loud: more angular sweep + ripple.
@@ -477,7 +506,8 @@ class KaleidoLinearEngine {
                 waveMul +
             userFold * 0.06 * math.sin(u * math.pi);
         final th = theta.clamp(0.015, math.pi * 0.5 - 0.015);
-        return (_clampQ1(r * math.cos(th)), _clampQ1(r * math.sin(th)));
+        x = r * math.cos(th);
+        y = r * math.sin(th);
 
       case _LineKind.chord:
         // Quiet: soft bend; loud: sharper zig / higher-frequency warp.
@@ -487,8 +517,8 @@ class KaleidoLinearEngine {
         final x1 = rib.r1 * math.cos(rib.baseTheta + span);
         final y1 = rib.r1 * math.sin(rib.baseTheta + span);
         final ease = u * u * (3 - 2 * u);
-        var x = ui.lerpDouble(x0, x1, ease)!;
-        var y = ui.lerpDouble(y0, y1, ease)!;
+        final bx = ui.lerpDouble(x0, x1, ease)!;
+        final by = ui.lerpDouble(y0, y1, ease)!;
         final dx = x1 - x0;
         final dy = y1 - y0;
         final len = math.sqrt(dx * dx + dy * dy).clamp(0.001, 2.0);
@@ -500,10 +530,11 @@ class KaleidoLinearEngine {
             ) *
             (0.012 + fold * 0.032) *
             waveMul;
-        x += nx * (offNorm + wave);
-        y += ny * (offNorm + wave);
-        return (_clampQ1(x), _clampQ1(y));
+        x = bx + nx * (offNorm + wave);
+        y = by + ny * (offNorm + wave);
     }
+    if (x < 0.002 || y < 0.002 || x > 0.99 || y > 0.99) return null;
+    return (x, y);
   }
 
   (double, double) _polarRadial(
@@ -544,8 +575,6 @@ class KaleidoLinearEngine {
     return (r, theta);
   }
 
-  double _clampQ1(double v) => v.clamp(0.004, 0.98);
-
   /// Soft-compress 0–1 so peaks stay readable without flattening mids.
   static double _soft(double x) {
     final t = x.clamp(0.0, 1.0);
@@ -568,7 +597,7 @@ class KaleidoLinearEngine {
     if (onset > 0.35 && bright > 0.4 && layer >= 2) {
       base = Color.lerp(base, Colors.white, ((onset - 0.35) / 0.65) * 0.65)!;
     }
-    return Color.lerp(base.withValues(alpha: 0.75), base, bright)!;
+    return Color.lerp(base.withValues(alpha: 0.88), base, bright)!;
   }
 
   double _sampleSpec(double u) {

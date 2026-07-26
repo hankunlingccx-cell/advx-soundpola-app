@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -9,7 +8,7 @@ import '../../data/sound_repository.dart';
 import '../../services/audio_playback_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
-import '../../widgets/sound_visual.dart';
+import '../../widgets/baked_sound_visual.dart';
 
 /// Horizontal overlapping draft deck (not a flat PageView list).
 ///
@@ -594,24 +593,11 @@ class _DraftVizFace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cover = item.coverPath;
-    // Prefer baked cover so each sound shows its own visual, not a shared idle canvas.
-    if (cover != null &&
-        cover.isNotEmpty &&
-        File(cover).existsSync() &&
-        !playing) {
-      return Image.file(
-        File(cover),
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => SoundVisualCanvas(
-          seed: item.visualSeed,
-          mode: SoundVisualMode.complete,
-        ),
-      );
-    }
-    return SoundVisualCanvas(
-      seed: item.visualSeed,
-      mode: playing ? SoundVisualMode.playback : SoundVisualMode.complete,
+    return BakedSoundVisual(
+      item: item,
+      playing: playing,
+      positionMsListenable: AudioPlaybackService.instance.positionMs,
+      fit: BoxFit.cover,
     );
   }
 }

@@ -319,6 +319,8 @@ class _RecordingScreenState extends State<RecordingScreen> {
                                 : (visualActive
                                     ? SoundVisualMode.recording
                                     : SoundVisualMode.idle),
+                            // Breathe while mic starts so idle→live style morphs.
+                            animate: _starting ? true : null,
                             features: features,
                             liveVolume: _recorder.liveVolume,
                           ),

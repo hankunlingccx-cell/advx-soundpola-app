@@ -39,17 +39,17 @@ class _SplashScreenState extends State<SplashScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const Spacer(flex: 2),
-              const Text(
-                'SoundPola',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 34,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.6,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 48),
+                child: Image.asset(
+                  'assets/branding/app_wordmark.png',
+                  width: 220,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  semanticLabel: 'SoundPola',
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 14),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 32),
                 child: Text(

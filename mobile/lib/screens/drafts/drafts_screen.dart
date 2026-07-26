@@ -23,8 +23,7 @@ import '../../services/nfc_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
-import '../../widgets/indexed_visual_player.dart';
-import '../../widgets/sound_visual.dart';
+import '../../widgets/baked_sound_visual.dart';
 import '../../widgets/sp_category_picker.dart';
 import '../../visual/audio_feature_timeline.dart';
 import '../../visual/visual_bake_service.dart';
@@ -1826,32 +1825,14 @@ class _DraftDetailScreenState extends State<DraftDetailScreen> {
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            if (item.hasIndexedVisual)
-                              Positioned.fill(
-                                child: IndexedVisualPlayer(
-                                  item: item,
-                                  positionMsListenable: _positionMs,
-                                ),
-                              )
-                            else if (item.coverPath != null)
-                              Positioned.fill(
-                                child: Image.file(
-                                  File(item.coverPath!),
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, e, st) =>
-                                      SoundVisualCanvas(
-                                    seed: item.visualSeed,
-                                    mode: SoundVisualMode.complete,
-                                  ),
-                                ),
-                              )
-                            else
-                              SoundVisualCanvas(
-                                seed: item.visualSeed,
-                                mode: _playing
-                                    ? SoundVisualMode.playback
-                                    : SoundVisualMode.complete,
+                            Positioned.fill(
+                              child: BakedSoundVisual(
+                                item: item,
+                                playing: _playing,
+                                positionMsListenable: _positionMs,
+                                fit: BoxFit.cover,
                               ),
+                            ),
                             Icon(
                               _playing
                                   ? Icons.pause_circle_outline

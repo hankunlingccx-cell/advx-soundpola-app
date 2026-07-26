@@ -264,7 +264,9 @@ class _SelectTile extends StatelessWidget {
                       child: SizedBox(
                         width: 64,
                         height: 64,
-                        child: source.coverPath != null
+                        child: source.coverPath != null &&
+                                source.coverPath!.isNotEmpty &&
+                                File(source.coverPath!).existsSync()
                             ? Image.file(
                                 File(source.coverPath!),
                                 fit: BoxFit.cover,

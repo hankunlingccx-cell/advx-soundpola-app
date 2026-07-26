@@ -1,4 +1,4 @@
-文档用途：Flutter App UI/UX 设计、原型制作、路由规划与开发拆分版本：V2.0视觉基调：黑色背景，主题色 #63E0CB核心对象：声音、声音视觉、NFC 声片、NFT 数字资产、用户身份技术基线：Flutter，Android 优先，并预留 iOS 适配
+文档用途：Flutter App UI/UX 设计、原型制作、路由规划与开发拆分版本：V2.0视觉基调：黑色背景，主题色 #63E0CB核心对象：声音、声音视觉、NFC 声片、NFT 数字资产、用户身份技术基线：Flutter，Android 优先，并预留 iOS 适配品牌标识：App 图标与启动页使用「SOUND POLA」白字 + 薄荷青轨道形字标（`assets/branding/`），黑底；由 `tool/generate_app_icons.dart` 生成 Android / iOS 启动图标。
 
 1. 产品核心规则
 
@@ -390,7 +390,7 @@ Collection
 
 01 启动页
 
-SoundPola 标识与标语水平居中。
+SoundPola 品牌字标（`assets/branding/app_wordmark.png`：白字 + 薄荷青轨道形，黑底）与标语水平居中。
 
 黑底声音视觉动效（待机呼吸态，非录音态；轻幅度 idle；居中 220²）。
 
@@ -434,7 +434,7 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 未授权麦克风（阻断态，非普通空态）：`MIC ACCESS REQUIRED` / 需要麦克风权限；中央为关闭的麦克风端口视觉；主按钮「允许麦克风权限」或「前往系统设置」。
 
-已授权待机（非空态）：四象限严格镜像线性声场（仅生成 Q1 纯圆形粒子线性排列，其余三象限由 Canvas scale 镜像；待机缓慢折叠漂移）；`LISTENING STANDBY` / 等待捕捉声音；录音按钮为页内唯一主操作（60dp 实心青圆＋黑点，录音时平滑变为圆角方停止符）。主操作下方提供次级文字入口「导入本地音频」（不抢主按钮焦点）；无麦克风权限时亦可导入。
+已授权待机（非空态）：四象限严格镜像线性声场（仅生成 Q1 纯圆形粒子线性排列，越界粒子跳过而非压到坐标轴，避免轴上拉长条；待机稀疏圆珠串可读为独立圆形，其余三象限由 Canvas scale 镜像；待机缓慢折叠漂移）；`LISTENING STANDBY` / 等待捕捉声音；录音按钮为页内唯一主操作（60dp 实心青圆＋黑点，录音时平滑变为圆角方停止符）。主操作下方提供次级文字入口「导入本地音频」（不抢主按钮焦点）；无麦克风权限时亦可导入。
 
 主录音按钮靠底部导航上方；与可视化间距缩短；极细垂直能量线关联（非分割线）。视觉中心约在屏高 39%–43%，主体宽约屏宽 74%–82%。
 
@@ -450,7 +450,7 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 关闭 / 取消入口。
 
-实时声音可视化：参考 visuallization Axis Field 线性声场，Flutter 端为四象限严格镜像。几何只在第一象限计算并绘制一次（纯 `drawCircle` 圆形粒子：径向／弧向／弦向平行珠串），其余三象限用 Canvas `scale(±1,±1)` 镜像，不重复生成粒子。Isolate 输出 `AudioFeatures`；CustomPainter 只读快照。**主驱动为音量**：小声→运动慢、形变小；大声→运动快、形变大；`volumeStyle` 随响度在安静／中等／响亮样式 A／B／C 间连续变形（尖锐度、密度、珠径性格、波纹／弦向结构、流速、青→粉着色）；频谱／onset 仅作轻辅。禁止单纯放大缩小或整图 scale。整体外轮廓几乎固定；粒子半径仅随样式性格变化。待机持续极慢漂移。禁止球体点阵、线段／非圆粒子、按阈值硬切离散图案、每帧随机闪烁。
+实时声音可视化：参考 visuallization Axis Field 线性声场，Flutter 端为四象限严格镜像。几何只在第一象限计算并绘制一次（纯 `drawCircle` 圆形粒子：径向／弧向／弦向平行珠串；越出 Q1 则跳过，避免轴上拉长条），其余三象限用 Canvas `scale(±1,±1)` 镜像，不重复生成粒子。Isolate 输出 `AudioFeatures`；CustomPainter 只读快照。**主驱动为音量**：小声→运动慢、形变小；大声→运动快、形变大；`volumeStyle` 随响度在安静／中等／响亮样式 A／B／C 间**连续缓变**（尖锐度、密度、珠径性格、波纹／弦向结构、流速、亮青→粉着色）——离开待机／安静样式时加长攻击时间，避免硬切；待机／安静沿线条更疏、珠更圆更可读；色板为亮深青／青蓝／蓝紫／粉，粒子亮度与透明度整体偏亮；频谱／onset 仅作轻辅。禁止单纯放大缩小或整图 scale。整体外轮廓几乎固定；粒子半径仅随样式性格变化。待机持续极慢漂移。禁止球体点阵、线段／非圆粒子、按阈值硬切离散图案、每帧随机闪烁。
 
 录音计时；最长 30 秒，到达上限自动完成录音。
 
@@ -468,7 +468,7 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 06 录音结果
 
-试听、命名、分类、描述、重新录制。
+试听、命名、分类、描述、重新录制。预览区静态显示 bake 封面，试听时解 Indexed-MJPEG 与音频对齐（与 Draft／Collection 同一套 `BakedSoundVisual`）。
 
 进入结果页即分配 `sounds/{id}/`：复制音频与 AudioDrive 特征时间序列，并**立即**后台离屏 bake（不阻塞命名／保存）。以同一 `visualSeed`＋特征确定性重绘，输出 12fps Indexed-MJPEG（`visual.mjpg`＋`visual.idx`＋`visual_manifest.json`）与 `cover.jpg`；Android 再尽力编码同内容 H.264 `visual.mp4`（云端上传用，本机播放仍走 MJPEG）。状态：`processing_visual` → `indexing` → `ready`／`failed`（失败保留音频并可重试，不删录音）。「保存至 Drafts」只写入元数据并提交已准备好的包；重新录音／放弃结果页则删除未提交包。bake 就绪后（已登录）后台预上传云端；Press／云上传仍经 `ensureReady` 兜底等待已启动的 bake。
 
@@ -712,7 +712,7 @@ NFC 已成功时只允许重试上链。
 
 18.1 顶部播放区
 
-视觉主体：当前选中声音的四象限线性声场可视化（SoundVisualCanvas，可带进度环），边长约屏宽 78%（上限 360），首屏占主导；播放时随音频变化，点击切换播放／暂停。不在主视觉区重复展示标题／稀有度角标／时长文案，也不再叠放大号贴图声卡（贴图仅出现在横向堆叠，与 Collection 跑道一致）。
+视觉主体：当前选中声音的四象限线性声场可视化（圆形裁切，无方形外框／无底圈描边；可带进度弧），边长约屏宽 78%（上限 360），首屏占主导；播放时随音频变化，点击切换播放／暂停。不在主视觉区重复展示标题／稀有度角标／时长文案，也不再叠放大号贴图声卡（贴图仅出现在横向堆叠，与 Collection 跑道一致）。
 
 页面为整页一体滚动（可视化 + 横向堆叠 + 记忆／声片／NFT），禁止「上方固定、仅下方信息区可滚」的双区滚动。顶栏返回／分享固定；堆叠横向滑动与整页纵向滚动并存。
 
@@ -1180,6 +1180,8 @@ Account 首页。
 全站深色主题（#000000 + #63E0CB），对齐 designstyle.md V2。
 
 声音视觉：四象限镜像线性粒子线束（Q1 纯圆粒子确定性生成一次 → Canvas scale 镜像三象限）；参考 visuallization 线性万花筒密度与流动感；Isolate AGC＋spectrum 局部映射；CustomPainter + RepaintBoundary。**性能**：idle／complete／列表缩略静态单帧（不停 60fps ticker）；仅录音／当前播放／暂停保留动画，并按实际帧率分档降粒子与目标 fps；全息／SSR 粒子仅主卡或选中卡；播放 Indexed-MJPEG 解码去重＋小 LRU／封面兜底；录音特征 UI 约 25Hz；大面积毛玻璃降低 sigma。录音钮：实心青圆＋黑点，录音变圆角方停止符。
+
+结果页试听／Draft 托盘／详情／Collection 播放／NFT 卡中部：静态显示 bake 选出的 `cover.jpg`（同帧流代表帧），播放时按音频时钟解 Indexed-MJPEG，与封面同属一次确定性 bake，禁止用仅 seed 的即时 `SoundVisualCanvas` 冒充该声音的封面或播放画面（bake 未就绪时才回退）。
 
 可视化留存：录音中记录 AudioDrive 时间序列；**录音／导入结束进入结果页即**离屏确定性 bake（低粒子档、逐帧向 UI yield）→ Indexed-MJPEG（512²／12fps／q≈80）＋idx＋manifest＋cover；Android 再编码 `visual.mp4`（H.264）供云端。保存 Draft 时提交包元数据，不把 bake 推迟到 Press。播放按 audioPositionMs 随机访问帧（最新帧优先、旧解码丢弃）；`rendererVersion=soundpola_kaleido_linear_v3`（旧包保留既有帧流不改写）。bake 就绪（或失败仅音频）后，若已登录则后台两段式预上传：`POST /contents` 仅音频 →（有 mp4 时）`POST /contents/{id}/video` 字段 `video`；成功常直接 `READY`，写入 `contentId`／`nfc_url` 但不改 Draft 状态；Press 时若已 READY 则跳过上传直接 NFC 写入（未就绪仍经 `ensureReady` 兜底）。
 

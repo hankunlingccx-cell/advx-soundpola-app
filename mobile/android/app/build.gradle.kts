@@ -30,6 +30,11 @@ android {
         // -PnfcLinkHost=your.domain to match a different deployed HTTPS server.
         manifestPlaceholders["nfcLinkHost"] =
             (project.findProperty("nfcLinkHost") as String?) ?: "soundpola.babelbeast.com"
+
+        // Skip x86/x86_64 native builds (jni CMake flakes on Windows); device is arm64.
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
     }
 
     buildTypes {

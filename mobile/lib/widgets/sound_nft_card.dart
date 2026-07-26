@@ -4,12 +4,13 @@ import 'package:flutter/material.dart';
 
 import '../data/disc_rarity.dart';
 import '../data/sound_repository.dart';
+import '../services/audio_playback_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_dimens.dart';
+import 'baked_sound_visual.dart';
 import 'design_components.dart';
 import 'disc_texture.dart';
 import 'rarity_holo.dart';
-import 'sound_visual.dart';
 import 'ssr_aura_layer.dart';
 
 /// 卡面元信息侧重点：链上资产字段 or 分享场景（地点／日期＋水印）。
@@ -765,13 +766,11 @@ class _DiscHero extends StatelessWidget {
           : Stack(
               fit: StackFit.expand,
               children: [
-                SoundVisualCanvas(
-                  seed: item.visualSeed,
-                  mode: animateVisual
-                      ? SoundVisualMode.playback
-                      : SoundVisualMode.complete,
-                  active: animateVisual,
-                  dark: true,
+                BakedSoundVisual(
+                  item: item,
+                  playing: animateVisual,
+                  positionMsListenable: AudioPlaybackService.instance.positionMs,
+                  fit: BoxFit.cover,
                 ),
                 if (showHolo)
                   RarityHoloOverlay(
