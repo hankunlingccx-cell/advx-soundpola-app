@@ -230,13 +230,15 @@ class NfcService {
   }
 
   NfcBinding? _parseBinding(NdefMessage message) {
+    NfcBinding? fromUri;
     for (final record in message.records) {
       if (record.typeNameFormat == TypeNameFormat.media &&
           utf8.decode(record.type) == soundpolaMimeType) {
         try {
           final json =
               jsonDecode(utf8.decode(record.payload)) as Map<String, dynamic>;
-          return NfcBinding.fromJson(json);
+          final parsed = NfcBinding.fromJson(json);
+          if (parsed != null) return parsed;
         } catch (_) {}
       }
       if (record.typeNameFormat == TypeNameFormat.wellKnown &&
@@ -255,8 +257,86 @@ class NfcService {
           }
         }
       }
+      // Slim writes may be URI-only (`/c/{contentId}`); still counts as written.
+      if (fromUri == null &&
+          record.typeNameFormat == TypeNameFormat.wellKnown &&
+          record.type.isNotEmpty &&
+          record.type[0] == 0x55) {
+        fromUri = _bindingFromUriPayload(record.payload);
+      }
     }
-    return null;
+    return fromUri;
+  }
+
+  /// Treat SoundPola content deep links as an existing write (no overwrite).
+  NfcBinding? _bindingFromUriPayload(Uint8List payload) {
+    final uri = _decodeUriPayload(payload);
+    if (uri == null || uri.isEmpty) return null;
+    final contentId = _contentIdFromResolveUri(uri);
+    if (contentId == null) return null;
+    return NfcBinding(
+      soundId: '',
+      discId: '',
+      title: '',
+      contentId: contentId,
+      nfcUrl: uri,
+    );
+  }
+
+  String? _decodeUriPayload(Uint8List payload) {
+    if (payload.isEmpty) return null;
+    const prefixes = <String>[
+      '',
+      'http://www.',
+      'https://www.',
+      'http://',
+      'https://',
+      'tel:',
+      'mailto:',
+      'ftp://anonymous:anonymous@',
+      'ftp://ftp.',
+      'ftps://',
+      'sftp://',
+      'smb://',
+      'nfs://',
+      'ftp://',
+      'dav://',
+      'news:',
+      'telnet://',
+      'imap:',
+      'rtsp://',
+      'urn:',
+      'pop:',
+      'sip:',
+      'sips:',
+      'tftp:',
+      'btspp://',
+      'btl2cap://',
+      'btgoep://',
+      'tcpobex://',
+      'irdaobex://',
+      'file://',
+      'urn:epc:id:',
+      'urn:epc:tag:',
+      'urn:epc:pat:',
+      'urn:epc:raw:',
+      'urn:epc:',
+      'urn:nfc:',
+    ];
+    final code = payload[0];
+    final remainder = utf8.decode(payload.sublist(1), allowMalformed: true);
+    if (code < 0 || code >= prefixes.length) return remainder;
+    return '${prefixes[code]}$remainder';
+  }
+
+  /// `http(s)://{host}/c/{32hex}` or `soundpola://c/{32hex}`.
+  String? _contentIdFromResolveUri(String uri) {
+    final normalized = uri.trim();
+    final match = RegExp(
+      r'(?:soundpola://c/|/c/)([0-9a-fA-F]{32})(?:[/?#]|$)',
+      caseSensitive: false,
+    ).firstMatch(normalized);
+    return match?.group(1)?.toLowerCase();
   }
 
   String _decodeTextPayload(Uint8List payload) {
@@ -284,8 +364,11 @@ class NfcService {
     bool existingFactoryOnTag = false,
     int? maxNdefBytes,
   }) async {
-    final writable = await _isWritable(tag);
-    if (!writable) {
+    final snap = await inspectTag(tag);
+    if (snap.binding != null || (snap.factory?.bound ?? false)) {
+      throw StateError('该声片已写入');
+    }
+    if (!snap.writable) {
       throw StateError('该声片不可写入');
     }
     final linkUrl = (contentId != null && contentId.isNotEmpty)
@@ -301,12 +384,14 @@ class NfcService {
       series: series,
     );
 
-    final capacity = maxNdefBytes ?? _maxNdefBytes(tag);
+    final capacity = maxNdefBytes ?? snap.maxNdefBytes;
+
+    final hadFactoryOnTag = existingFactoryOnTag || snap.existingFactoryOnTag;
 
     // Prefer slim message: small tags (NTAG213 ~144B) cannot hold full MIME set.
     // Demo rarity can still be derived from tagId on read; only rewrite factory
     // when it already exists on the tag (update bound flag).
-    final factoryToWrite = existingFactoryOnTag && factory != null
+    final factoryToWrite = hadFactoryOnTag && factory != null
         ? factory.copyWith(bound: true)
         : null;
 
@@ -380,7 +465,7 @@ class NfcService {
         includeMimeBinding: true,
       ),
       build(
-        includeFactory: existingFactoryOnTag,
+        includeFactory: hadFactoryOnTag,
         compactBinding: true,
         includeUri: true,
         includeText: true,

@@ -265,6 +265,35 @@ class CloudMediaClient {
     return ContentSummary.fromJson(_jsonMap(res.body));
   }
 
+  /// Set public web title (`display_label` on `/c/{id}` page).
+  ///
+  /// Server defaults to「声音碎片 #XXXX」from content id; App must PATCH the
+  /// user-chosen sound name after upload.
+  Future<ContentSummary> renameContent({
+    required String token,
+    required String contentId,
+    required String displayLabel,
+  }) async {
+    final label = displayLabel.trim();
+    if (label.isEmpty) {
+      throw CloudMediaException('显示名称不能为空');
+    }
+    final clipped = label.length > 64 ? label.substring(0, 64) : label;
+    final uri = CloudMediaConfig.uri('/api/v1/contents/$contentId');
+    debugPrint('[CloudMedia] PATCH $uri display_label=$clipped');
+    final res = await _http.patch(
+      uri,
+      headers: {
+        ..._authHeaders(token),
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'display_label': clipped}),
+    );
+    debugPrint('[CloudMedia] rename -> ${res.statusCode} body=${res.body}');
+    if (res.statusCode != 200) throw _error(res);
+    return ContentSummary.fromJson(_jsonMap(res.body));
+  }
+
   /// Download immutable playback asset (normalized MP3 when [assetKind] is `audio`).
   ///
   /// OpenAPI marks this as PlaybackToken; owner UserToken is accepted by current

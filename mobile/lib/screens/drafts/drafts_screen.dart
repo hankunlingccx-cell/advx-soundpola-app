@@ -561,12 +561,35 @@ class _DraftsScreenState extends State<DraftsScreen>
       return;
     }
 
-    // 录音后已预上传且 READY：跳过上传／生成，直接写入。
+    // 录音后已预上传且 READY：仍可能缺网页视频，有本机 MP4 则先补传再写入。
     if (_isCloudPayloadReady(item)) {
       final contentId = item.contentId!.trim();
-      final writeUrl = _writeUrlFor(item);
+      if (item.hasVisualMp4) {
+        try {
+          final token = await AuthService.instance.requireCloudToken();
+          await _cloud.assertReachable();
+          if (mounted) {
+            setState(() {
+              _pressStatus = '正在确认可视化视频…';
+            });
+          }
+          await ensureContentReadyWithVideo(
+            cloud: _cloud,
+            item: item,
+            token: token,
+            contentId: contentId,
+            onStatus: (status) {
+              if (!mounted) return;
+              setState(() => _pressStatus = status);
+            },
+          );
+        } catch (e) {
+          debugPrint('[Drafts] READY video attach skipped: $e');
+        }
+      }
+      final writeUrl = _writeUrlFor(_freshLoadedItem() ?? item);
       await _beginNfcWriteSession(
-        item: item,
+        item: _freshLoadedItem() ?? item,
         contentId: contentId,
         writeUrl: writeUrl,
         cloudState: item.cloudState ?? 'READY',
@@ -852,14 +875,6 @@ class _DraftsScreenState extends State<DraftsScreen>
 
     if (contentId != null && contentId.isNotEmpty) {
       var summary = await _cloud.getContent(token: token, contentId: contentId);
-      if (summary.state == CloudContentState.ready) {
-        if (mounted) {
-          setState(() {
-            _pressStatus = '云端链接已就绪';
-          });
-        }
-        return summary;
-      }
       if (summary.state == CloudContentState.failed) {
         if (mounted) {
           setState(() {
@@ -868,17 +883,17 @@ class _DraftsScreenState extends State<DraftsScreen>
         }
         summary = await _cloud.retryContent(token: token, contentId: contentId);
       }
-      if (summary.state == CloudContentState.ready) return summary;
+      // READY 仍可能缺视频：网页 /c 固定播 /preview/.../video，需补传本机 MP4。
       if (mounted) {
         setState(() {
-          _pressStatus = '云端处理中…';
+          _pressStatus = summary.state == CloudContentState.ready
+              ? '正在确认可视化视频…'
+              : '云端处理中…';
         });
       }
-      final baked =
-          await VisualBakeService.instance.ensureReady(item.id) ?? item;
-      final video = await attachVisualVideoIfNeeded(
+      summary = await ensureContentReadyWithVideo(
         cloud: _cloud,
-        item: baked,
+        item: item,
         token: token,
         contentId: contentId,
         onStatus: (status) {
@@ -886,8 +901,13 @@ class _DraftsScreenState extends State<DraftsScreen>
           setState(() => _pressStatus = status);
         },
       );
-      if (video != null && video.state == CloudContentState.ready) {
-        return _cloud.getContent(token: token, contentId: contentId);
+      if (summary.state == CloudContentState.ready) {
+        if (mounted) {
+          setState(() {
+            _pressStatus = '云端链接已就绪';
+          });
+        }
+        return summary;
       }
       return _cloud.waitUntilReady(
         token: token,
@@ -993,8 +1013,10 @@ class _DraftsScreenState extends State<DraftsScreen>
     }
 
     final blob = '$code $message'.toLowerCase();
-    if (blob.contains('already') || message.contains('已绑定')) {
-      return '这枚声片已经封存过声音，请更换未绑定声片。';
+    if (blob.contains('already') ||
+        message.contains('已绑定') ||
+        message.contains('已写入')) {
+      return '该声片已写入，请更换空白声片。';
     }
     if (blob.contains('防伪') || blob.contains('authentic')) {
       return '声片防伪校验失败，请使用正版声片。';

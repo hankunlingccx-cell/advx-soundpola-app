@@ -1063,11 +1063,11 @@ class _BoundBody extends StatelessWidget {
       children: [
         const _SectionHead(
           code: 'ALREADY BOUND',
-          title: '该声片已绑定',
+          title: '该声片已写入',
         ),
         const SizedBox(height: 8),
         Text(
-          title?.isNotEmpty == true ? title! : '已永久绑定一段声音',
+          title?.isNotEmpty == true ? title! : '已永久写入一段声音',
           style: const TextStyle(
             color: AppColors.textPrimary,
             fontSize: 14,
@@ -1076,7 +1076,7 @@ class _BoundBody extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          '绑定时间：${timeLabel ?? '—'}',
+          '写入时间：${timeLabel ?? '—'}',
           style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
         ),
         Text(
@@ -1085,7 +1085,7 @@ class _BoundBody extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          '每枚声片只能永久绑定一次，不提供覆盖写入。\n'
+          '每枚声片只能永久写入一次，不提供覆盖写入。\n'
           '云端声音内容已保留，换空白声片后可直接写入，无需重新上传。',
           style: TextStyle(color: AppColors.textTertiary, fontSize: 12, height: 1.4),
         ),

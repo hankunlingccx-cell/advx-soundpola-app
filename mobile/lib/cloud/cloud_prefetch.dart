@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import '../data/sound_repository.dart';
 import '../services/auth_service.dart';
 import '../visual/audio_feature_timeline.dart';
-import '../visual/visual_bake_service.dart';
 import 'cloud_media_client.dart';
 import 'cloud_media_config.dart';
 import 'cloud_media_models.dart';
@@ -17,12 +16,18 @@ import 'cloud_upload.dart';
 /// 流程：音频 → `content_id`，再尽量上传本机 `visual.mp4`；只写入
 /// `contentId`／`nfcUrl`／`cloudState`，不改变 Draft 的 `SoundStatus`
 ///（避免误标为 writing／cloudReady 导致无法拖入写入机）。
+///
+/// 注意：云端可在仅音频时就标 READY；若因此跳过 MP4，NFC 网页
+/// `/c/{id}` 的 `<video src=/preview/.../video>` 会 404。故 READY 后仍会
+/// 在本机会话内补传一次本地 `visual.mp4`。
 class CloudPrefetchService {
   CloudPrefetchService._();
   static final CloudPrefetchService instance = CloudPrefetchService._();
 
   final CloudMediaClient _cloud = CloudMediaClient();
   final Set<String> _inflight = {};
+  /// Per-session: one video-attach attempt for already-READY contents.
+  final Set<String> _videoAttachTried = {};
 
   /// 单条：bake 完成后或保存 Draft 时调用。
   void schedule(String soundId) {
@@ -63,7 +68,12 @@ class CloudPrefetchService {
     final cid = item.contentId?.trim() ?? '';
     if (cid.isEmpty) return false;
     final state = (item.cloudState ?? '').toUpperCase();
-    return state == 'READY';
+    if (state != 'READY') return false;
+    // READY but local MP4 not yet offered → NFC web page has no video.
+    if (item.hasVisualMp4 && !_videoAttachTried.contains(item.id)) {
+      return false;
+    }
+    return true;
   }
 
   Future<void> prefetch(String soundId) async {
@@ -120,25 +130,25 @@ class CloudPrefetchService {
 
     if (contentId != null && contentId.isNotEmpty) {
       var summary = await _cloud.getContent(token: token, contentId: contentId);
-      if (summary.state == CloudContentState.ready) return summary;
       if (summary.state == CloudContentState.failed) {
         summary = await _cloud.retryContent(token: token, contentId: contentId);
       }
-      if (summary.state == CloudContentState.ready) return summary;
 
-      final baked =
-          await VisualBakeService.instance.ensureReady(item.id) ?? item;
-      final video = await attachVisualVideoIfNeeded(
-        cloud: _cloud,
-        item: baked,
-        token: token,
-        contentId: contentId,
-      );
-      if (video != null && video.state == CloudContentState.ready) {
-        return _cloud.getContent(token: token, contentId: contentId);
+      // Attach local MP4 even when already READY (audio-only READY left web
+      // `/preview/.../video` empty).
+      if (item.hasVisualMp4 || summary.state != CloudContentState.ready) {
+        _videoAttachTried.add(item.id);
+        summary = await ensureContentReadyWithVideo(
+          cloud: _cloud,
+          item: item,
+          token: token,
+          contentId: contentId,
+        );
+        if (summary.state == CloudContentState.ready) return summary;
+        return _cloud.waitUntilReady(token: token, contentId: contentId);
       }
 
-      return _cloud.waitUntilReady(token: token, contentId: contentId);
+      return summary;
     }
 
     final created = await uploadSoundPackage(
@@ -147,6 +157,7 @@ class CloudPrefetchService {
       token: token,
     );
     contentId = created.contentId;
+    _videoAttachTried.add(item.id);
     SoundRepository.instance.update(
       item.id,
       (s) => s.copyWith(

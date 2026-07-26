@@ -16,7 +16,6 @@ import '../../services/chain_service.dart';
 import '../../services/nfc_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
-import '../../visual/visual_bake_service.dart';
 import '../../widgets/design_components.dart';
 import '../../widgets/empty_state_panel.dart';
 import '../../widgets/rarity_holo.dart';
@@ -313,14 +312,16 @@ class _PressDetectScreenState extends State<PressDetectScreen> {
             final binding = await NfcService.instance.readBinding(tag);
             if (binding != null) {
               _handled = true;
-              await NfcService.instance.stopSession();
+              await NfcService.instance.stopSession(message: '该声片已写入');
               if (mounted) {
                 setState(() {
                   _state = _DetectState.bound;
-                  _boundDiscId = binding.discId;
+                  _boundDiscId = binding.discId.isNotEmpty
+                      ? binding.discId
+                      : binding.contentId;
                   _message = binding.rarity != null
-                      ? '该声片已绑定（${binding.rarity!.code}），无法覆盖'
-                      : '该声片已绑定，无法覆盖';
+                      ? '该声片已写入（${binding.rarity!.code}），无法覆盖'
+                      : '该声片已写入';
                 });
               }
               return;
@@ -347,12 +348,12 @@ class _PressDetectScreenState extends State<PressDetectScreen> {
             }
             if (factory.bound) {
               _handled = true;
-              await NfcService.instance.stopSession();
+              await NfcService.instance.stopSession(message: '该声片已写入');
               if (mounted) {
                 setState(() {
                   _state = _DetectState.bound;
                   _boundDiscId = factory.discId;
-                  _message = '该声片已绑定，无法覆盖';
+                  _message = '该声片已写入';
                 });
               }
               return;
@@ -416,7 +417,7 @@ class _PressDetectScreenState extends State<PressDetectScreen> {
               const SizedBox(height: 8),
               Text(_message, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.ink600)),
               if (_boundDiscId != null)
-                Text('已绑定：$_boundDiscId', style: const TextStyle(color: AppColors.error, fontSize: 13)),
+                Text('已写入：$_boundDiscId', style: const TextStyle(color: AppColors.error, fontSize: 13)),
               if (_state == _DetectState.error || _state == _DetectState.unreadable) ...[
                 const SizedBox(height: AppSpacing.section),
                 PrimaryButton(text: '重新检测', onPressed: () {
@@ -995,13 +996,6 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
 
     if (contentId != null && contentId.isNotEmpty) {
       var summary = await _cloud.getContent(token: token, contentId: contentId);
-      if (summary.state == CloudContentState.ready) {
-        setState(() {
-          _phase = _phases[1];
-          _progress = 0.5;
-        });
-        return summary;
-      }
       if (summary.state == CloudContentState.failed) {
         setState(() {
           _phase = '重试云端处理…';
@@ -1009,16 +1003,16 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
         });
         summary = await _cloud.retryContent(token: token, contentId: contentId);
       }
-      if (summary.state == CloudContentState.ready) return summary;
       setState(() {
-        _phase = _phases[1];
+        _phase = summary.state == CloudContentState.ready
+            ? '正在确认可视化视频…'
+            : _phases[1];
         _progress = 0.25;
       });
-      final baked =
-          await VisualBakeService.instance.ensureReady(item.id) ?? item;
-      final video = await attachVisualVideoIfNeeded(
+      // READY 仍可能缺视频：网页 /c 固定播 /preview/.../video，需补传本机 MP4。
+      summary = await ensureContentReadyWithVideo(
         cloud: _cloud,
-        item: baked,
+        item: item,
         token: token,
         contentId: contentId,
         onStatus: (status) {
@@ -1029,8 +1023,12 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
           });
         },
       );
-      if (video != null && video.state == CloudContentState.ready) {
-        return _cloud.getContent(token: token, contentId: contentId);
+      if (summary.state == CloudContentState.ready) {
+        setState(() {
+          _phase = _phases[1];
+          _progress = 0.5;
+        });
+        return summary;
       }
       return _cloud.waitUntilReady(
         token: token,

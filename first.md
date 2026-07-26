@@ -450,7 +450,7 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 关闭 / 取消入口。
 
-实时声音可视化：参考 visuallization Axis Field 线性声场，Flutter 端为四象限严格镜像。几何只在第一象限计算并绘制一次（纯 `drawCircle` 圆形粒子：径向／弧向／弦向平行珠串），其余三象限用 Canvas `scale(±1,±1)` 镜像，不重复生成粒子。Isolate 输出 `AudioFeatures`；CustomPainter 只读快照。主驱动为音量（响度）：快攻慢释映射到 `volumeStyle`，中等响度即明显变形，在安静／中等／响亮样式 A／B／C 间流畅连续变形（尖锐度、密度、珠径性格、波纹／弦向结构、流速、青→粉着色），A↔C 对比拉大；禁止单纯放大缩小或整图 scale。整体外轮廓几乎固定；粒子半径仅随样式性格变化。待机持续慢漂移。禁止球体点阵、线段／非圆粒子、按阈值硬切离散图案、每帧随机闪烁。
+实时声音可视化：参考 visuallization Axis Field 线性声场，Flutter 端为四象限严格镜像。几何只在第一象限计算并绘制一次（纯 `drawCircle` 圆形粒子：径向／弧向／弦向平行珠串），其余三象限用 Canvas `scale(±1,±1)` 镜像，不重复生成粒子。Isolate 输出 `AudioFeatures`；CustomPainter 只读快照。**主驱动为音量**：小声→运动慢、形变小；大声→运动快、形变大；`volumeStyle` 随响度在安静／中等／响亮样式 A／B／C 间连续变形（尖锐度、密度、珠径性格、波纹／弦向结构、流速、青→粉着色）；频谱／onset 仅作轻辅。禁止单纯放大缩小或整图 scale。整体外轮廓几乎固定；粒子半径仅随样式性格变化。待机持续极慢漂移。禁止球体点阵、线段／非圆粒子、按阈值硬切离散图案、每帧随机闪烁。
 
 录音计时；最长 30 秒，到达上限自动完成录音。
 
@@ -494,7 +494,7 @@ NFC 权限或系统状态：在 Press 前按需请求。
 
 拟物设备：冷白 ABS（#F3F5F2／#C9CECB）、内凹前面板、黑色玻璃屏、凹陷插槽嵌于外壳顶缘（自上向下插入）、状态灯；机身下方叠一层更高的毛玻璃存储仓。声卡插入仅进入待写入态；NFC 写入并封存成功后，带稀有度贴图的圆形声片（N／R／SR／SSR 固定贴图，与 Collection 同源）落入仓内，模拟重力下落、地面／侧壁／声片两两碰撞回弹后静止（中心距约束，不允许完全重合叠成一张）；仓内可同时保留多张（至多 5 张、各保留约 7 天），数据本地存储但按登录账户隔离（换号不可见他人仓内声片），空仓无装饰。待机：`READY TO PRESS`／`SELECT A SOUND CARD`；靠近：`CARD DETECTED`／`RELEASE TO INSERT`；写入：`PRESSING MEMORY`＋进度；完成：`MEMORY PRESSED`。拖拽仅跟手；松手进入释放区后对齐顶部插口并下吸入槽（遮挡仅发生在插入动画，口下被机身裁切）。设备整体放大，约占屏高约 38%。
 
-NFC 指引：插入成功后展开；Browsing 不提前展开。流程：录音可视化 bake 完成后后台预上传云端（Draft 仍为本地暂存）→ 若尚未 READY 则在 Press 时补齐上传／处理 → 单次贴近检查并写入 → 上链（无需贴近）。云端失败与 NFC 写入失败分开引导重试。若贴近到已绑定声片：提示不可覆盖，并引导换空白声片；此时云端声音内容已保留，点「换空白声片继续写入」直接进入 NFC 写入，不重新上传或生成。
+NFC 指引：插入成功后展开；Browsing 不提前展开。流程：录音可视化 bake 完成后后台预上传云端（Draft 仍为本地暂存）→ 若尚未 READY 则在 Press 时补齐上传／处理 → 单次贴近**先识别是否已写入**（MIME／Text／URI `/c/{contentId}` 或出厂 bound）→ 空白才写入 → 上链（无需贴近）。云端失败与 NFC 写入失败分开引导重试。若贴近到已有内容的声片：系统提示「该声片已写入」，不可覆盖，并引导换空白声片；此时云端声音内容已保留，点「换空白声片继续写入」直接进入 NFC 写入，不重新上传或生成。
 
 暂存卡组：横向错位堆叠；冷白半硬质卡面与设备同材质系统；含 DRAFT 编号、圆形视觉、分类色带。
 
@@ -600,9 +600,9 @@ NFC 检测动画与操作示意。
 
 “将手机靠近声片”。
 
-检测结果：空白（未绑定正版声片）、已绑定、无法识别、防伪失败、连接中断。
+检测结果：空白（未写入正版声片）、已写入、无法识别、防伪失败、连接中断。
 
-已绑定：不可覆盖；引导换空白声片继续写入。若当前声音的云端内容已就绪，跳过重新上传与生成，直接进入写入贴近。
+已写入：提示「该声片已写入」，不可覆盖；引导换空白声片继续写入。若当前声音的云端内容已就绪，跳过重新上传与生成，直接进入写入贴近。
 
 读取出厂编号与系列；稀有度暂不明文展示，进入揭晓页。
 
@@ -1181,7 +1181,7 @@ Account 首页。
 
 声音视觉：四象限镜像线性粒子线束（Q1 纯圆粒子确定性生成一次 → Canvas scale 镜像三象限）；参考 visuallization 线性万花筒密度与流动感；Isolate AGC＋spectrum 局部映射；CustomPainter + RepaintBoundary。**性能**：idle／complete／列表缩略静态单帧（不停 60fps ticker）；仅录音／当前播放／暂停保留动画，并按实际帧率分档降粒子与目标 fps；全息／SSR 粒子仅主卡或选中卡；播放 Indexed-MJPEG 解码去重＋小 LRU／封面兜底；录音特征 UI 约 25Hz；大面积毛玻璃降低 sigma。录音钮：实心青圆＋黑点，录音变圆角方停止符。
 
-可视化留存：录音中记录 AudioDrive 时间序列；**录音／导入结束进入结果页即**离屏确定性 bake（低粒子档、逐帧向 UI yield）→ Indexed-MJPEG（512²／12fps／q≈80）＋idx＋manifest＋cover；Android 再编码 `visual.mp4`（H.264）供云端。保存 Draft 时提交包元数据，不把 bake 推迟到 Press。播放按 audioPositionMs 随机访问帧（最新帧优先、旧解码丢弃）；`rendererVersion=soundpola_kaleido_linear_v2`（旧包保留 v1 帧流不改写）。bake 就绪（或失败仅音频）后，若已登录则后台两段式预上传：`POST /contents` 仅音频 →（有 mp4 时）`POST /contents/{id}/video` 字段 `video`；成功常直接 `READY`，写入 `contentId`／`nfc_url` 但不改 Draft 状态；Press 时若已 READY 则跳过上传直接 NFC 写入（未就绪仍经 `ensureReady` 兜底）。
+可视化留存：录音中记录 AudioDrive 时间序列；**录音／导入结束进入结果页即**离屏确定性 bake（低粒子档、逐帧向 UI yield）→ Indexed-MJPEG（512²／12fps／q≈80）＋idx＋manifest＋cover；Android 再编码 `visual.mp4`（H.264）供云端。保存 Draft 时提交包元数据，不把 bake 推迟到 Press。播放按 audioPositionMs 随机访问帧（最新帧优先、旧解码丢弃）；`rendererVersion=soundpola_kaleido_linear_v3`（旧包保留既有帧流不改写）。bake 就绪（或失败仅音频）后，若已登录则后台两段式预上传：`POST /contents` 仅音频 →（有 mp4 时）`POST /contents/{id}/video` 字段 `video`；成功常直接 `READY`，写入 `contentId`／`nfc_url` 但不改 Draft 状态；Press 时若已 READY 则跳过上传直接 NFC 写入（未就绪仍经 `ensureReady` 兜底）。
 
 四 Tab：Record / Drafts / Collection / Lab；Press / 分类声片播放页 / Account 不进底栏。
 
@@ -1191,9 +1191,9 @@ Account 首页。
 
 账号密码注册 / 登录（本地账号库 + 安全 session）；登录后映射签发 Cloud Media UserToken（SecureStorage，一次下发长期持有）。
 
-Press：优先复用 Draft 预上传的 `contentId`／`nfc_url`（READY 则跳过上传）；否则两段式上传——`POST /api/v1/contents` 仅源音频拿 `content_id`，再 `POST /api/v1/contents/{id}/video` 上传本机 `visual.mp4`（字段名 `video`；无 mp4 时仅音频并轮询）；视频成功常直接 `READY`（`/preview/{id}/video`／`/audio` 可预览）→ NFC 写入 `contentId` + `nfc_url`（兼容 Trigger）→ 本地仍模拟 NFT 上链；可选经已配对 Memory Terminal 硬件完成物理写入／出卡（HMI 见 `hadwareui.md`）。Draft 详情／列表「发送至设备写入」走硬件任务路径：APP 发任务、设备端放卡写入校验、状态回传；成功进 Collection，失败保留 Draft 可重发。已绑定冲突换空白片时复用已就绪的云端 `contentId`／`nfc_url`，直接进入 NFC 写入，不重新上传或生成。
+Press：优先复用 Draft 预上传的 `contentId`／`nfc_url`（READY 则跳过音频上传）；若本机仍有 `visual.mp4` 则仍会 `POST .../video` 补传（避免仅音频 READY 导致 NFC 网页 `/preview/{id}/video` 空白）。否则两段式上传——`POST /api/v1/contents` 仅源音频拿 `content_id`（multipart 文件名优先为用户设定的声音名称＋原扩展名，未命名则回退本机 `audio.wav`／`audio.m4a`），再 `POST /api/v1/contents/{id}/video` 上传本机 `visual.mp4`（字段名 `video`；无 mp4 时仅音频并轮询）；视频成功常直接 `READY`。上传后（及本地改名时）`PATCH /api/v1/contents/{id}` 把用户设定的声音名称写入 `display_label`（否则网页默认「声音碎片 #XXXX」）。NFC 写入前先识别声片是否已有内容（绑定 MIME／Text／URI `/c/{id}`／出厂 bound），已有则提示「该声片已写入」并拒绝覆盖；空白才写入 `contentId` + `nfc_url`（兼容 Trigger）→ 本地仍模拟 NFT 上链；可选经已配对 Memory Terminal 硬件完成物理写入／出卡（HMI 见 `hadwareui.md`）。Draft 详情／列表「发送至设备写入」走硬件任务路径：APP 发任务、设备端放卡写入校验、状态回传；成功进 Collection，失败保留 Draft 可重发。已写入冲突换空白片时复用已就绪的云端 `contentId`／`nfc_url`，直接进入 NFC 写入，不重新上传或生成。
 
-NFC 深链打开：声片写入 Well-Known URI 记录（TNF=0x01，type=`U`），按 NFC Forum URI RTD 使用前缀缩写码（`http://`→`0x03`，`https://`→`0x04`），payload 仅存 host+path；勿用 `0x00` 整段写入（NFC Tools 会显示 `Record 1` 而非 `Record 1 - http://`，系统读卡常打不开）。URI 放在 NDEF 消息首条；容量允许时再附 MIME／Text 绑定。目标链接形如 `http://{host}/c/{contentId}`（或 `https://`／`soundpola://c/{contentId}`）。冷／热启动均进入 `/c/:contentId` 内容解析页（本机已有则进分类播放；未登录先登录再恢复；可 claim 云端记忆）。`go_router` 忽略平台原始 URI 作为初始 location，由 DeepLinkService 归一化后导航，避免 `soundpola://…` 被当成未知路由。
+NFC 深链打开：声片写入 Well-Known URI 记录（TNF=0x01，type=`U`），按 NFC Forum URI RTD 使用前缀缩写码（`http://`→`0x03`，`https://`→`0x04`），payload 仅存 host+path；勿用 `0x00` 整段写入（NFC Tools 会显示 `Record 1` 而非 `Record 1 - http://`，系统读卡常打不开）。URI 放在 NDEF 消息首条；容量允许时再附 MIME／Text 绑定。目标链接形如 `http://{host}/c/{contentId}`（或 `https://`／`soundpola://c/{contentId}`）。**网页 `/c/{id}` 标题取云端 `display_label`**（须 App 已 PATCH 用户名称）；`<video src=/preview/{id}/video>` 依赖已上传本机 H.264。冷／热启动均进入 `/c/:contentId` 内容解析页（本机已有则进分类播放；未登录先登录再恢复；可 claim 云端记忆）。`go_router` 忽略平台原始 URI 作为初始 location，由 DeepLinkService 归一化后导航，避免 `soundpola://…` 被当成未知路由。
 
 Drafts 保持本地优先且按账户隔离；Collection 登录后同步当前账号 READY 内容；列表按分类胶囊双列瀑布流；点击跑道进入 `/collection/category/:categoryId` 分类声片播放页（贴图环形进度 + 横向堆叠 + 完整记忆／声片／NFT）；取消独立 Memory 路由；长按声卡可拖入其他分类调整展示分类。
 

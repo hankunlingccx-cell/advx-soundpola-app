@@ -29,14 +29,21 @@ Content-Type: multipart/form-data; boundary=...
 ```
 
 - 文件字段名必须是 **`audio`**
+- App 上传时 multipart 文件名优先用用户设定的声音名称（保留本机扩展名，如 `我的声音.wav`）；未命名时回退 `audio.wav`／`audio.m4a`
 - 不要手写死 `Content-Type: multipart/form-data`（须带 boundary，由客户端自动生成）
 - 成功：`201` + `content_id` / `state`（多为 `UPLOADED`）/ `status_url`
+- 默认 `display_label` 形如「声音碎片 #XXXX」；App 会再 `PATCH /api/v1/contents/{id}` 写入用户设定的声音名称（网页 `/c/{id}` 标题用此字段）
 
 ```bash
 CONTENT_ID=$(curl -s -X POST https://soundpola.babelbeast.com/api/v1/contents \
   -H "Authorization: Bearer $USER_TOKEN" \
   -F "audio=@/path/to/audio.mp3" \
   | python -c "import sys,json;print(json.load(sys.stdin)['content_id'])")
+
+curl -X PATCH "https://soundpola.babelbeast.com/api/v1/contents/$CONTENT_ID" \
+  -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"display_label":"我的声音名称"}'
 ```
 
 ## 2) 上传可视化 MP4

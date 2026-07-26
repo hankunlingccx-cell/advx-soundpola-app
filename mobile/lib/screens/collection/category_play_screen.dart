@@ -5,9 +5,12 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../cloud/cloud_upload.dart';
 import '../../data/sound_repository.dart';
 import '../../services/audio_playback_service.dart';
+import '../../services/auth_service.dart';
 import '../../services/location_capture_service.dart';
+import '../../cloud/cloud_media_client.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
 import '../../widgets/design_components.dart';
@@ -258,6 +261,17 @@ class _CategoryPlayScreenState extends State<CategoryPlayScreen> {
     final next = result.trim();
     if (next.isEmpty || next == item.title) return;
     SoundRepository.instance.update(item.id, (s) => s.copyWith(title: next));
+    final cid = item.contentId?.trim() ?? '';
+    if (cid.isEmpty || !AuthService.instance.isLoggedIn) return;
+    try {
+      final token = await AuthService.instance.requireCloudToken();
+      await syncCloudDisplayLabel(
+        cloud: CloudMediaClient(),
+        item: item.copyWith(title: next),
+        token: token,
+        contentId: cid,
+      );
+    } catch (_) {}
   }
 
   Future<void> _editDescription(SoundMemory item) async {

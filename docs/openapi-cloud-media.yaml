@@ -800,6 +800,54 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+        - contents
+      summary: Rename owned content
+      description: >
+        Updates `display_label` shown on the public NFC web page `/c/{content_id}`
+        (default server label is like「声音碎片 #XXXX」). Max 64 characters.
+      operationId: renameOwnedContent
+      security:
+        - UserToken: []
+      parameters:
+        - name: content_id
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Content Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContentLabelUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentSummary'
+        '401':
+          description: A required Bearer Token is missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: The content or media object does not exist or is not visible to this role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     delete:
       tags:
         - contents
@@ -1012,6 +1060,18 @@ components:
         - display_label
         - status_url
       title: ContentCreated
+    ContentLabelUpdate:
+      properties:
+        display_label:
+          type: string
+          minLength: 1
+          maxLength: 64
+          title: Display Label
+          description: Public title on /c/{content_id} web page
+      type: object
+      required:
+        - display_label
+      title: ContentLabelUpdate
     ContentList:
       properties:
         items:

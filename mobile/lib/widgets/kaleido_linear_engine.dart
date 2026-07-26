@@ -223,29 +223,26 @@ class KaleidoLinearEngine {
 
   void updateAudio(AudioFeatures f, double dt) {
     spectrum = f.spectrum;
-    // Prefer fast envelope so beads / flow snap with speech syllables.
-    final live = math.max(
-      f.fastEnvelope,
-      math.max(f.gatedRms, f.rms * 0.85),
-    );
-    energy = _ar(energy, live.clamp(0.0, 1.0), 0.01, 0.09, dt);
-    bass = _ar(bass, f.bass, 0.02, 0.12, dt);
-    mid = _ar(mid, f.mid, 0.016, 0.09, dt);
-    treble = _ar(treble, f.treble, 0.014, 0.08, dt);
-    centroid = _ar(centroid, f.spectralCentroid, 0.04, 0.14, dt);
-    flux = _ar(flux, f.spectralFlux, 0.014, 0.09, dt);
-    final onsetT = f.onset > 0.1 ? f.onset : 0.0;
-    onset = onsetT > onset ? onsetT : _ar(onset, 0, 0.04, 0.18, dt);
-    zcr = _ar(zcr, f.zeroCrossingRate, 0.03, 0.1, dt);
+    // Primary driver = loudness only (fast envelope / gated RMS).
+    final live = math.max(f.fastEnvelope, f.gatedRms).clamp(0.0, 1.0);
+    energy = _ar(energy, live, 0.012, 0.1, dt);
+    bass = _ar(bass, f.bass, 0.025, 0.14, dt);
+    mid = _ar(mid, f.mid, 0.02, 0.11, dt);
+    treble = _ar(treble, f.treble, 0.018, 0.1, dt);
+    centroid = _ar(centroid, f.spectralCentroid, 0.05, 0.16, dt);
+    flux = _ar(flux, f.spectralFlux, 0.02, 0.1, dt);
+    final onsetT = f.onset > 0.12 ? f.onset : 0.0;
+    onset = onsetT > onset ? onsetT : _ar(onset, 0, 0.045, 0.2, dt);
+    zcr = _ar(zcr, f.zeroCrossingRate, 0.035, 0.12, dt);
 
-    // Volume→style: fast attack so loudness clearly reshapes structure.
-    final targetStyle = _volumeToStyle(energy, onset);
+    // Style follows volume: quiet→A, mid→B, loud→C.
+    final targetStyle = _volumeToStyle(energy);
     final rising = targetStyle > volumeStyle;
     volumeStyle = _ar(
       volumeStyle,
       targetStyle,
-      rising ? 0.032 : 0.11,
-      rising ? 0.032 : 0.11,
+      rising ? 0.04 : 0.12,
+      rising ? 0.04 : 0.12,
       dt,
     );
   }
@@ -253,23 +250,20 @@ class KaleidoLinearEngine {
   void tick(double dt) {
     time += dt;
     applyInertia(dt);
-    final idle = 0.028 +
-        math.sin(time * 0.55) * 0.006 +
-        math.sin(time * 0.19) * 0.004;
-    final drive = math.max(energy, idle);
+    final vol = energy.clamp(0.0, 1.0);
     final look = _styleLook(volumeStyle);
-    final flowSpeed = 0.11 *
-        (1.0 + drive * 1.85 + look.flowMul * 0.75 + onset * 0.7 + flux * 0.35);
+    // Quiet ≈ crawl; loud ≈ sprint. Volume dominates speed.
+    final flowSpeed = 0.018 +
+        vol * vol * 0.42 * look.flowMul +
+        vol * 0.08 +
+        onset * 0.04 * vol;
     flowPhase = (flowPhase + dt * flowSpeed) % 1.0;
   }
 
-  /// Map mic energy to style progress — steeper than before so mid speech
-  /// already leaves quiet look and peaks reach loud structure.
-  static double _volumeToStyle(double energy, double onset) {
-    final e = (energy + onset * 0.35).clamp(0.0, 1.0);
-    // Expand mid-range: softstep then mild gamma so changes feel bigger.
-    final s = _smoothstep(0.04, 0.52, e);
-    return math.pow(s, 0.82).toDouble().clamp(0.0, 1.0);
+  /// Loudness → style 0–1. Soft stays near quiet; peaks reach loud look.
+  static double _volumeToStyle(double energy) {
+    final s = _smoothstep(0.03, 0.58, energy.clamp(0.0, 1.0));
+    return math.pow(s, 0.9).toDouble().clamp(0.0, 1.0);
   }
 
   /// Adjacent A↔B / B↔C morph from continuous volumeStyle.
@@ -297,19 +291,22 @@ class KaleidoLinearEngine {
     final cy = size.height * 0.5;
     final scale = size.shortestSide * 0.46 * zoom;
 
-    final idle = 0.028 + math.sin(time * 0.55) * 0.006;
-    final drive = math.max(energy, idle);
+    // Volume gates how much the field moves / morphs (quiet = small & slow).
+    final vol = energy.clamp(0.0, 1.0);
+    final drive = _soft(vol);
     final look = _styleLook(volumeStyle);
-    final shapeT = _smoothstep(0.06, 0.88, volumeStyle);
-    // Style morphs structure — silhouette almost fixed (no balloon), but
-    // fold / wave / tip react strongly to loudness.
-    final geo = _soft(drive) * 0.62;
-    final fold = (0.28 + look.foldMul * 0.38 + userFold * 0.45 + shapeT * 0.14)
-        .clamp(0.14, 0.92);
-    final outerBoost = 0.992 + shapeT * 0.02 + onset * 0.028;
-    final tipSharp = 0.2 + look.sharpness * 1.05 + shapeT * 0.18;
-    final waveMul = look.waveAmp;
-    final struct = look.structureShift;
+    final shapeT = volumeStyle.clamp(0.0, 1.0);
+    final amp = (0.12 + vol * 0.88).clamp(0.12, 1.0); // change size vs loudness
+    final geo = drive * 0.7 * amp;
+    final fold = (0.12 +
+            look.foldMul * 0.42 * amp +
+            userFold * 0.45 +
+            shapeT * 0.12 * amp)
+        .clamp(0.1, 0.95);
+    final outerBoost = 0.994 + shapeT * 0.018 * amp + onset * 0.02 * vol;
+    final tipSharp = 0.12 + (look.sharpness * 1.1 + shapeT * 0.2) * amp;
+    final waveMul = look.waveAmp * amp;
+    final struct = look.structureShift * amp;
 
     // Build Q1 once (pure circles). Coordinates: +x right, +y up from origin.
     // Cull rect keeps mirrored Picture draws finite (avoids unbounded glitches).
@@ -329,9 +326,9 @@ class KaleidoLinearEngine {
         2 => 0.6 + mid * 0.2 + treble * 0.15,
         _ => 0.55 + treble * 0.3 + zcr * 0.1,
       };
-      // Brightness follows mic energy / onset; style morphs pattern character.
+      // Brightness mainly from volume; spectrum / onset are light accents.
       final bright =
-          (0.1 + drive * 0.72 + localSoft * 0.32 + onset * 0.35 + flux * 0.12) *
+          (0.14 + vol * 0.7 + localSoft * 0.18 * vol + onset * 0.2 * vol) *
               layerW;
       final color = _color(bright.clamp(0.0, 1.0), rib.layer);
       final half = (rib.parallel - 1) * 0.5;
@@ -340,18 +337,17 @@ class KaleidoLinearEngine {
         // Louder → denser parallel rows (tighter spacing), not overall zoom.
         final offNorm = (p - half) *
             rib.spacing *
-            (0.88 + geo * 0.14 + localSoft * 0.1) /
+            (0.9 + geo * 0.12 + localSoft * 0.08 * vol) /
             look.density.clamp(0.48, 1.9);
 
         for (var i = 0; i < rib.particles; i++) {
           final u = rib.particles <= 1 ? 0.5 : i / (rib.particles - 1);
-          // Style-driven drift along the ribbon (quiet slow / loud snappy).
+          // Drift amount & rate follow volume (quiet almost still).
           final styleDrift =
-              math.sin(time * (0.35 + look.flowMul * 0.95) + rib.phase) *
-                  (0.022 + shapeT * 0.1 + struct * 0.07);
+              math.sin(time * (0.12 + vol * look.flowMul * 1.1) + rib.phase) *
+                  (0.006 + vol * 0.12 + struct * 0.05);
           final flowU = (u +
-                  flowPhase * rib.flowDir * (0.38 + flux * 0.4) *
-                      look.flowMul +
+                  flowPhase * rib.flowDir * (0.2 + vol * 0.45) * look.flowMul +
                   rib.phase * 0.02 +
                   userPhase * 0.15 +
                   styleDrift)
@@ -589,8 +585,8 @@ class KaleidoLinearEngine {
             spectrum[i1] * (0.35 * f + 0.2) +
             spectrum[iP] * 0.1)
         .clamp(0.0, 1.0);
-    // Peak-normalized bins alone hide loudness — re-scale by live energy.
-    return (shape * (0.28 + energy * 0.85) + energy * 0.18).clamp(0.0, 1.0);
+    // Local spectrum only accents volume-driven brightness.
+    return (energy * 0.55 + shape * energy * 0.45).clamp(0.0, 1.0);
   }
 
   static double _ar(
