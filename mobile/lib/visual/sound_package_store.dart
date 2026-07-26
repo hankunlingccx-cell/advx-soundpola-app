@@ -67,11 +67,15 @@ class SoundPackageStore {
     return 'audio.m4a';
   }
 
-  /// Move/copy [sourceAudio] into package as audio.wav / audio.m4a; write features.
+  /// Copy/move [sourceAudio] into package as audio.wav / audio.m4a; write features.
+  ///
+  /// When [moveAudio] is false (early prepare after record), keep the source file
+  /// so result-page preview / re-record still work until the user commits.
   Future<SoundPackagePaths> materialize({
     required String soundId,
     required String sourceAudioPath,
     required AudioFeatureTimeline timeline,
+    bool moveAudio = true,
   }) async {
     final dir = await packageDir(soundId);
     final audio = File(_join(dir, _audioPackageName(sourceAudioPath)));
@@ -87,13 +91,17 @@ class SoundPackageStore {
         }
       }
       if (await audio.exists()) await audio.delete();
-      try {
-        await src.rename(audio.path);
-      } catch (_) {
-        await src.copy(audio.path);
+      if (moveAudio) {
         try {
-          await src.delete();
-        } catch (_) {}
+          await src.rename(audio.path);
+        } catch (_) {
+          await src.copy(audio.path);
+          try {
+            await src.delete();
+          } catch (_) {}
+        }
+      } else {
+        await src.copy(audio.path);
       }
     }
     final features = File(_join(dir, 'audio_features.bin'));

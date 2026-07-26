@@ -49,8 +49,6 @@ class NfcGuidePanel extends StatelessWidget {
     this.soundTitle,
     this.cloudStage,
     this.statusHint,
-    /// 0–100：云端「生成声音内容」步骤百分比（上传阶段可为空）。
-    this.cloudProgressPercent,
     this.chaining = false,
     this.failReason,
     this.boundTitle,
@@ -76,7 +74,6 @@ class NfcGuidePanel extends StatelessWidget {
   final String? soundTitle;
   final CloudPrepStage? cloudStage;
   final String? statusHint;
-  final int? cloudProgressPercent;
   final bool chaining;
   final String? failReason;
   final String? boundTitle;
@@ -170,7 +167,6 @@ class NfcGuidePanel extends StatelessWidget {
           onRetrieve: onRetrieve,
           isSimulation: isSimulation,
           statusHint: statusHint,
-          progressPercent: cloudProgressPercent,
         ),
       NfcGuidePhase.writePrompt => _WritePromptBody(
           breath: breath,
@@ -522,8 +518,8 @@ class _CheckPromptBody extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          '音频将上传到云端并生成声片链接（此步骤无需贴近声片）\n'
-          '准备完成后，只需贴近声片一次即可检查并写入',
+          '若声音尚未上云，将先上传并生成链接（无需贴近声片）\n'
+          '已预上传完成时，贴近声片即可直接检查并写入',
           style: TextStyle(
             color: AppColors.textTertiary,
             fontSize: 13,
@@ -638,49 +634,20 @@ class _CloudBody extends StatelessWidget {
     this.onRetrieve,
     this.isSimulation = false,
     this.statusHint,
-    this.progressPercent,
   });
 
   final CloudPrepStage stage;
   final VoidCallback? onRetrieve;
   final bool isSimulation;
   final String? statusHint;
-  final int? progressPercent;
 
   @override
   Widget build(BuildContext context) {
-    final processDone = stage == CloudPrepStage.ready;
-    final processCurrent = stage == CloudPrepStage.process;
-    final processPercent = processDone
-        ? 100
-        : (processCurrent ? (progressPercent ?? 0).clamp(0, 99) : null);
-
     final steps = [
-      (
-        '上传声音',
-        stage.index >= CloudPrepStage.upload.index,
-        stage == CloudPrepStage.upload,
-        null as int?,
-      ),
-      (
-        '生成声音内容',
-        stage.index >= CloudPrepStage.process.index,
-        processCurrent,
-        processPercent,
-      ),
-      (
-        '等待写入',
-        stage == CloudPrepStage.ready,
-        stage == CloudPrepStage.ready,
-        null as int?,
-      ),
+      ('上传声音', stage.index >= CloudPrepStage.upload.index),
+      ('生成声音内容', stage.index >= CloudPrepStage.process.index),
+      ('等待写入', stage == CloudPrepStage.ready),
     ];
-
-    final hint = statusHint?.trim().isNotEmpty == true
-        ? statusHint!
-        : (processCurrent && processPercent != null
-            ? '正在生成声音内容 $processPercent%'
-            : '正在上传并生成声片链接，完成后请贴近声片一次');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -710,7 +677,9 @@ class _CloudBody extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          hint,
+          statusHint?.trim().isNotEmpty == true
+              ? statusHint!
+              : '正在上传并生成声片链接，完成后请贴近声片一次',
           style: const TextStyle(
             color: AppColors.textTertiary,
             fontSize: 12,
@@ -723,8 +692,8 @@ class _CloudBody extends StatelessWidget {
             index: i + 1,
             label: steps[i].$1,
             active: steps[i].$2,
-            current: steps[i].$3,
-            percent: steps[i].$4,
+            current: stage.index == i ||
+                (stage == CloudPrepStage.ready && i == steps.length - 1),
           ),
           if (i < steps.length - 1) const SizedBox(height: 8),
         ],
@@ -748,21 +717,18 @@ class _StageRow extends StatelessWidget {
     required this.label,
     required this.active,
     required this.current,
-    this.percent,
   });
 
   final int index;
   final String label;
   final bool active;
   final bool current;
-  final int? percent;
 
   @override
   Widget build(BuildContext context) {
     final color = current
         ? AppColors.accent
         : (active ? AppColors.textSecondary : AppColors.textTertiary);
-    final showPercent = percent != null && (current || active);
     return Row(
       children: [
         Container(
@@ -788,27 +754,16 @@ class _StageRow extends StatelessWidget {
                 ),
         ),
         const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 13,
-              fontWeight: current ? FontWeight.w600 : FontWeight.w400,
-            ),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 13,
+            fontWeight: current ? FontWeight.w600 : FontWeight.w400,
           ),
         ),
-        if (showPercent)
-          Text(
-            '$percent%',
-            style: TextStyle(
-              color: current ? AppColors.accent : AppColors.textSecondary,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          )
-        else if (current)
+        if (current) ...[
+          const Spacer(),
           SizedBox(
             width: 14,
             height: 14,
@@ -817,6 +772,7 @@ class _StageRow extends StatelessWidget {
               color: AppColors.accent.withValues(alpha: 0.85),
             ),
           ),
+        ],
       ],
     );
   }
@@ -1129,15 +1085,16 @@ class _BoundBody extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          '每枚声片只能永久绑定一次，不提供覆盖写入。',
-          style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+          '每枚声片只能永久绑定一次，不提供覆盖写入。\n'
+          '云端声音内容已保留，换空白声片后可直接写入，无需重新上传。',
+          style: TextStyle(color: AppColors.textTertiary, fontSize: 12, height: 1.4),
         ),
         const SizedBox(height: 14),
+        PrimaryButton(text: '换空白声片继续写入', onPressed: onDetectOther),
         if (onViewBoundSound != null) ...[
-          PrimaryButton(text: '查看声音', onPressed: onViewBoundSound),
           const SizedBox(height: 8),
+          SecondaryButton(text: '查看已绑定声音', onPressed: onViewBoundSound),
         ],
-        SecondaryButton(text: '更换其他声片', onPressed: onDetectOther),
       ],
     );
   }

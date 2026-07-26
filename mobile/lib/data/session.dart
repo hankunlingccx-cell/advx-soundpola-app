@@ -10,6 +10,21 @@ class RecordingSession {
   static int visualSeed = 0;
   static AudioFeatureTimeline? featureTimeline;
 
+  /// Package id allocated as soon as recording finishes (bake starts before save).
+  static String? pendingSoundId;
+
+  /// Early-prepared package paths under `sounds/{pendingSoundId}/`.
+  static String? pendingPackageDir;
+  static String? pendingAudioPath;
+  static String? pendingFeaturesPath;
+  static String? pendingMjpgPath;
+  static String? pendingIdxPath;
+  static String? pendingManifestPath;
+  static String? pendingCoverPath;
+
+  /// Set when bake fails before the draft is committed to the repository.
+  static String? pendingBakeError;
+
   /// True when audio came from local file import (not live mic).
   static bool fromImport = false;
 
@@ -44,11 +59,45 @@ class RecordingSession {
     RecordingSession.cloudUploadError = cloudUploadError;
   }
 
+  static void setPendingPackage({
+    required String soundId,
+    required String dirPath,
+    required String audioPath,
+    required String featuresPath,
+    required String mjpgPath,
+    required String idxPath,
+    required String manifestPath,
+    required String coverPath,
+  }) {
+    pendingSoundId = soundId;
+    pendingPackageDir = dirPath;
+    pendingAudioPath = audioPath;
+    pendingFeaturesPath = featuresPath;
+    pendingMjpgPath = mjpgPath;
+    pendingIdxPath = idxPath;
+    pendingManifestPath = manifestPath;
+    pendingCoverPath = coverPath;
+    pendingBakeError = null;
+  }
+
+  static void clearPendingPackage() {
+    pendingSoundId = null;
+    pendingPackageDir = null;
+    pendingAudioPath = null;
+    pendingFeaturesPath = null;
+    pendingMjpgPath = null;
+    pendingIdxPath = null;
+    pendingManifestPath = null;
+    pendingCoverPath = null;
+    pendingBakeError = null;
+  }
+
   static void clear() {
     audioPath = null;
     durationSec = 0;
     visualSeed = 0;
     featureTimeline = null;
+    clearPendingPackage();
     fromImport = false;
     fromRing = false;
     suggestedTitle = null;

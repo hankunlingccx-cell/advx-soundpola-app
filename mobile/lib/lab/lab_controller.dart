@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -5,8 +6,11 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../cloud/cloud_media_client.dart';
 import '../data/session.dart';
 import '../data/sound_repository.dart';
+import '../services/audio_cache_service.dart';
+import '../services/auth_service.dart';
 import 'beat_analyzer.dart';
 import 'beat_generation_api.dart';
 import 'beat_models.dart';
@@ -17,7 +21,7 @@ class LabController extends ChangeNotifier {
   LabController({BeatGenerationApi? api})
       : _api = api ?? BeatGenerationApiGateway.instance {
     mixer.addListener(notifyListeners);
-    refreshSources();
+    unawaited(refreshSources());
   }
 
   final BeatGenerationApi _api;
@@ -28,6 +32,7 @@ class LabController extends ChangeNotifier {
   FeatureSummary? featureSummary;
   BeatPlan? beatPlan;
   bool busy = false;
+  bool refreshingSources = false;
   String? statusMessage;
 
   static const maxCanvasNodes = 4;
@@ -70,62 +75,124 @@ class LabController extends ChangeNotifier {
   bool isSelected(LabSoundSource source) =>
       canvas.any((n) => n.source.id == source.id);
 
-  void refreshSources() {
-    palette.clear();
-    final sessionPath = RecordingSession.audioPath;
-    if (sessionPath != null &&
-        sessionPath.isNotEmpty &&
-        File(sessionPath).existsSync()) {
-      palette.add(
-        LabSoundSource(
-          id: 'session_current',
-          kind: LabSourceKind.session,
-          title: RecordingSession.suggestedTitle?.trim().isNotEmpty == true
-              ? RecordingSession.suggestedTitle!
-              : '当前录音',
-          audioPath: sessionPath,
-          durationMs: RecordingSession.durationSec * 1000,
-          coverSeed: RecordingSession.visualSeed,
-        ),
-      );
-    }
-
-    final repo = SoundRepository.instance;
-    for (final s in repo.drafts) {
-      final path = s.audioPath;
-      if (path == null || path.isEmpty || !File(path).existsSync()) continue;
-      palette.add(
-        LabSoundSource(
-          id: 'draft_${s.id}',
-          kind: LabSourceKind.draft,
-          title: s.title,
-          audioPath: path,
-          durationMs: s.durationSec * 1000,
-          coverSeed: s.visualSeed,
-          featuresPath: s.audioFeaturesPath,
-          coverPath: s.coverPath,
-          memoryId: s.id,
-        ),
-      );
-    }
-    for (final s in repo.collection) {
-      final path = s.audioPath;
-      if (path == null || path.isEmpty || !File(path).existsSync()) continue;
-      palette.add(
-        LabSoundSource(
-          id: 'col_${s.id}',
-          kind: LabSourceKind.collection,
-          title: s.title,
-          audioPath: path,
-          durationMs: s.durationSec * 1000,
-          coverSeed: s.visualSeed,
-          featuresPath: s.audioFeaturesPath,
-          coverPath: s.coverPath,
-          memoryId: s.id,
-        ),
-      );
-    }
+  /// Sync Collection from cloud when logged in, then build palette from
+  /// Drafts + Collection. Missing local files are downloaded via contentId.
+  Future<void> refreshSources() async {
+    if (refreshingSources) return;
+    refreshingSources = true;
+    statusMessage = '同步音源…';
     notifyListeners();
+
+    try {
+      if (AuthService.instance.isLoggedIn) {
+        try {
+          final token = await AuthService.instance.requireCloudToken();
+          final cloud = CloudMediaClient();
+          try {
+            final list = await cloud.listContents(token);
+            SoundRepository.instance.syncCloudCollection(list.items);
+          } finally {
+            cloud.close();
+          }
+        } catch (e) {
+          debugPrint('[Lab] cloud sync skipped: $e');
+        }
+      }
+
+      final token = AuthService.instance.cloudToken;
+      final repo = SoundRepository.instance;
+      final cache = AudioCacheService.instance;
+
+      // Prefetch local paths for cloud-backed memories (parallel, capped).
+      final needFetch = <SoundMemory>[
+        ...repo.drafts,
+        ...repo.collection,
+      ].where((s) {
+        final p = s.audioPath;
+        final missing = p == null || p.isEmpty || !File(p).existsSync();
+        return missing && (s.contentId?.trim().isNotEmpty ?? false);
+      }).toList(growable: false);
+
+      if (needFetch.isNotEmpty) {
+        statusMessage = '下载云端音频（${needFetch.length}）…';
+        notifyListeners();
+        const batch = 4;
+        for (var i = 0; i < needFetch.length; i += batch) {
+          final slice = needFetch.sublist(
+            i,
+            math.min(i + batch, needFetch.length),
+          );
+          await Future.wait(
+            slice.map((s) => cache.ensureLocalAudio(s, token: token)),
+          );
+        }
+      }
+
+      palette.clear();
+      final sessionPath = RecordingSession.audioPath;
+      if (sessionPath != null &&
+          sessionPath.isNotEmpty &&
+          File(sessionPath).existsSync()) {
+        palette.add(
+          LabSoundSource(
+            id: 'session_current',
+            kind: LabSourceKind.session,
+            title: RecordingSession.suggestedTitle?.trim().isNotEmpty == true
+                ? RecordingSession.suggestedTitle!
+                : '当前录音',
+            audioPath: sessionPath,
+            durationMs: RecordingSession.durationSec * 1000,
+            coverSeed: RecordingSession.visualSeed,
+          ),
+        );
+      }
+
+      for (final s in repo.drafts) {
+        final path = await cache.ensureLocalAudio(s, token: token);
+        if (path == null) continue;
+        palette.add(
+          LabSoundSource(
+            id: 'draft_${s.id}',
+            kind: LabSourceKind.draft,
+            title: s.title,
+            audioPath: path,
+            durationMs: s.durationSec * 1000,
+            coverSeed: s.visualSeed,
+            featuresPath: s.audioFeaturesPath,
+            coverPath: s.coverPath,
+            memoryId: s.id,
+          ),
+        );
+      }
+      for (final s in repo.collection) {
+        final path = await cache.ensureLocalAudio(s, token: token);
+        if (path == null) continue;
+        palette.add(
+          LabSoundSource(
+            id: 'col_${s.id}',
+            kind: LabSourceKind.collection,
+            title: s.title,
+            audioPath: path,
+            durationMs: s.durationSec * 1000,
+            coverSeed: s.visualSeed,
+            featuresPath: s.audioFeaturesPath,
+            coverPath: s.coverPath,
+            memoryId: s.id,
+          ),
+        );
+      }
+
+      if (palette.isEmpty) {
+        statusMessage = AuthService.instance.isLoggedIn
+            ? '暂无可用声音。收藏声片若无本机文件会尝试下载云端音频；请确认已登录且内容为 READY。'
+            : '暂无可用声音。登录后可拉取云端收藏，或先去 Record / Drafts。';
+      } else {
+        statusMessage = '可选 ${palette.length} 段 · 点选 1–4 段生成阿卡贝拉';
+      }
+    } finally {
+      refreshingSources = false;
+      notifyListeners();
+    }
   }
 
   /// 点选 / 取消点选；自动摆位，无需拖拽编辑。

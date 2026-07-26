@@ -331,14 +331,20 @@ class DraftTrayCard extends StatelessWidget {
   final double? progressOverride;
 
   String get _statusLine {
+    final cloudReady =
+        (item.cloudState ?? '').toUpperCase() == 'READY' &&
+        (item.contentId?.trim().isNotEmpty ?? false);
     return switch (item.status) {
-      SoundStatus.drafted => 'READY TO PRESS',
+      SoundStatus.drafted =>
+        cloudReady ? 'CLOUD READY' : 'READY TO PRESS',
       SoundStatus.writeFailed || SoundStatus.chainFailed => 'READY TO PRESS',
       SoundStatus.writing ||
       SoundStatus.cloudReady ||
       SoundStatus.chainPending ||
       SoundStatus.chainReady =>
-        'PRESSING',
+        cloudReady && item.status == SoundStatus.cloudReady
+            ? 'CLOUD READY'
+            : 'PRESSING',
       SoundStatus.collected => 'SEALED',
     };
   }

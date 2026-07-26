@@ -64,8 +64,14 @@ class _SoundLabScreenState extends State<SoundLabScreen> {
             actions: [
               IconButton(
                 tooltip: '刷新音源',
-                onPressed: _c.refreshSources,
-                icon: const Icon(Icons.refresh),
+                onPressed: _c.refreshingSources ? null : () => _c.refreshSources(),
+                icon: _c.refreshingSources
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh),
               ),
               if (widget.embeddedInShell) ...[
                 const SizedBox(width: 4),
@@ -104,7 +110,7 @@ class _SoundLabScreenState extends State<SoundLabScreen> {
                   child: _c.palette.isEmpty
                       ? const Center(
                           child: Text(
-                            '暂无可用声音\n请先在 Record 录音或打开 Drafts / Collection',
+                            '暂无可用声音\n登录后可拉取云端收藏；或先去 Record / Drafts',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: AppColors.textTertiary,

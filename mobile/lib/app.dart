@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'cloud/cloud_media_config.dart';
+import 'cloud/cloud_prefetch.dart';
 import 'data/sound_repository.dart';
 import 'lab/beat_ai_api_config.dart';
 import 'router/app_router.dart';
@@ -55,6 +58,8 @@ class _SoundpolaAppState extends State<SoundpolaApp> {
     ]);
     if (mounted) setState(() => _booting = false);
     _syncRingRecording();
+    // 补传已 bake 但尚未上云的 Draft，缩短后续 NFC 等待。
+    unawaited(CloudPrefetchService.instance.prefetchPendingDrafts());
   }
 
   Future<void> _resolveMicConsent() async {
@@ -84,6 +89,7 @@ class _SoundpolaAppState extends State<SoundpolaApp> {
       return;
     }
     RingRecordingService.instance.start(_router);
+    unawaited(CloudPrefetchService.instance.prefetchPendingDrafts());
   }
 
   @override

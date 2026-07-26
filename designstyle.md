@@ -211,7 +211,7 @@ Info
 
 3.5 可视化留存（Indexed-MJPEG）
 
-实时活动态按画质档目标 fps；录音中保存 AudioDrive 时间序列，不在实时帧率下截屏。保存后离屏按 visualSeed＋特征确定性重绘（低粒子档、逐帧 yield；`rendererVersion=soundpola_kaleido_linear_v1`），输出 12～15fps 独立 JPEG 帧流（`visual.mjpg`）＋字节偏移索引（`visual.idx`）＋`visual_manifest.json`＋`cover.jpg`。播放以音频时间为轴按索引取帧（解码去重＋小 LRU，未就绪用 cover／静态 canvas）；算法升级不改写旧帧流。
+实时活动态按画质档目标 fps；录音中保存 AudioDrive 时间序列，不在实时帧率下截屏。录音／导入结束进入结果页即离屏按 visualSeed＋特征确定性重绘（低粒子档、逐帧 yield；`rendererVersion=soundpola_kaleido_linear_v1`），输出 12～15fps 独立 JPEG 帧流（`visual.mjpg`）＋字节偏移索引（`visual.idx`）＋`visual_manifest.json`＋`cover.jpg`。播放以音频时间为轴按索引取帧（解码去重＋小 LRU，未就绪用 cover／静态 canvas）；算法升级不改写旧帧流。
 
 4. 字体与排版
 

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -84,10 +83,6 @@ class _DraftsScreenState extends State<DraftsScreen>
   /// 仓内圆形声片：NFC 写入成功后落入，保留至多 7 天／5 张。
   List<BayStoredDisc> _bayDiscs = const [];
   String? _pressStatus;
-  /// 云端「生成声音内容」步骤进度 0–1（API 无真实进度时按轮询时长估算）。
-  double? _cloudProgress;
-  Timer? _cloudProgressTicker;
-  DateTime? _cloudProcessStartedAt;
   /// 失败是否发生在云端准备（无需 NFC）阶段。
   bool _failWasCloud = false;
   /// 第二次贴近后，正在向声片写 NDEF。
@@ -125,16 +120,12 @@ class _DraftsScreenState extends State<DraftsScreen>
     setState(() => _bayDiscs = discs);
   }
 
-  Future<void> _recordBayDrop(
-    SoundMemory item, {
-    DiscRarity? rarity,
-  }) async {
+  Future<void> _recordBayDrop(SoundMemory item) async {
     final discs = await BayDiscStore.instance.addDrop(
       userId: _bayOwnerId,
       id: item.id,
       visualSeed: item.visualSeed,
-      // 必须用已揭晓稀有度；此时 item.discRarity 往往尚未 markCollected。
-      rarity: rarity ?? item.discRarity,
+      rarity: item.discRarity,
     );
     if (!mounted) return;
     setState(() => _bayDiscs = discs);
@@ -143,7 +134,6 @@ class _DraftsScreenState extends State<DraftsScreen>
   @override
   void dispose() {
     AuthService.instance.removeListener(_onAuthChanged);
-    _stopCloudProgressTicker(clear: true);
     NfcService.instance.stopSession();
     _cloud.close();
     _breath.dispose();
@@ -199,79 +189,17 @@ class _DraftsScreenState extends State<DraftsScreen>
 
   NfcGuidePhase get _cloudGuidePhase {
     final s = _pressStatus ?? '';
-    if (s.contains('上传') ||
-        s.contains('连接') ||
-        s.contains('准备可视化')) {
-      return NfcGuidePhase.cloudUploading;
-    }
+    if (s.contains('上传')) return NfcGuidePhase.cloudUploading;
     return NfcGuidePhase.cloudProcessing;
   }
 
   CloudPrepStage get _cloudStage {
     final s = _pressStatus ?? '';
-    if (s.contains('上传') ||
-        s.contains('连接') ||
-        s.contains('准备可视化')) {
-      return CloudPrepStage.upload;
-    }
+    if (s.contains('上传')) return CloudPrepStage.upload;
     if (s.contains('再次贴近') || s.contains('已就绪') || s.contains('拿到')) {
       return CloudPrepStage.ready;
     }
     return CloudPrepStage.process;
-  }
-
-  /// 「生成声音内容」步骤本地百分比（0–100）；上传阶段不展示。
-  int? get _cloudProgressPercent {
-    final stage = _cloudStage;
-    if (stage == CloudPrepStage.upload) return null;
-    if (stage == CloudPrepStage.ready) return 100;
-    final p = _cloudProgress;
-    if (p == null) return 0;
-    return (p.clamp(0.0, 0.99) * 100).round();
-  }
-
-  void _setCloudProgress(double value, {bool onlyIncrease = true}) {
-    final next = value.clamp(0.0, 1.0);
-    if (onlyIncrease &&
-        _cloudProgress != null &&
-        next + 0.001 < _cloudProgress!) {
-      return;
-    }
-    if (_cloudProgress != null && (next - _cloudProgress!).abs() < 0.005) {
-      return;
-    }
-    if (!mounted) {
-      _cloudProgress = next;
-      return;
-    }
-    setState(() => _cloudProgress = next);
-  }
-
-  void _startCloudProcessTicker() {
-    _cloudProcessStartedAt ??= DateTime.now();
-    _cloudProgressTicker?.cancel();
-    _setCloudProgress(0.04, onlyIncrease: false);
-    _cloudProgressTicker =
-        Timer.periodic(const Duration(milliseconds: 350), (_) {
-      if (!mounted) return;
-      if (_flow != _FlowPhase.found || _cloudStage != CloudPrepStage.process) {
-        return;
-      }
-      final started = _cloudProcessStartedAt;
-      if (started == null) return;
-      final elapsedMs = DateTime.now().difference(started).inMilliseconds;
-      // ~40s 渐进至约 92%，READY 时再跳到 100%。
-      final t = elapsedMs / 40000.0;
-      final est = 0.04 + 0.88 * (1 - math.exp(-2.8 * t));
-      _setCloudProgress(est);
-    });
-  }
-
-  void _stopCloudProgressTicker({bool clear = false}) {
-    _cloudProgressTicker?.cancel();
-    _cloudProgressTicker = null;
-    _cloudProcessStartedAt = null;
-    if (clear) _cloudProgress = null;
   }
 
   bool get _isSelecting =>
@@ -292,8 +220,15 @@ class _DraftsScreenState extends State<DraftsScreen>
 
   bool _canPress(SoundMemory item) =>
       item.status == SoundStatus.drafted ||
+      item.status == SoundStatus.cloudReady ||
       item.status == SoundStatus.writeFailed ||
       item.status == SoundStatus.chainFailed;
+
+  bool _isCloudPayloadReady(SoundMemory item) {
+    final cid = item.contentId?.trim() ?? '';
+    if (cid.isEmpty) return false;
+    return (item.cloudState ?? '').toUpperCase() == 'READY';
+  }
 
   Rect? _slotHitRectGlobal() {
     final box = _slotKey.currentContext?.findRenderObject() as RenderBox?;
@@ -546,12 +481,10 @@ class _DraftsScreenState extends State<DraftsScreen>
   Future<void> _failPress(String reason, {bool cloud = false}) async {
     await NfcService.instance.stopSession(error: reason);
     _nfcBusy = false;
-    _stopCloudProgressTicker(clear: true);
     if (!mounted) return;
     setState(() {
       _failReason = reason;
       _pressStatus = null;
-      _cloudProgress = null;
       _flow = _FlowPhase.interrupted;
       _machineMode = PressMachineMode.interrupted;
       _autoListening = false;
@@ -598,11 +531,46 @@ class _DraftsScreenState extends State<DraftsScreen>
     await _prepareCloudAndWrite();
   }
 
+  /// 从仓库刷新当前插入声音，避免 contentId／nfcUrl 仍用旧快照。
+  SoundMemory? _freshLoadedItem() {
+    final id = _loadedId ?? _loadedItem?.id;
+    if (id == null) return _loadedItem;
+    final fresh = SoundRepository.instance.get(id);
+    if (fresh != null) _loadedItem = fresh;
+    return _loadedItem;
+  }
+
+  bool _hasCloudWritePayload(SoundMemory item) {
+    final cid = item.contentId?.trim() ?? '';
+    final url = item.nfcUrl?.trim() ?? '';
+    return cid.isNotEmpty || url.isNotEmpty;
+  }
+
+  String _writeUrlFor(SoundMemory item, {String? contentId, String? nfcUrl}) {
+    final url = (nfcUrl ?? item.nfcUrl)?.trim();
+    if (url != null && url.isNotEmpty) return url;
+    final cid = (contentId ?? item.contentId)?.trim() ?? '';
+    return '${CloudMediaConfig.baseUrl}/c/$cid';
+  }
+
   /// 云端就绪 → 单次 NFC：检查是否已写入，空白则写入。
   Future<void> _prepareCloudAndWrite() async {
-    final item = _loadedItem;
+    final item = _freshLoadedItem();
     if (item == null) {
       await _failPress('写入会话丢失，请重新插入声音。');
+      return;
+    }
+
+    // 录音后已预上传且 READY：跳过上传／生成，直接写入。
+    if (_isCloudPayloadReady(item)) {
+      final contentId = item.contentId!.trim();
+      final writeUrl = _writeUrlFor(item);
+      await _beginNfcWriteSession(
+        item: item,
+        contentId: contentId,
+        writeUrl: writeUrl,
+        cloudState: item.cloudState ?? 'READY',
+      );
       return;
     }
 
@@ -610,21 +578,17 @@ class _DraftsScreenState extends State<DraftsScreen>
       _flow = _FlowPhase.found;
       _machineMode = PressMachineMode.preparing;
       _pressStatus = '正在连接云端…';
-      _cloudProgress = null;
       _autoListening = false;
       _nfcWriting = false;
       _failReason = null;
       _failWasCloud = false;
     });
-    _stopCloudProgressTicker();
 
     ContentSummary ready;
     try {
       final token = await AuthService.instance.requireCloudToken();
       await _cloud.assertReachable();
       ready = await _ensureCloudReady(item, token);
-      _setCloudProgress(1.0, onlyIncrease: false);
-      _stopCloudProgressTicker();
     } catch (e) {
       await _failPress(_friendlyCloudError(e), cloud: true);
       return;
@@ -636,9 +600,7 @@ class _DraftsScreenState extends State<DraftsScreen>
       await _failPress('云端未返回可写入链接，请稍后重试。', cloud: true);
       return;
     }
-    final writeUrl = (nfcUrl != null && nfcUrl.isNotEmpty)
-        ? nfcUrl
-        : '${CloudMediaConfig.baseUrl}/c/$contentId';
+    final writeUrl = _writeUrlFor(item, contentId: contentId, nfcUrl: nfcUrl);
 
     if (!mounted) return;
     if (_flow != _FlowPhase.found && _flow != _FlowPhase.pressing) return;
@@ -652,24 +614,66 @@ class _DraftsScreenState extends State<DraftsScreen>
         status: SoundStatus.writing,
       ),
     );
+    _freshLoadedItem();
 
+    await _beginNfcWriteSession(
+      item: _loadedItem ?? item,
+      contentId: contentId,
+      writeUrl: writeUrl,
+      cloudState: ready.state.wire,
+    );
+  }
+
+  /// 已绑定冲突后换空白声片：云端内容已就绪则跳过上传／生成，直接进入写入。
+  Future<void> _resumeWriteOnBlankCard() async {
+    if (_nfcBusy) {
+      await NfcService.instance.stopSession();
+      _nfcBusy = false;
+    }
+    final item = _freshLoadedItem();
+    if (item == null) {
+      await _failPress('写入会话丢失，请重新插入声音。');
+      return;
+    }
+    if (!_hasCloudWritePayload(item)) {
+      await _prepareCloudAndWrite();
+      return;
+    }
+
+    final contentId = item.contentId?.trim() ?? '';
+    final writeUrl = _writeUrlFor(item);
+    await _beginNfcWriteSession(
+      item: item,
+      contentId: contentId.isNotEmpty ? contentId : writeUrl,
+      writeUrl: writeUrl,
+      cloudState: item.cloudState ?? 'READY',
+    );
+  }
+
+  /// 仅 NFC：贴近检查并写入（不触碰云端上传／生成）。
+  Future<void> _beginNfcWriteSession({
+    required SoundMemory item,
+    required String contentId,
+    required String writeUrl,
+    String? cloudState,
+  }) async {
     if (!mounted) return;
     setState(() {
       _flow = _FlowPhase.pressing;
       _machineMode = PressMachineMode.readyToWrite;
-      _pressStatus = '请贴近声片，检查并写入…';
-      _cloudProgress = 1.0;
+      _pressStatus = '请贴近空白声片，检查并写入…';
       _autoListening = true;
       _nfcWriting = false;
+      _failReason = null;
+      _failWasCloud = false;
     });
-    _stopCloudProgressTicker();
 
     _nfcBusy = true;
     final completer = Completer<_NfcWriteOutcome>();
 
     try {
       await NfcService.instance.startSession(
-        alertMessage: '请将声片贴近手机背面，完成检查与写入',
+        alertMessage: '请将空白声片贴近手机背面，完成检查与写入',
         invalidateAfterFirstRead: false,
         onDiscovered: (tag) async {
           if (completer.isCompleted) return;
@@ -791,7 +795,7 @@ class _DraftsScreenState extends State<DraftsScreen>
       _nfcWriting = false;
       _chaining = true;
     });
-    await _recordBayDrop(item, rarity: rarity);
+    await _recordBayDrop(item);
 
     final assetId = await ChainService.instance.submitAsset(
       soundId: item.id,
@@ -809,7 +813,7 @@ class _DraftsScreenState extends State<DraftsScreen>
       nfcTagId: PressSession.tagIdHex,
       contentId: contentId,
       nfcUrl: writeUrl,
-      cloudState: ready.state.wire,
+      cloudState: cloudState,
       discRarity: rarity,
       discSeries: PressSession.series,
     );
@@ -830,10 +834,14 @@ class _DraftsScreenState extends State<DraftsScreen>
     });
   }
 
-  /// 云端 / 写入失败重试（不再空扫第一次）。
+  /// 云端失败 → 重走准备；NFC 写入失败 / 换空白片 → 直接写入（不重复上传）。
   Future<void> _retryAfterFail() async {
-    if (_loadedItem == null) return;
-    await _prepareCloudAndWrite();
+    if (_freshLoadedItem() == null) return;
+    if (_failWasCloud) {
+      await _prepareCloudAndWrite();
+      return;
+    }
+    await _resumeWriteOnBlankCard();
   }
 
   Future<ContentSummary> _ensureCloudReady(
@@ -848,7 +856,6 @@ class _DraftsScreenState extends State<DraftsScreen>
         if (mounted) {
           setState(() {
             _pressStatus = '云端链接已就绪';
-            _cloudProgress = 1.0;
           });
         }
         return summary;
@@ -861,26 +868,19 @@ class _DraftsScreenState extends State<DraftsScreen>
         }
         summary = await _cloud.retryContent(token: token, contentId: contentId);
       }
-      if (summary.state == CloudContentState.ready) {
-        _setCloudProgress(1.0, onlyIncrease: false);
-        return summary;
-      }
+      if (summary.state == CloudContentState.ready) return summary;
       if (mounted) {
         setState(() {
-          _pressStatus = '正在生成声音内容…';
+          _pressStatus = '云端处理中…';
         });
       }
-      _startCloudProcessTicker();
       return _cloud.waitUntilReady(
         token: token,
         contentId: contentId,
         onUpdate: (s) {
           if (!mounted) return;
-          final stage = s.processingStage?.trim();
           setState(() {
-            _pressStatus = (stage != null && stage.isNotEmpty)
-                ? '生成声音内容：$stage'
-                : '正在生成声音内容…';
+            _pressStatus = '云端处理：${s.state.wire}';
           });
         },
       );
@@ -910,23 +910,22 @@ class _DraftsScreenState extends State<DraftsScreen>
       item.id,
       (s) => s.copyWith(contentId: contentId, cloudState: created.state.wire),
     );
+    if (_loadedId == item.id || _loadedItem?.id == item.id) {
+      _freshLoadedItem();
+    }
 
     if (mounted) {
       setState(() {
-        _pressStatus = '正在生成声音内容…';
+        _pressStatus = '云端处理中…';
       });
     }
-    _startCloudProcessTicker();
     return _cloud.waitUntilReady(
       token: token,
       contentId: contentId,
       onUpdate: (s) {
         if (!mounted) return;
-        final stage = s.processingStage?.trim();
         setState(() {
-          _pressStatus = (stage != null && stage.isNotEmpty)
-              ? '生成声音内容：$stage'
-              : '正在生成声音内容…';
+          _pressStatus = '云端处理：${s.state.wire}';
         });
       },
     );
@@ -1051,11 +1050,11 @@ class _DraftsScreenState extends State<DraftsScreen>
     await Future<void>.delayed(const Duration(milliseconds: 300));
     if (!mounted) return;
 
+    // 模拟写入成功 → 声片落入毛玻璃仓。
+    await _recordBayDrop(item);
+
     final discId = NfcService.instance.generateDiscId('DEMO');
     final rarity = DiscRarity.rollWeighted();
-    // 模拟写入成功 → 声片落入毛玻璃仓（贴图与揭晓稀有度一致）。
-    await _recordBayDrop(item, rarity: rarity);
-
     final assetId = await ChainService.instance.submitAsset(
       soundId: item.id,
       discId: discId,
@@ -1090,13 +1089,11 @@ class _DraftsScreenState extends State<DraftsScreen>
   Future<void> _cancelNfc() async {
     await NfcService.instance.stopSession();
     _nfcBusy = false;
-    _stopCloudProgressTicker(clear: true);
     if (!mounted) return;
     setState(() {
       _autoListening = false;
       _nfcWriting = false;
       _pressStatus = null;
-      _cloudProgress = null;
       if (_flow == _FlowPhase.pressing || _flow == _FlowPhase.found) {
         _flow = _FlowPhase.waitingNfc;
         _machineMode = PressMachineMode.loaded;
@@ -1108,13 +1105,11 @@ class _DraftsScreenState extends State<DraftsScreen>
   }
 
   void _continueAfterComplete() {
-    _stopCloudProgressTicker(clear: true);
     setState(() {
       _flow = _FlowPhase.idle;
       _loadedItem = null;
       _loadedId = null;
       _pressStatus = null;
-      _cloudProgress = null;
       _chaining = false;
       _nfcWriting = false;
       _failWasCloud = false;
@@ -1284,13 +1279,6 @@ class _DraftsScreenState extends State<DraftsScreen>
                                 ? _cloudStage
                                 : null,
                             statusHint: _pressStatus,
-                            cloudProgressPercent: (_flow == _FlowPhase.found ||
-                                    _guidePhase ==
-                                        NfcGuidePhase.cloudUploading ||
-                                    _guidePhase ==
-                                        NfcGuidePhase.cloudProcessing)
-                                ? _cloudProgressPercent
-                                : null,
                             chaining: _chaining,
                             failReason: _failReason,
                             autoListening: _autoListening,
@@ -1298,7 +1286,7 @@ class _DraftsScreenState extends State<DraftsScreen>
                             onCancelWrite: _cancelNfc,
                             onRetrieve: _retrieveSound,
                             onRetry: _retryAfterFail,
-                            onDetectOther: _prepareCloudAndWrite,
+                            onDetectOther: _resumeWriteOnBlankCard,
                             onViewCollection: widget.onOpenCollection,
                             onContinue: _continueAfterComplete,
                             onStartRecord: widget.onStartRecord,

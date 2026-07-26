@@ -216,6 +216,44 @@ class CloudMediaClient {
     return ContentSummary.fromJson(_jsonMap(res.body));
   }
 
+  /// Download immutable playback asset (normalized MP3 when [assetKind] is `audio`).
+  ///
+  /// OpenAPI marks this as PlaybackToken; owner UserToken is accepted by current
+  /// Cloud Media deployments for the content owner. Writes bytes to [dest].
+  Future<File> downloadAsset({
+    required String token,
+    required String contentId,
+    required String assetKind,
+    required File dest,
+  }) async {
+    final uri = CloudMediaConfig.uri(
+      '/api/v1/contents/$contentId/assets/$assetKind',
+    );
+    debugPrint('[CloudMedia] GET $uri');
+    final res = await _http
+        .get(
+          uri,
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': '*/*',
+          },
+        )
+        .timeout(
+          const Duration(seconds: 120),
+          onTimeout: () => throw CloudMediaException('下载超时（120s）'),
+        );
+    debugPrint(
+      '[CloudMedia] asset $assetKind -> ${res.statusCode} bytes=${res.bodyBytes.length}',
+    );
+    if (res.statusCode != 200) throw _error(res);
+    if (res.bodyBytes.isEmpty) {
+      throw CloudMediaException('云端音频为空');
+    }
+    await dest.parent.create(recursive: true);
+    await dest.writeAsBytes(res.bodyBytes, flush: true);
+    return dest;
+  }
+
   Future<ContentSummary> retryContent({
     required String token,
     required String contentId,

@@ -195,7 +195,7 @@ class NfcService {
     return null;
   }
 
-  /// 读取出厂声片档案；无正式记录时按比率随机揭晓演示档案（过渡期）。
+  /// 读取出厂声片档案；无正式记录时用 tagId 派生演示档案（仅开发）。
   Future<DiscFactoryProfile?> readFactoryProfile(
     NfcTag tag, {
     bool allowDemoFallback = true,
@@ -318,6 +318,17 @@ class NfcService {
       required bool includeMimeBinding,
     }) {
       final records = <NdefRecord>[];
+      // URI first: system NFC readers / tap-to-open match Well-Known 'U'.
+      if (includeUri && linkUrl != null && linkUrl.isNotEmpty) {
+        records.add(
+          NdefRecord(
+            typeNameFormat: TypeNameFormat.wellKnown,
+            type: Uint8List.fromList([0x55]), // 'U'
+            identifier: Uint8List(0),
+            payload: _encodeUriPayload(linkUrl),
+          ),
+        );
+      }
       if (includeFactory && factoryToWrite != null) {
         records.add(
           NdefRecord(
@@ -340,16 +351,6 @@ class NfcService {
             type: Uint8List.fromList(utf8.encode(soundpolaMimeType)),
             identifier: Uint8List(0),
             payload: Uint8List.fromList(utf8.encode(jsonEncode(json))),
-          ),
-        );
-      }
-      if (includeUri && linkUrl != null && linkUrl.isNotEmpty) {
-        records.add(
-          NdefRecord(
-            typeNameFormat: TypeNameFormat.wellKnown,
-            type: Uint8List.fromList([0x55]),
-            identifier: Uint8List(0),
-            payload: _encodeUriPayload(linkUrl),
           ),
         );
       }
@@ -453,28 +454,65 @@ class NfcService {
     return total;
   }
 
-  /// NDEF URI Record (NFC Forum RTD): abbreviate common prefixes so readers
-  /// (e.g. Trigger) see `Record N - http://` with host/path only — not a
-  /// raw `0x00` full-URI payload that embeds the scheme in UTF-8.
+  /// NDEF URI RTD payload: 1-byte identifier code + UTF-8 remainder.
   ///
-  /// Identifier codes used here:
-  /// - `0x01` http://www.  · `0x02` https://www.
-  /// - `0x03` http://      · `0x04` https://
-  /// - `0x00` no abbreviation (fallback)
+  /// Expected NFC Tools display for `http://host/...` is
+  /// `Record 1 - http://` with remainder only — requires code `0x03`,
+  /// not `0x00` (full URI, which many readers fail to open).
   Uint8List _encodeUriPayload(String uri) {
-    const prefixes = <(int, String)>[
-      (0x02, 'https://www.'),
-      (0x01, 'http://www.'),
-      (0x04, 'https://'),
-      (0x03, 'http://'),
+    // NFC Forum URI Record Type Definition (longest match wins).
+    const prefixes = <String>[
+      '', // 0x00 — no abbreviation
+      'http://www.', // 0x01
+      'https://www.', // 0x02
+      'http://', // 0x03
+      'https://', // 0x04
+      'tel:', // 0x05
+      'mailto:', // 0x06
+      'ftp://anonymous:anonymous@', // 0x07
+      'ftp://ftp.', // 0x08
+      'ftps://', // 0x09
+      'sftp://', // 0x0A
+      'smb://', // 0x0B
+      'nfs://', // 0x0C
+      'ftp://', // 0x0D
+      'dav://', // 0x0E
+      'news:', // 0x0F
+      'telnet://', // 0x10
+      'imap:', // 0x11
+      'rtsp://', // 0x12
+      'urn:', // 0x13
+      'pop:', // 0x14
+      'sip:', // 0x15
+      'sips:', // 0x16
+      'tftp:', // 0x17
+      'btspp://', // 0x18
+      'btl2cap://', // 0x19
+      'btgoep://', // 0x1A
+      'tcpobex://', // 0x1B
+      'irdaobex://', // 0x1C
+      'file://', // 0x1D
+      'urn:epc:id:', // 0x1E
+      'urn:epc:tag:', // 0x1F
+      'urn:epc:pat:', // 0x20
+      'urn:epc:raw:', // 0x21
+      'urn:epc:', // 0x22
+      'urn:nfc:', // 0x23
     ];
-    for (final (code, prefix) in prefixes) {
-      if (uri.startsWith(prefix)) {
-        final rest = utf8.encode(uri.substring(prefix.length));
-        return Uint8List.fromList([code, ...rest]);
+
+    var code = 0;
+    var remainder = uri;
+    for (var i = 1; i < prefixes.length; i++) {
+      final p = prefixes[i];
+      if (p.isEmpty) continue;
+      if (uri.length >= p.length &&
+          uri.substring(0, p.length).toLowerCase() == p.toLowerCase() &&
+          p.length > prefixes[code].length) {
+        code = i;
+        remainder = uri.substring(p.length);
       }
     }
-    return Uint8List.fromList([0x00, ...utf8.encode(uri)]);
+    return Uint8List.fromList([code, ...utf8.encode(remainder)]);
   }
 
   Future<NdefMessage?> _readMessage(NfcTag tag) async {

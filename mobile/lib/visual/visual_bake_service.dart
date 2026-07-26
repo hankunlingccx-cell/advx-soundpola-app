@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
 import '../audio/audio_features.dart';
+import '../cloud/cloud_prefetch.dart';
+import '../data/session.dart';
 import '../data/sound_repository.dart';
 import '../widgets/sound_visual.dart';
 import 'audio_feature_timeline.dart';
@@ -40,6 +42,8 @@ class VisualBakeService {
 
   Future<void> bakeSound(
     String soundId, {
+    int? visualSeed,
+    int? durationSec,
     int fps = kVisualBakeFps,
     int size = kVisualBakeSize,
     int jpegQuality = kVisualBakeJpegQuality,
@@ -48,15 +52,48 @@ class VisualBakeService {
     _busy = true;
     final repo = SoundRepository.instance;
     final item = repo.get(soundId);
-    if (item == null) {
+    final seed = visualSeed ?? item?.visualSeed;
+    final durSec = durationSec ?? item?.durationSec;
+    if (seed == null || durSec == null) {
       _busy = false;
       return;
     }
 
-    repo.update(
-      soundId,
-      (s) => s.copyWith(visualBakeStatus: VisualBakeStatus.processingVisual),
-    );
+    void patchStatus(
+      VisualBakeStatus status, {
+      String? error,
+      SoundPackagePaths? paths,
+      bool clearError = false,
+    }) {
+      if (repo.get(soundId) == null) {
+        if (status == VisualBakeStatus.failed) {
+          if (RecordingSession.pendingSoundId == soundId) {
+            RecordingSession.pendingBakeError = error;
+          }
+        } else if (status == VisualBakeStatus.ready &&
+            RecordingSession.pendingSoundId == soundId) {
+          RecordingSession.pendingBakeError = null;
+        }
+        return;
+      }
+      repo.update(
+        soundId,
+        (s) => s.copyWith(
+          visualBakeStatus: status,
+          visualBakeError: error,
+          clearVisualBakeError: clearError,
+          packageDir: paths?.dirPath,
+          coverPath: paths?.coverPath,
+          visualMjpgPath: paths?.mjpgPath,
+          visualIdxPath: paths?.idxPath,
+          visualManifestPath: paths?.manifestPath,
+          audioFeaturesPath: paths?.featuresPath,
+          audioPath: paths?.audioPath,
+        ),
+      );
+    }
+
+    patchStatus(VisualBakeStatus.processingVisual, clearError: true);
 
     try {
       final store = SoundPackageStore.instance;
@@ -67,7 +104,7 @@ class VisualBakeService {
       final timeline =
           AudioFeatureTimeline.decode(await featuresFile.readAsBytes());
       final durationMs = _maxInt(
-        item.durationSec * 1000,
+        durSec * 1000,
         timeline.durationMs,
       );
       if (durationMs <= 0) {
@@ -78,7 +115,7 @@ class VisualBakeService {
       final frameCount = _maxInt(1, (durationMs / frameIntervalMs).ceil());
 
       final engine = SoundVisualOffscreen(
-        seed: item.visualSeed,
+        seed: seed,
         quality: VisualQuality.low,
       );
 
@@ -93,10 +130,7 @@ class VisualBakeService {
       var bestFrame = 0;
       Uint8List? bestJpeg;
 
-      repo.update(
-        soundId,
-        (s) => s.copyWith(visualBakeStatus: VisualBakeStatus.indexing),
-      );
+      patchStatus(VisualBakeStatus.indexing);
 
       for (var i = 0; i < frameCount; i++) {
         final timeMs = i * frameIntervalMs;
@@ -183,7 +217,7 @@ class VisualBakeService {
         durationMs: durationMs,
         jpegQuality: jpegQuality,
         audioId: soundId,
-        visualSeed: item.visualSeed,
+        visualSeed: seed,
         rendererVersion: kSoundVisualRendererVersion,
         coverFrame: bestFrame,
       );
@@ -199,29 +233,25 @@ class VisualBakeService {
         coverPath: (await store.coverFile(soundId)).path,
       );
 
-      repo.update(
-        soundId,
-        (s) => s.copyWith(
-          visualBakeStatus: VisualBakeStatus.ready,
-          packageDir: paths.dirPath,
-          coverPath: paths.coverPath,
-          visualMjpgPath: paths.mjpgPath,
-          visualIdxPath: paths.idxPath,
-          visualManifestPath: paths.manifestPath,
-          audioFeaturesPath: paths.featuresPath,
-          audioPath: paths.audioPath,
-          clearVisualBakeError: true,
-        ),
+      patchStatus(
+        VisualBakeStatus.ready,
+        paths: paths,
+        clearError: true,
       );
+      // Draft 已入库时后台预上传，缩短后续 NFC 写入等待。
+      if (repo.get(soundId) != null) {
+        CloudPrefetchService.instance.schedule(soundId);
+      }
     } catch (e, st) {
       debugPrint('VisualBakeService failed: $e\n$st');
-      repo.update(
-        soundId,
-        (s) => s.copyWith(
-          visualBakeStatus: VisualBakeStatus.failed,
-          visualBakeError: e.toString(),
-        ),
+      patchStatus(
+        VisualBakeStatus.failed,
+        error: e.toString(),
       );
+      // bake 失败仍尽力仅传音频，Press 时少等一轮。
+      if (repo.get(soundId) != null) {
+        CloudPrefetchService.instance.schedule(soundId);
+      }
     } finally {
       _busy = false;
     }

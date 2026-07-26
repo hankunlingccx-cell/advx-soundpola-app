@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
+import '../../cloud/cloud_prefetch.dart';
 import '../../data/session.dart';
 import '../../data/sound_repository.dart';
 import '../../services/audio_playback_service.dart';
@@ -51,9 +54,14 @@ class _ResultScreenState extends State<ResultScreen> {
   late final int _seed;
   bool _playing = false;
   bool _saving = false;
+  bool _committed = false;
+  bool _preparing = true;
+  String? _prepareError;
+  String? _pendingId;
   final _player = AudioPlaybackService.instance;
   String _locationLabel = LocationCaptureService.unsetLabel;
   bool _locating = true;
+  static final _rng = Random();
 
   @override
   void initState() {
@@ -66,6 +74,7 @@ class _ResultScreenState extends State<ResultScreen> {
         : DateTime.now().millisecondsSinceEpoch % 10000;
     _player.addListener(_onPlayerChanged);
     _resolveLocation();
+    unawaited(_prepareVisualPackage());
   }
 
   void _onPlayerChanged() {
@@ -85,12 +94,99 @@ class _ResultScreenState extends State<ResultScreen> {
     });
   }
 
+  String _newSoundId() =>
+      DateTime.now().microsecondsSinceEpoch.toString() +
+      _rng.nextInt(9999).toString().padLeft(4, '0');
+
+  /// Materialize package + kick Indexed-MJPEG bake as soon as result opens.
+  Future<void> _prepareVisualPackage() async {
+    try {
+      // Reuse in-progress prepare if session already allocated an id (rare).
+      var soundId = RecordingSession.pendingSoundId;
+      if (soundId == null ||
+          RecordingSession.pendingPackageDir == null ||
+          RecordingSession.pendingFeaturesPath == null) {
+        soundId = _newSoundId();
+        final timeline =
+            RecordingSession.featureTimeline ?? AudioFeatureTimeline();
+        final paths = await SoundPackageStore.instance.materialize(
+          soundId: soundId,
+          sourceAudioPath: widget.audioPath,
+          timeline: timeline,
+          moveAudio: false,
+        );
+        RecordingSession.setPendingPackage(
+          soundId: soundId,
+          dirPath: paths.dirPath,
+          audioPath: paths.audioPath,
+          featuresPath: paths.featuresPath,
+          mjpgPath: paths.mjpgPath,
+          idxPath: paths.idxPath,
+          manifestPath: paths.manifestPath,
+          coverPath: paths.coverPath,
+        );
+      }
+
+      unawaited(
+        VisualBakeService.instance.bakeSound(
+          soundId,
+          visualSeed: _seed,
+          durationSec: widget.durationSec,
+        ),
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _pendingId = soundId;
+        _preparing = false;
+        _prepareError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _preparing = false;
+        _prepareError = e.toString();
+      });
+    }
+  }
+
+  Future<VisualBakeStatus> _resolveBakeStatus(String soundId) async {
+    final err = RecordingSession.pendingBakeError;
+    if (err != null && err.isNotEmpty) return VisualBakeStatus.failed;
+
+    final mjpg = RecordingSession.pendingMjpgPath;
+    final idx = RecordingSession.pendingIdxPath;
+    final manifest = RecordingSession.pendingManifestPath;
+    if (mjpg != null &&
+        idx != null &&
+        manifest != null &&
+        await File(mjpg).exists() &&
+        await File(idx).exists() &&
+        await File(manifest).exists()) {
+      return VisualBakeStatus.ready;
+    }
+    if (VisualBakeService.instance.isBusy) {
+      return VisualBakeStatus.processingVisual;
+    }
+    return VisualBakeStatus.processingVisual;
+  }
+
+  Future<void> _discardPendingPackage() async {
+    final id = _pendingId ?? RecordingSession.pendingSoundId;
+    if (id == null) return;
+    await SoundPackageStore.instance.deletePackage(id);
+    RecordingSession.clearPendingPackage();
+  }
+
   @override
   void dispose() {
     _player.removeListener(_onPlayerChanged);
     _player.stop();
     _nameCtrl.dispose();
     _descCtrl.dispose();
+    if (!_committed) {
+      unawaited(_discardPendingPackage());
+    }
     super.dispose();
   }
 
@@ -112,6 +208,14 @@ class _ResultScreenState extends State<ResultScreen> {
     if (picked != null) setState(() => _category = picked);
   }
 
+  Future<void> _onReRecordPressed() async {
+    if (_saving) return;
+    await _player.stop();
+    await _discardPendingPackage();
+    _committed = true; // avoid double-delete in dispose
+    widget.onReRecord();
+  }
+
   Future<void> _save() async {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
@@ -130,47 +234,81 @@ class _ResultScreenState extends State<ResultScreen> {
     setState(() => _saving = true);
 
     try {
+      // Ensure package exists even if early prepare failed.
+      if (_pendingId == null || RecordingSession.pendingPackageDir == null) {
+        await _prepareVisualPackage();
+        if (_pendingId == null || RecordingSession.pendingPackageDir == null) {
+          throw StateError(_prepareError ?? '可视化包准备失败');
+        }
+      }
+
+      final soundId = _pendingId!;
+      final packagedAudio = RecordingSession.pendingAudioPath!;
+      final bakeStatus = await _resolveBakeStatus(soundId);
       final isCloudUploaded = widget.cloudContentId != null;
-      final memory = SoundMemory(
+
+      final packaged = SoundMemory(
+        id: soundId,
         title: name,
         category: _category!,
         description: _descCtrl.text.trim(),
         durationSec: widget.durationSec,
         visualSeed: _seed,
-        audioPath: widget.audioPath,
+        audioPath: packagedAudio,
         locationLabel: _locationLabel,
         deviceLabel: widget.fromRing ? 'Ring Sound' : 'Mobile Device',
         status: isCloudUploaded ? SoundStatus.writing : SoundStatus.drafted,
         contentId: widget.cloudContentId,
         cloudState: widget.cloudState,
-        visualBakeStatus: VisualBakeStatus.processingVisual,
+        packageDir: RecordingSession.pendingPackageDir,
+        audioFeaturesPath: RecordingSession.pendingFeaturesPath,
+        visualMjpgPath: RecordingSession.pendingMjpgPath,
+        visualIdxPath: RecordingSession.pendingIdxPath,
+        visualManifestPath: RecordingSession.pendingManifestPath,
+        coverPath: RecordingSession.pendingCoverPath,
+        visualBakeStatus: bakeStatus,
+        visualBakeError: bakeStatus == VisualBakeStatus.failed
+            ? RecordingSession.pendingBakeError
+            : null,
         rendererVersion: kSoundVisualRendererVersion,
       );
 
-      final timeline = RecordingSession.featureTimeline ??
-          AudioFeatureTimeline();
-      final paths = await SoundPackageStore.instance.materialize(
-        soundId: memory.id,
-        sourceAudioPath: widget.audioPath,
-        timeline: timeline,
-      );
-
-      final packaged = memory.copyWith(
-        audioPath: paths.audioPath,
-        packageDir: paths.dirPath,
-        audioFeaturesPath: paths.featuresPath,
-        visualMjpgPath: paths.mjpgPath,
-        visualIdxPath: paths.idxPath,
-        visualManifestPath: paths.manifestPath,
-        coverPath: paths.coverPath,
-        visualBakeStatus: VisualBakeStatus.processingVisual,
-      );
-
       SoundRepository.instance.addDraft(packaged);
-      RecordingSession.clear();
 
-      // Offline bake — does not block navigation.
-      unawaited(VisualBakeService.instance.bakeSound(packaged.id));
+      // Drop the original recordings/ copy once package is committed.
+      final src = File(widget.audioPath);
+      if (src.path != packagedAudio && await src.exists()) {
+        try {
+          await src.delete();
+        } catch (_) {}
+      }
+
+      // If bake finished before draft existed, patch ready paths onto repo.
+      if (bakeStatus == VisualBakeStatus.ready) {
+        SoundRepository.instance.update(
+          soundId,
+          (s) => s.copyWith(
+            visualBakeStatus: VisualBakeStatus.ready,
+            clearVisualBakeError: true,
+          ),
+        );
+        CloudPrefetchService.instance.schedule(soundId);
+      } else if (bakeStatus == VisualBakeStatus.failed) {
+        CloudPrefetchService.instance.schedule(soundId);
+      } else if (bakeStatus != VisualBakeStatus.failed &&
+          !VisualBakeService.instance.isBusy) {
+        // Resume bake if early kick never ran / finished busy race.
+        unawaited(
+          VisualBakeService.instance.bakeSound(
+            soundId,
+            visualSeed: _seed,
+            durationSec: widget.durationSec,
+          ),
+        );
+      }
+
+      _committed = true;
+      RecordingSession.clear();
 
       if (!mounted) return;
       widget.onSaved();
@@ -191,6 +329,11 @@ class _ResultScreenState extends State<ResultScreen> {
       durationSec: widget.durationSec,
     );
     final estMb = (estBytes / (1024 * 1024)).toStringAsFixed(1);
+    final bakeHint = _prepareError != null
+        ? '可视化准备失败，保存时将重试'
+        : (_preparing
+            ? '正在准备可视化帧序列…'
+            : '可视化帧约 $estMb MB（512² · 12fps · 录音后已开始生成）');
     return Scaffold(
       backgroundColor: AppColors.bgPrimary,
       appBar: AppBar(
@@ -252,7 +395,7 @@ class _ResultScreenState extends State<ResultScreen> {
             Text(
               widget.fromRing
                   ? '来自指环 · 已保存到本机并可试听'
-                  : '可视化帧约 $estMb MB（512² · 12fps · 离线生成）',
+                  : bakeHint,
               style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
             ),
             const SizedBox(height: AppSpacing.section),
@@ -299,7 +442,7 @@ class _ResultScreenState extends State<ResultScreen> {
             ),
             const SizedBox(height: AppSpacing.item),
             TextButton(
-              onPressed: _saving ? null : widget.onReRecord,
+              onPressed: _saving ? null : _onReRecordPressed,
               child: Text(
                 widget.fromRing
                     ? '完成'
