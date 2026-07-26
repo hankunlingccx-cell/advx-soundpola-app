@@ -373,9 +373,10 @@ class RingRecordingService {
     }
 
     final seed = DateTime.now().millisecondsSinceEpoch % 900000 + 1000;
+    final durationSec = capture.durationSec.clamp(1, kMaxRecordingDurationSec);
     RecordingSession.set(
       path: localPath,
-      duration: capture.durationSec,
+      duration: durationSec,
       seed: seed,
       timeline: AudioFeatureTimeline(),
       imported: true,
@@ -385,7 +386,7 @@ class RingRecordingService {
       cloudState: cloudState,
       cloudUploadError: uploadError,
     );
-    router.push(AppRoutes.resultPath(capture.durationSec));
+    router.push(AppRoutes.resultPath(durationSec));
   }
 
   Future<void> _delay(Duration duration) async {

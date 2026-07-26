@@ -131,6 +131,26 @@ class ContentCreated {
       );
 }
 
+/// Response of `POST /api/v1/contents/{id}/video`.
+class ContentVideoUploaded {
+  const ContentVideoUploaded({
+    required this.contentId,
+    required this.state,
+    this.videoSha256,
+  });
+
+  final String contentId;
+  final CloudContentState state;
+  final String? videoSha256;
+
+  factory ContentVideoUploaded.fromJson(Map<String, dynamic> json) =>
+      ContentVideoUploaded(
+        contentId: json['content_id'] as String? ?? '',
+        state: CloudContentState.parse(json['state'] as String?),
+        videoSha256: json['video_sha256'] as String?,
+      );
+}
+
 class ContentSource {
   const ContentSource({
     required this.filename,

@@ -316,9 +316,9 @@ void _analyzerMain(SendPort ready) {
 
     final boosted = (instRms * agcGain).clamp(0.0, 1.5);
 
-    // Soft gate — keep light speech / humming audible to the visual.
-    final gate = _smoothstep(noiseFloor * 0.65, noiseFloor * 2.0, boosted);
-    final gated = (boosted * math.max(gate, 0.35)).clamp(0.0, 1.0);
+    // Soft gate — keep light speech audible, but don't floor dynamics at 35%.
+    final gate = _smoothstep(noiseFloor * 0.55, noiseFloor * 1.55, boosted);
+    final gated = (boosted * math.max(gate, 0.12)).clamp(0.0, 1.0);
 
     // Adaptive noise floor only when truly quiet
     final nearFloor = instRms < noiseFloor * 1.8 + 0.01;
@@ -334,9 +334,9 @@ void _analyzerMain(SendPort ready) {
     }
     noiseFloor = noiseFloor.clamp(0.004, 0.12);
 
-    // Multi-scale envelopes on gated energy
-    emaFast = _ar(emaFast, gated, 0.028, 0.14, dt);
-    emaSlow = _ar(emaSlow, gated, 0.18, 0.65, dt);
+    // Multi-scale envelopes on gated energy — snappy attack for visuals.
+    emaFast = _ar(emaFast, gated, 0.014, 0.1, dt);
+    emaSlow = _ar(emaSlow, gated, 0.12, 0.5, dt);
 
     // Band proxies from multi-rate differentials + spectrum (below)
     final dFast = (gated - prevGated).clamp(-1.0, 1.0);
@@ -344,10 +344,10 @@ void _analyzerMain(SendPort ready) {
 
     // Onset: rapid rise
     final spike = dFast.clamp(0.0, 1.0);
-    if (spike > 0.08 && gated > noiseFloor * 3) {
-      onsetEnv = math.max(onsetEnv, (spike * 2.2).clamp(0.0, 1.0));
+    if (spike > 0.045 && gated > noiseFloor * 2.2) {
+      onsetEnv = math.max(onsetEnv, (spike * 2.8).clamp(0.0, 1.0));
     } else {
-      onsetEnv = _ar(onsetEnv, 0, 0.05, 0.28, dt);
+      onsetEnv = _ar(onsetEnv, 0, 0.04, 0.22, dt);
     }
 
     // ZCR of AC component (noisiness / fricatives)
@@ -421,9 +421,9 @@ void _analyzerMain(SendPort ready) {
             0.92 * trebleE) /
         wSum;
 
-    // Perceptual lift — punchier for visualization.
+    // Perceptual lift — punchier mid dynamics for visualization follow.
     final perceptual = math
-        .pow(gated.clamp(0.0, 1.0), 0.5)
+        .pow(gated.clamp(0.0, 1.0), 0.58)
         .toDouble()
         .clamp(0.0, 1.0);
 

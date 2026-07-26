@@ -71,7 +71,9 @@ class _ResultScreenState extends State<ResultScreen> {
         (hint != null && hint.isNotEmpty) ? hint : '未命名声音';
     _seed = RecordingSession.visualSeed != 0
         ? RecordingSession.visualSeed
-        : DateTime.now().millisecondsSinceEpoch % 10000;
+        : SoundMemory.stableVisualSeed(
+            soundId: RecordingSession.pendingSoundId,
+          );
     _player.addListener(_onPlayerChanged);
     _resolveLocation();
     unawaited(_prepareVisualPackage());
@@ -124,6 +126,7 @@ class _ResultScreenState extends State<ResultScreen> {
           idxPath: paths.idxPath,
           manifestPath: paths.manifestPath,
           coverPath: paths.coverPath,
+          mp4Path: paths.mp4Path,
         );
       }
 
@@ -266,6 +269,7 @@ class _ResultScreenState extends State<ResultScreen> {
         visualIdxPath: RecordingSession.pendingIdxPath,
         visualManifestPath: RecordingSession.pendingManifestPath,
         coverPath: RecordingSession.pendingCoverPath,
+        visualMp4Path: RecordingSession.pendingMp4Path,
         visualBakeStatus: bakeStatus,
         visualBakeError: bakeStatus == VisualBakeStatus.failed
             ? RecordingSession.pendingBakeError

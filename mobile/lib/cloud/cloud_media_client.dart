@@ -86,16 +86,17 @@ class CloudMediaClient {
     return ContentList.fromJson(_jsonMap(res.body));
   }
 
-  /// Upload source audio, optionally attaching the local Indexed-MJPEG package.
+  /// Upload source audio only.
   ///
   /// Protocol:
   ///   POST /api/v1/contents
   ///   Authorization: Bearer <token>
-  ///   multipart/form-data — required field `audio`; optional visual package
-  ///   fields when [visual] is provided (see [CloudVisualPackage]).
+  ///   multipart/form-data — required field `audio`
   ///
-  /// If the server rejects unknown visual fields (HTTP 422), retries audio-only so
-  /// Press still works against older Cloud Media deployments.
+  /// Visualization is uploaded separately via [uploadVideo] as MP4.
+  /// Optional Indexed-MJPEG [visual] is kept for older Cloud Media deployments
+  /// that still accept package fields; new servers ignore / reject them (422 →
+  /// audio-only retry).
   Future<ContentCreated> uploadAudio({
     required String token,
     required File file,
@@ -138,6 +139,54 @@ class CloudMediaClient {
       }
       rethrow;
     }
+  }
+
+  /// Upload on-device visualization MP4 after audio content exists.
+  ///
+  /// Protocol:
+  ///   POST /api/v1/contents/{content_id}/video
+  ///   multipart field `video` (e.g. visualization.mp4)
+  /// Success typically returns `state=READY` + `video_sha256`.
+  Future<ContentVideoUploaded> uploadVideo({
+    required String token,
+    required String contentId,
+    required File file,
+    String filename = 'visualization.mp4',
+  }) async {
+    final length = await file.length();
+    if (length <= 0) {
+      throw CloudMediaException('可视化视频为空，无法上传');
+    }
+    if (length > 100 * 1024 * 1024) {
+      throw CloudMediaException('可视化视频超过 100 MiB 上限', statusCode: 413);
+    }
+
+    final uri = CloudMediaConfig.uri('/api/v1/contents/$contentId/video');
+    final req = http.MultipartRequest('POST', uri);
+    req.headers['Authorization'] = 'Bearer $token';
+    req.headers['Accept'] = 'application/json';
+    req.files.add(
+      await http.MultipartFile.fromPath(
+        'video',
+        file.path,
+        filename: filename,
+      ),
+    );
+
+    debugPrint(
+      '[CloudMedia] POST $uri multipart field=video '
+      'file=$filename bytes=$length',
+    );
+
+    final streamed = await _http.send(req).timeout(
+      const Duration(seconds: 180),
+      onTimeout: () =>
+          throw CloudMediaException('可视化视频上传超时（180s），请检查网络或服务状态'),
+    );
+    final res = await http.Response.fromStream(streamed);
+    debugPrint('[CloudMedia] video upload -> ${res.statusCode} body=${res.body}');
+    if (res.statusCode != 200 && res.statusCode != 201) throw _error(res);
+    return ContentVideoUploaded.fromJson(_jsonMap(res.body));
   }
 
   Future<ContentCreated> _postContent({

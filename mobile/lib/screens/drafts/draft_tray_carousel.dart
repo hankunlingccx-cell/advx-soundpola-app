@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -563,11 +564,12 @@ class _CircularPlayVisual extends StatelessWidget {
                     height: inner,
                     child: ColoredBox(
                       color: AppColors.glassDark,
-                      child: SoundVisualCanvas(
-                        seed: item.visualSeed,
-                        mode: playing
-                            ? SoundVisualMode.playback
-                            : SoundVisualMode.complete,
+                      child: KeyedSubtree(
+                        key: ValueKey('tray-viz-${item.id}'),
+                        child: _DraftVizFace(
+                          item: item,
+                          playing: playing,
+                        ),
                       ),
                     ),
                   ),
@@ -577,6 +579,39 @@ class _CircularPlayVisual extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _DraftVizFace extends StatelessWidget {
+  const _DraftVizFace({
+    required this.item,
+    required this.playing,
+  });
+
+  final SoundMemory item;
+  final bool playing;
+
+  @override
+  Widget build(BuildContext context) {
+    final cover = item.coverPath;
+    // Prefer baked cover so each sound shows its own visual, not a shared idle canvas.
+    if (cover != null &&
+        cover.isNotEmpty &&
+        File(cover).existsSync() &&
+        !playing) {
+      return Image.file(
+        File(cover),
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => SoundVisualCanvas(
+          seed: item.visualSeed,
+          mode: SoundVisualMode.complete,
+        ),
+      );
+    }
+    return SoundVisualCanvas(
+      seed: item.visualSeed,
+      mode: playing ? SoundVisualMode.playback : SoundVisualMode.complete,
     );
   }
 }

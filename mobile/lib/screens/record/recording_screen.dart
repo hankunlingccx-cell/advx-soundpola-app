@@ -81,8 +81,12 @@ class _RecordingScreenState extends State<RecordingScreen> {
       });
       _uiTimer?.cancel();
       _uiTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (!_paused && mounted) {
-          setState(() => _seconds = _recorder.elapsedSeconds());
+        if (!_paused && mounted && !_busy) {
+          final sec = _recorder.elapsedSeconds();
+          setState(() => _seconds = sec);
+          if (sec >= kMaxRecordingDurationSec) {
+            unawaited(_finish());
+          }
         }
       });
       // Level hint at ~2 Hz — does not drive visual; visual reads isolate features.

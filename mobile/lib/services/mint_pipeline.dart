@@ -4,6 +4,7 @@ import '../cloud/cloud_media_client.dart';
 import '../cloud/cloud_media_models.dart';
 import '../cloud/cloud_upload.dart';
 import '../data/sound_repository.dart';
+import '../visual/visual_bake_service.dart';
 import 'auth_service.dart';
 import 'chain_client.dart';
 import 'nfc_service.dart';
@@ -238,6 +239,17 @@ class MintPipeline extends ChangeNotifier {
         summary = await _cloud.retryContent(token: token, contentId: contentId);
       }
       if (summary.state == CloudContentState.ready) return summary;
+      final baked =
+          await VisualBakeService.instance.ensureReady(item.id) ?? item;
+      final video = await attachVisualVideoIfNeeded(
+        cloud: _cloud,
+        item: baked,
+        token: token,
+        contentId: contentId,
+      );
+      if (video != null && video.state == CloudContentState.ready) {
+        return _cloud.getContent(token: token, contentId: contentId);
+      }
       return _cloud.waitUntilReady(token: token, contentId: contentId);
     }
 

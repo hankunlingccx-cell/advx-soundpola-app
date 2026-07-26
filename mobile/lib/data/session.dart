@@ -21,6 +21,7 @@ class RecordingSession {
   static String? pendingIdxPath;
   static String? pendingManifestPath;
   static String? pendingCoverPath;
+  static String? pendingMp4Path;
 
   /// Set when bake fails before the draft is committed to the repository.
   static String? pendingBakeError;
@@ -68,6 +69,7 @@ class RecordingSession {
     required String idxPath,
     required String manifestPath,
     required String coverPath,
+    String? mp4Path,
   }) {
     pendingSoundId = soundId;
     pendingPackageDir = dirPath;
@@ -77,6 +79,7 @@ class RecordingSession {
     pendingIdxPath = idxPath;
     pendingManifestPath = manifestPath;
     pendingCoverPath = coverPath;
+    pendingMp4Path = mp4Path;
     pendingBakeError = null;
   }
 
@@ -89,6 +92,7 @@ class RecordingSession {
     pendingIdxPath = null;
     pendingManifestPath = null;
     pendingCoverPath = null;
+    pendingMp4Path = null;
     pendingBakeError = null;
   }
 

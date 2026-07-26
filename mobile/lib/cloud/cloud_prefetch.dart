@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../data/sound_repository.dart';
 import '../services/auth_service.dart';
 import '../visual/audio_feature_timeline.dart';
+import '../visual/visual_bake_service.dart';
 import 'cloud_media_client.dart';
 import 'cloud_media_config.dart';
 import 'cloud_media_models.dart';
@@ -13,7 +14,8 @@ import 'cloud_upload.dart';
 
 /// 录音可视化就绪后后台预上传云端，缩短 Press／NFC 写入等待。
 ///
-/// 只写入 `contentId`／`nfcUrl`／`cloudState`，不改变 Draft 的 `SoundStatus`
+/// 流程：音频 → `content_id`，再尽量上传本机 `visual.mp4`；只写入
+/// `contentId`／`nfcUrl`／`cloudState`，不改变 Draft 的 `SoundStatus`
 ///（避免误标为 writing／cloudReady 导致无法拖入写入机）。
 class CloudPrefetchService {
   CloudPrefetchService._();
@@ -43,7 +45,7 @@ class CloudPrefetchService {
         item.visualBakeStatus == VisualBakeStatus.indexing;
     if (baking) return false;
 
-    // 等可视化就绪再传（附带帧包）；bake 失败则仍可仅传音频。
+    // 等可视化 bake 就绪再传（便于附带 MP4）；bake 失败则仍可仅传音频。
     if (!item.hasIndexedVisual &&
         item.visualBakeStatus != VisualBakeStatus.failed &&
         item.visualBakeStatus != VisualBakeStatus.ready) {
@@ -123,6 +125,19 @@ class CloudPrefetchService {
         summary = await _cloud.retryContent(token: token, contentId: contentId);
       }
       if (summary.state == CloudContentState.ready) return summary;
+
+      final baked =
+          await VisualBakeService.instance.ensureReady(item.id) ?? item;
+      final video = await attachVisualVideoIfNeeded(
+        cloud: _cloud,
+        item: baked,
+        token: token,
+        contentId: contentId,
+      );
+      if (video != null && video.state == CloudContentState.ready) {
+        return _cloud.getContent(token: token, contentId: contentId);
+      }
+
       return _cloud.waitUntilReady(token: token, contentId: contentId);
     }
 

@@ -309,7 +309,7 @@ class AudioRecordingService {
     if (_paused && _pausedAt != null) {
       elapsed -= DateTime.now().difference(_pausedAt!);
     }
-    return elapsed.inSeconds;
+    return elapsed.inSeconds.clamp(0, kMaxRecordingDurationSec);
   }
 
   void dispose() {

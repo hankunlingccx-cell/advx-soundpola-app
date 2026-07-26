@@ -288,6 +288,7 @@ class _ShareCollectibleCard extends StatelessWidget {
                                   size: side,
                                   animateVisual: animateVisual,
                                   useDiscTexture: false,
+                                  showHolo: false,
                                 );
                               },
                             ),
@@ -720,12 +721,16 @@ class _DiscHero extends StatelessWidget {
     required this.size,
     required this.animateVisual,
     required this.useDiscTexture,
+    this.showHolo = true,
   });
 
   final SoundMemory item;
   final double size;
   final bool animateVisual;
   final bool useDiscTexture;
+
+  /// 分享卡中部：纯声音可视化（无镭射、无描边、无光晕叠色）。
+  final bool showHolo;
 
   RarityHoloStyle get _holo => RarityHoloStyle.of(item.discRarity);
   bool get _isSsr => item.discRarity == DiscRarity.ssr;
@@ -749,11 +754,12 @@ class _DiscHero extends StatelessWidget {
                   filterQuality: FilterQuality.high,
                   errorBuilder: (_, _, _) => const SizedBox.shrink(),
                 ),
-                RarityHoloOverlay(
-                  rarity: item.discRarity,
-                  intensityScale: 1.0,
-                  enabled: animateVisual,
-                ),
+                if (showHolo)
+                  RarityHoloOverlay(
+                    rarity: item.discRarity,
+                    intensityScale: 1.0,
+                    enabled: animateVisual,
+                  ),
               ],
             )
           : Stack(
@@ -767,14 +773,20 @@ class _DiscHero extends StatelessWidget {
                   active: animateVisual,
                   dark: true,
                 ),
-                RarityHoloOverlay(
-                  rarity: item.discRarity,
-                  intensityScale: 1.0,
-                  enabled: animateVisual,
-                ),
+                if (showHolo)
+                  RarityHoloOverlay(
+                    rarity: item.discRarity,
+                    intensityScale: 1.0,
+                    enabled: animateVisual,
+                  ),
               ],
             ),
     );
+
+    // 分享卡：纯圆形可视化，无描边、无光晕、无叠色。
+    if (!showHolo && !useDiscTexture) {
+      return SizedBox(width: size, height: size, child: core);
+    }
 
     return SizedBox(
       width: size,

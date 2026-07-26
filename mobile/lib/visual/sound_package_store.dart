@@ -11,6 +11,7 @@ import 'audio_feature_timeline.dart';
 ///   visual.mjpg
 ///   visual.idx
 ///   visual_manifest.json
+///   visual.mp4              (H.264 for cloud upload / preview)
 ///   audio_features.bin
 ///   cover.jpg
 /// ```
@@ -57,6 +58,9 @@ class SoundPackageStore {
 
   Future<File> coverFile(String soundId) async =>
       File(_join(await packageDir(soundId), 'cover.jpg'));
+
+  Future<File> mp4File(String soundId) async =>
+      File(_join(await packageDir(soundId), 'visual.mp4'));
 
   Future<String> packagePath(String soundId) async =>
       (await packageDir(soundId)).path;
@@ -114,6 +118,7 @@ class SoundPackageStore {
       idxPath: _join(dir, 'visual.idx'),
       manifestPath: _join(dir, 'visual_manifest.json'),
       coverPath: _join(dir, 'cover.jpg'),
+      mp4Path: _join(dir, 'visual.mp4'),
     );
   }
 
@@ -148,6 +153,7 @@ class SoundPackagePaths {
     required this.idxPath,
     required this.manifestPath,
     required this.coverPath,
+    this.mp4Path,
   });
 
   final String dirPath;
@@ -157,4 +163,5 @@ class SoundPackagePaths {
   final String idxPath;
   final String manifestPath;
   final String coverPath;
+  final String? mp4Path;
 }

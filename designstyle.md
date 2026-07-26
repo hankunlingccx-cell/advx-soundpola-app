@@ -201,17 +201,17 @@ Info
 
 空闲／完成／列表缩略：单帧静态（不跑 ticker）；录音／当前播放／暂停才连续动画。
 
-录音：音量（响度）达阈值后驱动样式连续变形（尖锐度、密度、珠径性格、波纹结构、流速、色相）；亮度／onset 作辅助；粒子半径随样式性格变，整体半径几乎固定，禁止单纯放大缩小或随音量胀成一团。按设备帧率分档降粒子数与目标 fps（约 24–48）。
+录音：音量（响度）快速驱动样式连续变形（尖锐度、密度、珠径性格、波纹结构、流速、色相）；中等响度即明显离开安静态，峰值进入响亮结构；亮度／onset／频谱局部调制作辅助；粒子半径随样式性格变，整体半径几乎固定，禁止单纯放大缩小或随音量胀成一团。按设备帧率分档降粒子数与目标 fps（约 24–48）。
 
 交互：拖动微调相位／折叠；双击复位；双指缩放 0.8–1.3（仅活动态）。
 
 3.4 音频驱动（与视觉分离）
 
-麦克风幅度流（主）→ Isolate：DC／RMS／自适应噪声底 → PixMusic 式快攻慢释峰值 AGC → soft gate → 多频段包络 → 128-bin 调制频谱 → flux／onset → `AudioFeatures`（分析约 30–50Hz；UI 通知约 25Hz）。CustomPainter 禁止直接处理原始 PCM／幅度。视觉用平滑后的 `volumeStyle`（由 energy 经 softstep 映射）在安静／中等／响亮状态 A／B／C 间连续插值（尖锐度、密度、珠径、波纹／结构偏移、流速、色相）；禁止硬切离散图案与整图 scale。
+麦克风幅度流（主）→ Isolate：DC／RMS／自适应噪声底 → PixMusic 式快攻慢释峰值 AGC → soft gate（低底噪地板，保留动态）→ 多频段包络 → 128-bin 调制频谱 → flux／onset → `AudioFeatures`（分析约 30–50Hz；UI 通知约 25Hz）。CustomPainter 禁止直接处理原始 PCM／幅度。视觉用快攻慢释的 `volumeStyle`（energy＋onset 经 softstep＋轻度 gamma）在安静／中等／响亮状态 A／B／C 间连续插值；A↔C 在波纹／折叠／流速／密度上拉大对比；频谱局部采样再乘以 live energy，使亮度跟随响度。禁止硬切离散图案与整图 scale。
 
 3.5 可视化留存（Indexed-MJPEG）
 
-实时活动态按画质档目标 fps；录音中保存 AudioDrive 时间序列，不在实时帧率下截屏。录音／导入结束进入结果页即离屏按 visualSeed＋特征确定性重绘（低粒子档、逐帧 yield；`rendererVersion=soundpola_kaleido_linear_v1`），输出 12～15fps 独立 JPEG 帧流（`visual.mjpg`）＋字节偏移索引（`visual.idx`）＋`visual_manifest.json`＋`cover.jpg`。播放以音频时间为轴按索引取帧（解码去重＋小 LRU，未就绪用 cover／静态 canvas）；算法升级不改写旧帧流。
+实时活动态按画质档目标 fps；录音中保存 AudioDrive 时间序列，不在实时帧率下截屏。录音／导入结束进入结果页即离屏按 visualSeed＋特征确定性重绘（低粒子档、逐帧 yield；`rendererVersion=soundpola_kaleido_linear_v2`），输出 12～15fps 独立 JPEG 帧流（`visual.mjpg`）＋字节偏移索引（`visual.idx`）＋`visual_manifest.json`＋`cover.jpg`；Android 再尽力编码同内容 H.264 `visual.mp4` 供云端 `POST .../video`。播放以音频时间为轴按索引取帧（解码去重＋小 LRU，未就绪用 cover／静态 canvas）；算法升级不改写旧帧流。
 
 4. 字体与排版
 

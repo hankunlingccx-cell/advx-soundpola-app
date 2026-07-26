@@ -3,15 +3,11 @@ import 'dart:io';
 import '../data/sound_repository.dart';
 import '../visual/audio_feature_timeline.dart';
 
-/// Optional Indexed-MJPEG package attached to Press / cloud upload.
+/// Optional Indexed-MJPEG package (legacy multipart fields on POST /contents).
 ///
-/// Multipart field names (alongside required `audio`):
-/// - `visual` → visual.mjpg
-/// - `visual_idx` → visual.idx
-/// - `visual_manifest` → visual_manifest.json
-/// - `cover` → cover.jpg
-/// - `audio_features` → audio_features.bin
-/// - form: `visual_seed`, `renderer_version`
+/// Current App upload path uses audio-only + `POST .../video` with MP4.
+/// This type remains for older Cloud Media deployments that still accept
+/// package fields via [CloudMediaClient.uploadAudio]'s optional `visual`.
 class CloudVisualPackage {
   const CloudVisualPackage({
     this.mjpg,

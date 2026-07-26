@@ -13,6 +13,7 @@ import '../widgets/sound_visual.dart';
 import 'audio_feature_timeline.dart';
 import 'sound_package_store.dart';
 import 'visual_manifest.dart';
+import 'visual_mp4_encoder.dart';
 
 /// Encodes RGBA → JPEG off the UI thread.
 Uint8List _encodeJpegIsolate(Map<String, dynamic> args) {
@@ -87,6 +88,7 @@ class VisualBakeService {
           visualMjpgPath: paths?.mjpgPath,
           visualIdxPath: paths?.idxPath,
           visualManifestPath: paths?.manifestPath,
+          visualMp4Path: paths?.mp4Path,
           audioFeaturesPath: paths?.featuresPath,
           audioPath: paths?.audioPath,
         ),
@@ -223,6 +225,25 @@ class VisualBakeService {
       );
       await manifest.save(await store.manifestFile(soundId));
 
+      // Best-effort H.264 for cloud video upload (local play still uses MJPEG).
+      String? mp4Path;
+      try {
+        mp4Path = await VisualMp4Encoder.instance.encodeFromPackage(
+          soundId: soundId,
+          mjpgPath: mjpgPath,
+          idxPath: (await store.idxFile(soundId)).path,
+          fps: fps.toDouble(),
+          width: size,
+          height: size,
+        );
+      } catch (e) {
+        debugPrint('VisualBakeService mp4 encode skipped: $e');
+      }
+      if (mp4Path != null &&
+          RecordingSession.pendingSoundId == soundId) {
+        RecordingSession.pendingMp4Path = mp4Path;
+      }
+
       final paths = SoundPackagePaths(
         dirPath: await store.packagePath(soundId),
         audioPath: (await store.audioFile(soundId)).path,
@@ -231,6 +252,7 @@ class VisualBakeService {
         idxPath: (await store.idxFile(soundId)).path,
         manifestPath: (await store.manifestFile(soundId)).path,
         coverPath: (await store.coverFile(soundId)).path,
+        mp4Path: mp4Path,
       );
 
       patchStatus(
@@ -261,8 +283,8 @@ class VisualBakeService {
 
   /// Wait until Indexed-MJPEG bake is [VisualBakeStatus.ready] (or give up).
   ///
-  /// Used by Press / cloud upload so the local frame sequence can be attached.
-  /// Returns the latest [SoundMemory] (may still be non-ready on timeout/fail).
+  /// Used by Press / cloud upload so MP4 (when available) can be uploaded after
+  /// audio. Returns the latest [SoundMemory] (may still be non-ready on timeout/fail).
   Future<SoundMemory?> ensureReady(
     String soundId, {
     Duration timeout = const Duration(seconds: 90),

@@ -16,6 +16,7 @@ import '../../services/chain_service.dart';
 import '../../services/nfc_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_dimens.dart';
+import '../../visual/visual_bake_service.dart';
 import '../../widgets/design_components.dart';
 import '../../widgets/empty_state_panel.dart';
 import '../../widgets/rarity_holo.dart';
@@ -1013,6 +1014,24 @@ class _PressProgressScreenState extends State<PressProgressScreen> {
         _phase = _phases[1];
         _progress = 0.25;
       });
+      final baked =
+          await VisualBakeService.instance.ensureReady(item.id) ?? item;
+      final video = await attachVisualVideoIfNeeded(
+        cloud: _cloud,
+        item: baked,
+        token: token,
+        contentId: contentId,
+        onStatus: (status) {
+          if (!mounted) return;
+          setState(() {
+            _phase = status;
+            _progress = 0.22;
+          });
+        },
+      );
+      if (video != null && video.state == CloudContentState.ready) {
+        return _cloud.getContent(token: token, contentId: contentId);
+      }
       return _cloud.waitUntilReady(
         token: token,
         contentId: contentId,

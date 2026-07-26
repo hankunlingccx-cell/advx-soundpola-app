@@ -874,6 +874,21 @@ class _DraftsScreenState extends State<DraftsScreen>
           _pressStatus = '云端处理中…';
         });
       }
+      final baked =
+          await VisualBakeService.instance.ensureReady(item.id) ?? item;
+      final video = await attachVisualVideoIfNeeded(
+        cloud: _cloud,
+        item: baked,
+        token: token,
+        contentId: contentId,
+        onStatus: (status) {
+          if (!mounted) return;
+          setState(() => _pressStatus = status);
+        },
+      );
+      if (video != null && video.state == CloudContentState.ready) {
+        return _cloud.getContent(token: token, contentId: contentId);
+      }
       return _cloud.waitUntilReady(
         token: token,
         contentId: contentId,

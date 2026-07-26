@@ -59,18 +59,39 @@ class SoundMemory {
     this.visualMjpgPath,
     this.visualIdxPath,
     this.visualManifestPath,
+    this.visualMp4Path,
     this.audioFeaturesPath,
     this.visualBakeStatus = VisualBakeStatus.none,
     this.visualBakeError,
     this.rendererVersion = kSoundVisualRendererVersion,
   })  : id = id ?? _newId(),
         recordedAt = recordedAt ?? DateTime.now(),
-        visualSeed = visualSeed ?? DateTime.now().millisecondsSinceEpoch % 10000;
+        visualSeed = visualSeed ??
+            stableVisualSeed(contentId: contentId, soundId: id);
 
   static final _rng = Random();
   static String _newId() =>
       DateTime.now().microsecondsSinceEpoch.toString() +
       _rng.nextInt(9999).toString().padLeft(4, '0');
+
+  /// Stable, unique seed for kaleido geometry (avoids same-ms collisions).
+  static int stableVisualSeed({String? contentId, String? soundId}) {
+    final key = (contentId != null && contentId.trim().isNotEmpty)
+        ? contentId.trim()
+        : (soundId?.trim() ?? '');
+    if (key.isEmpty) {
+      return (DateTime.now().microsecondsSinceEpoch ^ _rng.nextInt(0x3fffffff)) &
+          0x7fffffff;
+    }
+    // FNV-1a 32-bit — stable across app restarts (unlike String.hashCode).
+    var h = 2166136261;
+    for (final u in key.codeUnits) {
+      h ^= u;
+      h = (h * 16777619) & 0xffffffff;
+    }
+    final seed = h & 0x7fffffff;
+    return seed == 0 ? 1 : seed;
+  }
 
   final String id;
   final String title;
@@ -113,6 +134,8 @@ class SoundMemory {
   final String? visualMjpgPath;
   final String? visualIdxPath;
   final String? visualManifestPath;
+  /// H.264 MP4 for cloud `POST .../video` (Android bake); local play still uses MJPEG.
+  final String? visualMp4Path;
   final String? audioFeaturesPath;
   final VisualBakeStatus visualBakeStatus;
   final String? visualBakeError;
@@ -122,6 +145,11 @@ class SoundMemory {
       visualBakeStatus == VisualBakeStatus.ready &&
       visualMjpgPath != null &&
       visualIdxPath != null;
+
+  bool get hasVisualMp4 {
+    final p = visualMp4Path;
+    return p != null && p.isNotEmpty;
+  }
 
   /// 仅 Draft／未写入阶段为「待揭晓」；已写入／已收藏不得再显示待揭晓。
   bool get rarityPending =>
@@ -165,6 +193,7 @@ class SoundMemory {
     String? visualMjpgPath,
     String? visualIdxPath,
     String? visualManifestPath,
+    String? visualMp4Path,
     String? audioFeaturesPath,
     VisualBakeStatus? visualBakeStatus,
     String? visualBakeError,
@@ -206,6 +235,7 @@ class SoundMemory {
       visualMjpgPath: visualMjpgPath ?? this.visualMjpgPath,
       visualIdxPath: visualIdxPath ?? this.visualIdxPath,
       visualManifestPath: visualManifestPath ?? this.visualManifestPath,
+      visualMp4Path: visualMp4Path ?? this.visualMp4Path,
       audioFeaturesPath: audioFeaturesPath ?? this.audioFeaturesPath,
       visualBakeStatus: visualBakeStatus ?? this.visualBakeStatus,
       visualBakeError: clearVisualBakeError
@@ -855,7 +885,11 @@ class SoundRepository extends ChangeNotifier {
             locationLabel: prev?.locationLabel ?? '地点未记录',
             deviceLabel: prev?.deviceLabel ?? 'Mobile Device',
             status: SoundStatus.collected,
-            visualSeed: prev?.visualSeed,
+            visualSeed: prev?.visualSeed ??
+                SoundMemory.stableVisualSeed(
+                  contentId: item.contentId,
+                  soundId: prev?.id ?? 'cloud_${item.contentId}',
+                ),
             contentId: item.contentId,
             nfcUrl: item.nfcUrl ?? prev?.nfcUrl,
             cloudState: item.state.wire,
@@ -872,6 +906,7 @@ class SoundRepository extends ChangeNotifier {
             visualMjpgPath: prev?.visualMjpgPath,
             visualIdxPath: prev?.visualIdxPath,
             visualManifestPath: prev?.visualManifestPath,
+            visualMp4Path: prev?.visualMp4Path,
             audioFeaturesPath: prev?.audioFeaturesPath,
             visualBakeStatus: prev?.visualBakeStatus ?? VisualBakeStatus.none,
             chainedAt: prev?.chainedAt ??
@@ -909,7 +944,27 @@ class SoundRepository extends ChangeNotifier {
         }));
       }
     }
+    _repairDuplicateVisualSeeds();
     notifyListeners();
+  }
+
+  /// Fix seeds that collided when many cloud items were created in the same ms.
+  void _repairDuplicateVisualSeeds() {
+    final firstOwner = <int, String>{};
+    for (final s in List<SoundMemory>.from(_sounds)) {
+      final owner = firstOwner[s.visualSeed];
+      if (owner == null) {
+        firstOwner[s.visualSeed] = s.id;
+        continue;
+      }
+      if (owner == s.id) continue;
+      final next = SoundMemory.stableVisualSeed(
+        contentId: s.contentId,
+        soundId: s.id,
+      );
+      if (next == s.visualSeed) continue;
+      update(s.id, (c) => c.copyWith(visualSeed: next));
+    }
   }
 }
 

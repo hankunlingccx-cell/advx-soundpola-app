@@ -5,7 +5,7 @@ import '../audio/audio_features.dart';
 
 /// Deterministic renderer version — bump when bake algorithm changes.
 /// Old packages keep their stored frames and this string for provenance.
-const kSoundVisualRendererVersion = 'soundpola_kaleido_linear_v1';
+const kSoundVisualRendererVersion = 'soundpola_kaleido_linear_v2';
 
 /// Default bake settings (Collection / Memory playback).
 const kVisualBakeFps = 12;
@@ -15,8 +15,8 @@ const kVisualBakeHighFps = 15;
 const kVisualBakeHighSize = 720;
 const kVisualBakeHighJpegQuality = 85;
 
-/// Soft cap for MJPEG storage (seconds).
-const kMaxRecordingDurationSec = 90;
+/// Soft cap for recording / import / MJPEG bake budget (seconds).
+const kMaxRecordingDurationSec = 30;
 
 enum VisualBakeStatus {
   /// No package / legacy entry without bake.
