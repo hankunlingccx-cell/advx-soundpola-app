@@ -13,10 +13,17 @@ import '../../widgets/sound_visual.dart';
 
 /// 用户只需点选声音，一键生成并试听；无需手动编辑节拍 / 拖拽摆位。
 class SoundLabScreen extends StatefulWidget {
-  const SoundLabScreen({super.key, this.embeddedInShell = false});
+  const SoundLabScreen({
+    super.key,
+    this.embeddedInShell = false,
+    this.isActive = true,
+  });
 
   /// 作为底部导航第四 Tab 嵌入时为 true（无返回键，右上角进 Account）。
   final bool embeddedInShell;
+
+  /// IndexedStack 常驻时：切到 Lab Tab 为 true，触发云端同步刷新。
+  final bool isActive;
 
   @override
   State<SoundLabScreen> createState() => _SoundLabScreenState();
@@ -29,6 +36,14 @@ class _SoundLabScreenState extends State<SoundLabScreen> {
   void initState() {
     super.initState();
     _c = LabController();
+  }
+
+  @override
+  void didUpdateWidget(covariant SoundLabScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _c.refreshSources();
+    }
   }
 
   @override

@@ -1145,7 +1145,7 @@ App
 
 **用户流程**：点选 1–4 段声音 →「生成阿卡贝拉并试听」→ 截取各段最高音量有效声段（`HotClip`）→ **随机发明节拍型**（如「咚咚打咚咚-」）→ 把声段填进拍点并偶发叠唱试听。
 
-**音源**：当前会话录音、Drafts、Collection。打开 Lab 或点刷新时：若已登录则先 `listContents` 同步云端收藏；条目缺少本机 `audioPath` 时按 `contentId` 下载云端播放资产（`GET /api/v1/contents/{id}/assets/audio`）缓存到本机后再进入可选列表。无本地文件且无 `contentId`／未登录则不可选。云端条目的 `visualSeed` 由 `contentId` 稳定派生，避免批量同步时撞成同一图案；Drafts 列表缩略优先显示 bake 后的 `cover.jpg`。
+**音源**：当前会话录音、Drafts、Collection。切到 Lab Tab、打开 Lab 或点刷新时：若已登录则先 `listContents` 同步云端收藏；条目缺少本机 `audioPath` 时按 `contentId` 下载云端播放资产（`GET /api/v1/contents/{id}/assets/audio`）缓存到本机后再进入可选列表。Drafts／Collection 本地变更（如保存新录音）会立即重建可选列表（IndexedStack 常驻不丢刷新）。无本地文件且无 `contentId`／未登录则不可选。云端条目的 `visualSeed` 由 `contentId` 稳定派生，避免批量同步时撞成同一图案；Drafts 列表缩略优先显示 bake 后的 `cover.jpg`。
 
 **节拍**：暂不走 AI；由程序 `RhythmPattern.invent` 按 seed 随机发明（咚≈重击、打≈轻击、-=休止）。每次生成不同。AI 接入点仍保留在 `beat_ai_api_config.dart`，网关当前为 `LocalBeatGenerationApi`。
 

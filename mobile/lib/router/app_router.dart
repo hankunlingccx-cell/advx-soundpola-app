@@ -427,7 +427,10 @@ class _MainShellState extends State<MainShell> {
             onOpenDrafts: () => setState(() => _tab = 1),
             onLogin: () => context.push(AppRoutes.login),
           ),
-          const SoundLabScreen(embeddedInShell: true),
+          SoundLabScreen(
+            embeddedInShell: true,
+            isActive: _tab == 3,
+          ),
         ],
       ),
       bottomNavigationBar: BottomNavBar(
