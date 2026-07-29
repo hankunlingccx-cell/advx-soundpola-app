@@ -123,6 +123,20 @@ class CloudMediaClient {
     return ContentSummary.fromJson(_jsonMap(res.body));
   }
 
+  Future<ContentSummary> patchContent({
+    required String token,
+    required String contentId,
+    required String displayLabel,
+  }) async {
+    final res = await _http.patch(
+      CloudMediaConfig.uri('/api/v1/contents/$contentId'),
+      headers: {..._authHeaders(token), 'Content-Type': 'application/json'},
+      body: jsonEncode({'display_label': displayLabel}),
+    );
+    if (res.statusCode != 200) throw _error(res);
+    return ContentSummary.fromJson(_jsonMap(res.body));
+  }
+
   Future<void> deleteContent({
     required String token,
     required String contentId,

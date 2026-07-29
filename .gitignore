@@ -17,3 +17,5 @@ mobile/**/GeneratedPluginRegistrant.java
 **/.gradle/
 # Local GRADLE_USER_HOME used for China-mirror / init-script workarounds
 mobile/.gradle-home/
+mobile/android/build/
+_device_screen*.png

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import '../../data/sound_repository.dart';
+import '../../cloud/cloud_media_client.dart';
 import '../../services/audio_playback_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/mint_pipeline.dart';
@@ -382,6 +383,29 @@ class _DraftDetailScreenState extends State<DraftDetailScreen> {
       ),
     );
     setState(() => _editing = false);
+    unawaited(_syncLabelToCloud(title));
+  }
+
+  Future<void> _syncLabelToCloud(String title) async {
+    final item = SoundRepository.instance.get(widget.id);
+    final contentId = item?.contentId;
+    final token = AuthService.instance.cloudToken;
+    if (contentId == null || contentId.isEmpty || token == null || token.isEmpty) {
+      return;
+    }
+    try {
+      await CloudMediaClient().patchContent(
+        token: token,
+        contentId: contentId,
+        displayLabel: title,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('云端名称同步失败：$e')),
+        );
+      }
+    }
   }
 
   Future<void> _confirmDelete() async {
